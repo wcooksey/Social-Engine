@@ -323,6 +323,29 @@
   padding: $spacing-md $spacing-xs 0;
 }
 
+.listening-hint {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  padding: 0 $spacing-md $spacing-xs;
+  color: $error-red;
+  font-size: $font-size-xs;
+  font-weight: 500;
+}
+
+.listening-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: $error-red;
+  animation: listening-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes listening-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.3); }
+}
+
 .input-shell {
   display: flex;
   align-items: flex-end;
@@ -378,4 +401,52 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
+}
+
+// ---- Mic / TTS icon buttons ----
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  @include flex-center;
+  flex-shrink: 0;
+  font-size: $font-size-lg;
+  transition: all $transition-fast;
+
+  &:hover:not(:disabled) {
+    color: $primary-blue;
+    border-color: var(--border-secondary);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.mic-btn--active {
+  color: white;
+  background: $error-red;
+  border-color: $error-red;
+  animation: mic-pulse 1.4s ease-in-out infinite;
+
+  &:hover:not(:disabled) {
+    color: white;
+    border-color: $error-red;
+  }
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba($error-red, 0.45); }
+  50% { box-shadow: 0 0 0 6px rgba($error-red, 0); }
+}
+
+.tts-btn--active {
+  color: $primary-blue;
+  background: rgba($primary-blue, 0.14);
+  border-color: rgba($primary-blue, 0.3);
 }

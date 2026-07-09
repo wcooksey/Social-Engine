@@ -1,9 +1,10 @@
-import { Component, ElementRef, OnInit, ViewChild, computed, signal } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { EngineService } from '../../core/services/engine.service';
 import { EngineChatSummary, EngineMessage, EngineToolEvent } from '../../core/models/engine.model';
 import { ToastService } from '../../core/services/toast.service';
+import { VoiceService } from '../../core/services/voice.service';
 import { ModelPickerComponent } from './model-picker/model-picker.component';
 
 @Component({
@@ -13,7 +14,7 @@ import { ModelPickerComponent } from './model-picker/model-picker.component';
   templateUrl: './engine.component.html',
   styleUrl: './engine.component.scss'
 })
-export class EngineComponent implements OnInit {
+export class EngineComponent implements OnInit, OnDestroy {
   chats = signal<EngineChatSummary[]>([]);
   activeChatId = signal<string | null>(null);
   messages = signal<EngineMessage[]>([]);
@@ -22,6 +23,12 @@ export class EngineComponent implements OnInit {
   sending = signal(false);
 
   draft = '';
+
+  /** Snapshot of the draft text captured when the mic was last (re)started. */
+  private voiceBaseDraft = '';
+
+  readonly micSupported: boolean;
+  readonly ttsSupported: boolean;
 
   examplePrompts = [
     'Build a list of every automotive dealership in Florida',
@@ -39,10 +46,18 @@ export class EngineComponent implements OnInit {
     return this.chats().find(c => c.id === id)?.title || 'New conversation';
   });
 
-  constructor(private engineService: EngineService, private toast: ToastService) {}
+  constructor(private engineService: EngineService, private toast: ToastService, protected voiceService: VoiceService) {
+    this.micSupported = this.voiceService.isSupported();
+    this.ttsSupported = this.voiceService.isSpeechSynthesisSupported();
+  }
 
   ngOnInit(): void {
     this.loadChats();
+  }
+
+  ngOnDestroy(): void {
+    this.voiceService.stopListening();
+    this.voiceService.cancelSpeech();
   }
 
   loadChats(): void {
@@ -90,6 +105,50 @@ export class EngineComponent implements OnInit {
     }
   }
 
+  toggleMic(): void {
+    if (!this.micSupported) {
+      this.toast.warning('Voice input not supported in this browser');
+      return;
+    }
+
+    if (this.voiceService.listening()) {
+      this.voiceService.stopListening();
+      return;
+    }
+
+    this.voiceBaseDraft = this.draft;
+    this.voiceService.startListening(
+      (interimText) => {
+        this.draft = this.appendTranscript(this.voiceBaseDraft, interimText);
+      },
+      (finalText) => {
+        this.voiceBaseDraft = this.appendTranscript(this.voiceBaseDraft, finalText);
+        this.draft = this.voiceBaseDraft;
+      },
+      () => {
+        this.textareaRef?.nativeElement.focus();
+      }
+    );
+  }
+
+  toggleTts(): void {
+    if (!this.ttsSupported) {
+      this.toast.warning('Spoken replies are not supported in this browser');
+      return;
+    }
+    this.voiceService.toggleTts();
+    if (!this.voiceService.ttsEnabled()) {
+      this.voiceService.cancelSpeech();
+    }
+  }
+
+  private appendTranscript(base: string, segment: string): string {
+    const trimmedSegment = segment.trim();
+    if (!trimmedSegment) return base;
+    if (!base) return trimmedSegment;
+    return base.endsWith(' ') ? `${base}${trimmedSegment}` : `${base} ${trimmedSegment}`;
+  }
+
   send(): void {
     const content = this.draft.trim();
     if (!content || this.sending()) return;
@@ -132,6 +191,8 @@ export class EngineComponent implements OnInit {
 
     this.engineService.sendMessage(chatId, content).subscribe({
       next: (event) => {
+        let finishedAssistantText: string | null = null;
+
         this.messages.update(list => {
           const idx = list.findIndex(m => m.id === assistantMessage.id);
           if (idx === -1) return list;
@@ -172,6 +233,7 @@ export class EngineComponent implements OnInit {
               msg.streaming = false;
               msg.agentRunId = event.runId;
               msg.id = event.messageId;
+              finishedAssistantText = msg.content;
               break;
             case 'error':
               msg.streaming = false;
@@ -184,6 +246,10 @@ export class EngineComponent implements OnInit {
           return next;
         });
         this.scrollToBottom();
+
+        if (finishedAssistantText && this.voiceService.ttsEnabled()) {
+          this.voiceService.speak(finishedAssistantText);
+        }
       },
       error: () => {
         this.sending.set(false);
