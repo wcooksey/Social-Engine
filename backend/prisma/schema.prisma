@@ -49,6 +49,7 @@ model Organization {
   calendarEvents CalendarEvent[]
   playbooks    Playbook[]
   socialAccounts SocialAccount[]
+  experiments  Experiment[]
 }
 
 model User {
@@ -321,7 +322,65 @@ model Message {
   sentAt         DateTime?
   createdAt      DateTime         @default(now())
 
+  // Split-test attribution: which variant this outbound message used, and
+  // whether a reply to it has been counted (so responses can't be double-counted).
+  experimentVariantId String?
+  experimentVariant   ExperimentVariant? @relation(fields: [experimentVariantId], references: [id], onDelete: SetNull)
+  gotResponse         Boolean            @default(false)
+
   @@index([conversationId, createdAt])
+  @@index([experimentVariantId])
+}
+
+// ============================================
+// SPLIT TESTING (experiments)
+// ============================================
+
+enum ExperimentStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+model Experiment {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name    String
+  channel Channel          // which channel this experiment tests
+  goal    String?          // what a "response" means / what we're optimizing for
+  status  ExperimentStatus @default(ACTIVE)
+  groupId    String?
+  campaignId String?
+  winnerVariantId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  variants ExperimentVariant[]
+
+  @@index([organizationId, status])
+}
+
+model ExperimentVariant {
+  id           String     @id @default(uuid())
+  experimentId String
+  experiment   Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  label   String
+  content String  // the message template / approach the AI uses for this variant
+  weight  Int     @default(1)
+
+  sends             Int @default(0)
+  responses         Int @default(0)
+  positiveResponses Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  messages Message[]
+
+  @@index([experimentId])
 }
 
 // ============================================

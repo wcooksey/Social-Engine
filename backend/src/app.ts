@@ -14,6 +14,8 @@ import calendarRoutes from './routes/calendar.routes';
 import campaignsRoutes from './routes/campaigns.routes';
 import contactsRoutes from './routes/contacts.routes';
 import conversationsRoutes from './routes/conversations.routes';
+import experimentsRoutes from './routes/experiments.routes';
+import inboundWebhookRoutes from './routes/webhooks.inbound.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import engineRoutes from './routes/engine.routes';
 import leadGroupsRoutes from './routes/lead-groups.routes';
@@ -35,6 +37,8 @@ app.use(
   })
 );
 app.use(express.json({ limit: '2mb' }));
+// Inbound provider webhooks (Mailgun, Twilio) post form-encoded bodies.
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(morgan(config.isProduction ? 'combined' : 'dev'));
 
 const authRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 50 });
@@ -56,10 +60,12 @@ app.use('/api/organizations', apiRateLimit, authMiddleware, organizationsRoutes)
 app.use('/api/models', apiRateLimit, authMiddleware, modelsRoutes);
 app.use('/api/playbooks', apiRateLimit, authMiddleware, playbooksRoutes);
 app.use('/api/social-accounts', apiRateLimit, authMiddleware, socialAccountsRoutes);
+app.use('/api/experiments', apiRateLimit, authMiddleware, experimentsRoutes);
 
 // Webhooks: no auth middleware; validated inside handlers
 const webhookRateLimit = rateLimit({ windowMs: 60 * 1000, max: 600 });
 app.use('/api/webhooks/vapi', webhookRateLimit, vapiWebhookRoutes);
+app.use('/api/webhooks/inbound', webhookRateLimit, inboundWebhookRoutes);
 
 // Serve the built Angular frontend (single-service deployment, Railway-style)
 const frontendDistPath = path.join(__dirname, '../../frontend/dist/social-engine-frontend/browser');

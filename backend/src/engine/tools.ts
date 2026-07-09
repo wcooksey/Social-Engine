@@ -6,6 +6,17 @@ import * as channels from '../services/channels.service';
 import { leadService } from '../services/lead.service';
 import { getVoicePlaybookText } from '../services/playbook.service';
 import {
+  appendToPlaybook,
+  PlaybookEditError,
+  strReplaceInPlaybook,
+} from '../services/playbook-edit.service';
+import {
+  getExperimentResults,
+  pickVariant,
+  recordSend,
+  summarizeVariant,
+} from '../services/experiment.service';
+import {
   loadStorageState,
   PlatformKey,
   saveStorageState,
@@ -218,6 +229,7 @@ export const engineTools: Anthropic.Tool[] = [
         subject: { type: 'string' },
         body: { type: 'string' },
         campaignId: { type: 'string' },
+        experimentVariantId: { type: 'string', description: 'If this send is part of a split test, the variant id from pick_experiment_variant' },
       },
       required: ['leadId', 'subject', 'body'],
     },
@@ -233,6 +245,7 @@ export const engineTools: Anthropic.Tool[] = [
         contactId: { type: 'string' },
         body: { type: 'string' },
         campaignId: { type: 'string' },
+        experimentVariantId: { type: 'string', description: 'If this send is part of a split test, the variant id from pick_experiment_variant' },
       },
       required: ['leadId', 'body'],
     },
@@ -367,6 +380,122 @@ export const engineTools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'list_playbooks',
+    description:
+      'List the org\'s playbooks (your editable instructions/protocols) with their full current text, so you can edit them precisely. Use before editing to copy exact snippets.',
+    input_schema: { type: 'object' as const, properties: {} },
+  },
+  {
+    name: 'edit_playbook_text',
+    description:
+      'Surgically edit a playbook: replace an exact snippet with new text, leaving the rest untouched — like editing specific lines of code, no full rewrite. The find text must match exactly once. Use this to tweak calling instructions, outreach rules, etc. when the user asks.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        playbookId: { type: 'string' },
+        find: { type: 'string', description: 'Exact text to replace (copy verbatim from list_playbooks; include enough context to be unique)' },
+        replace: { type: 'string', description: 'New text to put in its place' },
+      },
+      required: ['playbookId', 'find', 'replace'],
+    },
+  },
+  {
+    name: 'append_playbook',
+    description: 'Add a new line/paragraph to the end of a playbook without touching existing text.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        playbookId: { type: 'string' },
+        text: { type: 'string' },
+      },
+      required: ['playbookId', 'text'],
+    },
+  },
+  {
+    name: 'create_playbook',
+    description:
+      'Create a new playbook (protocol) the team/you will follow. Scope it to everything, a group, a campaign, or a lead status, and optionally a channel (VOICE = call script).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string' },
+        instructions: { type: 'string' },
+        scope: { type: 'string', enum: ['GLOBAL', 'GROUP', 'CAMPAIGN', 'LEAD_STATUS'] },
+        groupName: { type: 'string' },
+        campaignId: { type: 'string' },
+        leadStatus: {
+          type: 'string',
+          enum: ['NEW', 'RESEARCHING', 'CONTACTED', 'ENGAGED', 'INTERESTED', 'NOT_INTERESTED', 'CUSTOMER', 'ARCHIVED'],
+        },
+        channel: { type: 'string', enum: ['ALL', 'EMAIL', 'SMS', 'VOICE', 'SOCIAL'] },
+      },
+      required: ['name', 'instructions'],
+    },
+  },
+  {
+    name: 'set_playbook_active',
+    description: 'Turn a playbook on or off.',
+    input_schema: {
+      type: 'object' as const,
+      properties: { playbookId: { type: 'string' }, isActive: { type: 'boolean' } },
+      required: ['playbookId', 'isActive'],
+    },
+  },
+  {
+    name: 'create_experiment',
+    description:
+      'Start a split test (A/B/n) of outreach message variants on a channel, so you can learn which performs best. Each variant is a message/approach; the platform tracks sends and replies per variant.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string' },
+        channel: { type: 'string', enum: ['EMAIL', 'SMS', 'VOICE', 'SOCIAL'] },
+        goal: { type: 'string', description: 'What a "response" means / what you\'re optimizing for' },
+        variants: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string' },
+              content: { type: 'string', description: 'The message template or approach for this variant' },
+              weight: { type: 'number' },
+            },
+            required: ['label', 'content'],
+          },
+        },
+        campaignId: { type: 'string' },
+      },
+      required: ['name', 'channel', 'variants'],
+    },
+  },
+  {
+    name: 'list_experiments',
+    description: 'List experiments with per-variant results (sends, responses, response rate) so you can see what is working.',
+    input_schema: { type: 'object' as const, properties: {} },
+  },
+  {
+    name: 'pick_experiment_variant',
+    description:
+      'Before sending an experiment message to a lead, call this to get which variant to use next (it balances exploring new variants and exploiting the best one). Then send the message using that variant\'s content, passing experimentVariantId to the send tool so the result is tracked.',
+    input_schema: {
+      type: 'object' as const,
+      properties: { experimentId: { type: 'string' } },
+      required: ['experimentId'],
+    },
+  },
+  {
+    name: 'conclude_experiment',
+    description: 'Mark an experiment complete, optionally recording the winning variant. Use once results are clear.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        experimentId: { type: 'string' },
+        winnerVariantId: { type: 'string' },
+      },
+      required: ['experimentId'],
+    },
+  },
+  {
     name: 'update_group_summary',
     description:
       'Update the rolling AI summary on a lead group — your long-term memory of progress, findings, and next steps for that group.',
@@ -453,6 +582,7 @@ async function recordOutbound(opts: {
   status: string;
   activityType: 'EMAIL_SENT' | 'SMS_SENT';
   activitySummary: string;
+  experimentVariantId?: string;
 }) {
   const conversation =
     (await prisma.conversation.findFirst({
@@ -475,8 +605,13 @@ async function recordOutbound(opts: {
       body: opts.body,
       status: opts.status,
       sentAt: opts.status === 'sent' ? new Date() : null,
+      // Only attribute the split-test variant if the message actually went out.
+      experimentVariantId: opts.status === 'sent' ? opts.experimentVariantId : undefined,
     },
   });
+  if (opts.status === 'sent' && opts.experimentVariantId) {
+    await recordSend(opts.experimentVariantId);
+  }
   await prisma.conversation.update({
     where: { id: conversation.id },
     data: { lastMessageAt: new Date() },
@@ -727,6 +862,7 @@ const executors: Record<string, ToolExecutor> = {
       status: 'sent',
       activityType: 'EMAIL_SENT',
       activitySummary: `Email sent to ${contact.email}: "${input.subject}"`,
+      experimentVariantId: input.experimentVariantId,
     });
     return { sent: true, to: contact.email, externalId: delivery.externalId, ...result };
   },
@@ -776,6 +912,7 @@ const executors: Record<string, ToolExecutor> = {
       status: 'sent',
       activityType: 'SMS_SENT',
       activitySummary: `SMS sent to ${contact.phone}`,
+      experimentVariantId: input.experimentVariantId,
     });
     return { sent: true, to: contact.phone, externalId: delivery.externalId, ...result };
   },
@@ -1148,6 +1285,148 @@ const executors: Record<string, ToolExecutor> = {
       });
     }
     return { eventId: event.id, status: event.status, startAt: event.startAt.toISOString() };
+  },
+
+  list_playbooks: async (_input, ctx) => {
+    const playbooks = await prisma.playbook.findMany({
+      where: { organizationId: ctx.organizationId },
+      orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+    });
+    return {
+      playbooks: playbooks.map((p) => ({
+        id: p.id,
+        name: p.name,
+        scope: p.scope,
+        channel: p.channel,
+        isActive: p.isActive,
+        instructions: p.instructions,
+      })),
+    };
+  },
+
+  edit_playbook_text: async (input, ctx) => {
+    try {
+      const { after } = await strReplaceInPlaybook(
+        ctx.organizationId,
+        input.playbookId,
+        input.find,
+        input.replace
+      );
+      return { ok: true, updatedInstructions: after };
+    } catch (err) {
+      if (err instanceof PlaybookEditError) return { ok: false, error: err.message };
+      throw err;
+    }
+  },
+
+  append_playbook: async (input, ctx) => {
+    try {
+      const updated = await appendToPlaybook(ctx.organizationId, input.playbookId, input.text);
+      return { ok: true, updatedInstructions: updated };
+    } catch (err) {
+      if (err instanceof PlaybookEditError) return { ok: false, error: err.message };
+      throw err;
+    }
+  },
+
+  create_playbook: async (input, ctx) => {
+    let groupId: string | undefined;
+    if (input.scope === 'GROUP' && input.groupName) {
+      const group = await prisma.leadGroup.upsert({
+        where: { organizationId_name: { organizationId: ctx.organizationId, name: input.groupName } },
+        create: { organizationId: ctx.organizationId, name: input.groupName },
+        update: {},
+      });
+      groupId = group.id;
+    }
+    const playbook = await prisma.playbook.create({
+      data: {
+        organizationId: ctx.organizationId,
+        name: input.name,
+        instructions: input.instructions,
+        scope: input.scope || 'GLOBAL',
+        groupId,
+        campaignId: input.scope === 'CAMPAIGN' ? input.campaignId : undefined,
+        leadStatus: input.scope === 'LEAD_STATUS' ? (input.leadStatus as never) : undefined,
+        channel: input.channel || 'ALL',
+      },
+    });
+    return { playbookId: playbook.id, name: playbook.name };
+  },
+
+  set_playbook_active: async (input, ctx) => {
+    const existing = await prisma.playbook.findFirst({
+      where: { id: input.playbookId, organizationId: ctx.organizationId },
+    });
+    if (!existing) throw new Error('Playbook not found');
+    await prisma.playbook.update({
+      where: { id: existing.id },
+      data: { isActive: !!input.isActive },
+    });
+    return { ok: true, isActive: !!input.isActive };
+  },
+
+  create_experiment: async (input, ctx) => {
+    const experiment = await prisma.experiment.create({
+      data: {
+        organizationId: ctx.organizationId,
+        name: input.name,
+        channel: input.channel,
+        goal: input.goal,
+        campaignId: input.campaignId,
+        variants: {
+          create: (input.variants as { label: string; content: string; weight?: number }[]).map(
+            (v) => ({ label: v.label, content: v.content, weight: v.weight ?? 1 })
+          ),
+        },
+      },
+      include: { variants: true },
+    });
+    return {
+      experimentId: experiment.id,
+      variants: experiment.variants.map((v) => ({ id: v.id, label: v.label })),
+    };
+  },
+
+  list_experiments: async (_input, ctx) => {
+    const experiments = await prisma.experiment.findMany({
+      where: { organizationId: ctx.organizationId },
+      include: { variants: { orderBy: { createdAt: 'asc' } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return {
+      experiments: experiments.map((e) => ({
+        id: e.id,
+        name: e.name,
+        channel: e.channel,
+        status: e.status,
+        goal: e.goal,
+        variants: e.variants.map(summarizeVariant),
+      })),
+    };
+  },
+
+  pick_experiment_variant: async (input, ctx) => {
+    const picked = await pickVariant(input.experimentId, ctx.organizationId);
+    if (!picked) return { error: 'Experiment not found or not active' };
+    return {
+      experimentVariantId: picked.variant.id,
+      label: picked.variant.label,
+      content: picked.variant.content,
+    };
+  },
+
+  conclude_experiment: async (input, ctx) => {
+    const experiment = await prisma.experiment.findFirst({
+      where: { id: input.experimentId, organizationId: ctx.organizationId },
+    });
+    if (!experiment) throw new Error('Experiment not found');
+    await prisma.experiment.update({
+      where: { id: experiment.id },
+      data: { status: 'COMPLETED', winnerVariantId: input.winnerVariantId || null },
+    });
+    const results = await getExperimentResults(experiment.id, ctx.organizationId);
+    return { ok: true, results };
   },
 
   update_group_summary: async (input, ctx) => {

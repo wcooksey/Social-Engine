@@ -49,6 +49,11 @@ export const config = {
     maxSteps: parseInt(process.env.BROWSER_AGENT_MAX_STEPS || '18', 10),
   },
 
+  inbound: {
+    // Shared secret for inbound reply webhooks (email/SMS/social bridges)
+    webhookSecret: process.env.INBOUND_WEBHOOK_SECRET || '',
+  },
+
   vapi: {
     apiKey: process.env.VAPI_API_KEY || '',
     phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID || '',
