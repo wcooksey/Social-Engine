@@ -1,5 +1,7 @@
 import { prisma } from '../config/database';
 import { config } from '../config/environment';
+import { isEmailConfigured, isSmsConfigured, isVoiceConfigured } from '../services/channels.service';
+import { formatPlaybooksForPrompt, getActivePlaybooks } from '../services/playbook.service';
 import { buildEngineSystemPrompt } from './prompts';
 import { LlmMessage, LlmToolDefinition, llmService } from './llm/llm.service';
 import { engineTools, executeTool, ToolContext } from './tools';
@@ -94,10 +96,17 @@ class EngineService {
       ),
       { role: 'user', content: options.objective },
     ];
+    const playbooks = await getActivePlaybooks(options.organizationId);
     const system = buildEngineSystemPrompt({
       organizationName: organization.name,
       userName: user ? `${user.firstName} ${user.lastName}`.trim() : undefined,
       trigger: options.trigger,
+      playbooksText: formatPlaybooksForPrompt(playbooks),
+      channels: {
+        email: isEmailConfigured(),
+        sms: isSmsConfigured(),
+        voice: isVoiceConfigured(),
+      },
     });
 
     let finalText = '';

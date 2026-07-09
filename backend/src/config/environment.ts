@@ -38,6 +38,15 @@ export const config = {
     authToken: process.env.TWILIO_AUTH_TOKEN || '',
     fromNumber: process.env.TWILIO_FROM_NUMBER || '',
   },
+
+  vapi: {
+    apiKey: process.env.VAPI_API_KEY || '',
+    phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID || '',
+    webhookSecret: process.env.VAPI_WEBHOOK_SECRET || '',
+    assistantModel: process.env.VAPI_ASSISTANT_MODEL || 'gpt-4o',
+    voiceProvider: process.env.VAPI_VOICE_PROVIDER || '11labs',
+    voiceId: process.env.VAPI_VOICE_ID || 'burt',
+  },
 };
 
 export function assertSecurityConfig(): void {

@@ -1,7 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
+import * as channels from '../services/channels.service';
 import { leadService } from '../services/lead.service';
+import { getVoicePlaybookText } from '../services/playbook.service';
+import { buildCallSystemPrompt } from './prompts';
 import { researchService } from './research.service';
 
 export interface ToolContext {
@@ -229,7 +232,7 @@ export const engineTools: Anthropic.Tool[] = [
   {
     name: 'place_call',
     description:
-      'Queue an AI voice call to a lead contact with a call objective. (Voice channel is phase 2 — currently records the intent as a pending activity.)',
+      'Place a live AI voice call to a lead contact. The voice assistant gets the lead context, your objective, and the team VOICE playbooks as its call script; the transcript lands on the lead timeline when the call ends. Uses the contact phone or the lead company phone.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -354,6 +357,34 @@ async function outboundBlockReason(organizationId: string): Promise<string | nul
     },
   });
   if (sentToday >= org.dailySendCap) return `Daily send cap reached (${org.dailySendCap}). Schedule remaining sends for tomorrow.`;
+  return null;
+}
+
+/**
+ * Send-vs-draft policy: draft when guardrails block, when the campaign
+ * requires human approval, or when the channel isn't configured. Returns a
+ * reason string when only a draft is allowed, else null (real send OK).
+ */
+async function draftOnlyReason(
+  campaignId: string | undefined,
+  organizationId: string,
+  blocked: string | null,
+  kind: 'email' | 'sms' = 'email'
+): Promise<string | null> {
+  if (blocked) return blocked;
+  if (campaignId) {
+    const campaign = await prisma.campaign.findFirst({
+      where: { id: campaignId, organizationId },
+      select: { mode: true },
+    });
+    if (campaign?.mode === 'APPROVAL_REQUIRED') {
+      return 'Campaign is in approval-required mode — message saved as a draft for human review.';
+    }
+  }
+  const configured = kind === 'email' ? channels.isEmailConfigured() : channels.isSmsConfigured();
+  if (!configured) {
+    return `${kind === 'email' ? 'Email channel (Mailgun)' : 'SMS channel (Twilio)'} is not configured — message saved as a draft.`;
+  }
   return null;
 }
 
@@ -603,8 +634,34 @@ const executors: Record<string, ToolExecutor> = {
     if (contact.optedOut) return { sent: false, reason: 'Contact has opted out — do not message them.' };
 
     const blocked = await outboundBlockReason(ctx.organizationId);
-    // Email channel is stubbed until Mailgun is wired (phase 1): always draft.
-    const status = blocked ? 'draft_blocked' : 'draft_pending_approval';
+    const draftReason = await draftOnlyReason(input.campaignId, ctx.organizationId, blocked);
+
+    if (draftReason) {
+      const result = await recordOutbound({
+        ctx,
+        leadId: lead.id,
+        contactId: contact.id,
+        channel: 'EMAIL',
+        subject: input.subject,
+        body: input.body,
+        campaignId: input.campaignId,
+        status: blocked ? 'draft_blocked' : 'draft_pending_approval',
+        activityType: 'EMAIL_SENT',
+        activitySummary: `Email drafted to ${contact.email}: "${input.subject}"`,
+      });
+      return { sent: false, drafted: true, ...result, note: draftReason };
+    }
+
+    const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
+    const delivery = await channels.sendEmail({
+      to: contact.email,
+      subject: input.subject,
+      body: input.body,
+      fromName: org?.name,
+    });
+    if (!delivery.sent) {
+      return { sent: false, reason: `Email delivery failed: ${delivery.error}` };
+    }
     const result = await recordOutbound({
       ctx,
       leadId: lead.id,
@@ -613,16 +670,11 @@ const executors: Record<string, ToolExecutor> = {
       subject: input.subject,
       body: input.body,
       campaignId: input.campaignId,
-      status,
+      status: 'sent',
       activityType: 'EMAIL_SENT',
-      activitySummary: `Email drafted to ${contact.email}: "${input.subject}"`,
+      activitySummary: `Email sent to ${contact.email}: "${input.subject}"`,
     });
-    return {
-      sent: false,
-      drafted: true,
-      ...result,
-      note: blocked || 'Email channel is not configured yet — message saved as a draft for review.',
-    };
+    return { sent: true, to: contact.email, externalId: delivery.externalId, ...result };
   },
 
   send_sms: async (input, ctx) => {
@@ -636,8 +688,30 @@ const executors: Record<string, ToolExecutor> = {
     if (!contact?.phone) {
       return { sent: false, reason: 'No contact with a phone number on this lead. Research one first.' };
     }
+    if (contact.optedOut) return { sent: false, reason: 'Contact has opted out — do not message them.' };
+
     const blocked = await outboundBlockReason(ctx.organizationId);
-    const status = blocked ? 'draft_blocked' : 'draft_pending_approval';
+    const draftReason = await draftOnlyReason(input.campaignId, ctx.organizationId, blocked, 'sms');
+
+    if (draftReason) {
+      const result = await recordOutbound({
+        ctx,
+        leadId: lead.id,
+        contactId: contact.id,
+        channel: 'SMS',
+        body: input.body,
+        campaignId: input.campaignId,
+        status: blocked ? 'draft_blocked' : 'draft_pending_approval',
+        activityType: 'SMS_SENT',
+        activitySummary: `SMS drafted to ${contact.phone}`,
+      });
+      return { sent: false, drafted: true, ...result, note: draftReason };
+    }
+
+    const delivery = await channels.sendSms({ to: contact.phone, body: input.body });
+    if (!delivery.sent) {
+      return { sent: false, reason: `SMS delivery failed: ${delivery.error}` };
+    }
     const result = await recordOutbound({
       ctx,
       leadId: lead.id,
@@ -645,32 +719,98 @@ const executors: Record<string, ToolExecutor> = {
       channel: 'SMS',
       body: input.body,
       campaignId: input.campaignId,
-      status,
+      status: 'sent',
       activityType: 'SMS_SENT',
-      activitySummary: `SMS drafted to ${contact.phone}`,
+      activitySummary: `SMS sent to ${contact.phone}`,
     });
-    return {
-      sent: false,
-      drafted: true,
-      ...result,
-      note: blocked || 'SMS channel (Twilio) is not configured yet — message saved as a draft.',
-    };
+    return { sent: true, to: contact.phone, externalId: delivery.externalId, ...result };
   },
 
   place_call: async (input, ctx) => {
     const lead = await requireLead(input.leadId, ctx.organizationId);
+    const contact = input.contactId
+      ? await prisma.contact.findFirst({ where: { id: input.contactId, leadId: lead.id } })
+      : await prisma.contact.findFirst({
+          where: { leadId: lead.id, phone: { not: null }, optedOut: false },
+          orderBy: { isPrimary: 'desc' },
+        });
+    const toNumber = contact?.phone || lead.phone;
+    if (!toNumber) {
+      return { called: false, reason: 'No phone number on this lead or its contacts. Research one first.' };
+    }
+    if (contact?.optedOut) return { called: false, reason: 'Contact has opted out — do not call them.' };
+
+    const blocked = await outboundBlockReason(ctx.organizationId);
+    if (blocked) return { called: false, reason: blocked };
+
+    if (!channels.isVoiceConfigured()) {
+      await leadService.logActivity({
+        organizationId: ctx.organizationId,
+        leadId: lead.id,
+        type: 'CALL_PLACED',
+        summary: `AI call intent recorded (voice channel not configured): ${input.objective}`,
+        payload: { objective: input.objective, status: 'pending_channel_setup' },
+        campaignId: input.campaignId,
+        agentRunId: ctx.runId,
+      });
+      return {
+        called: false,
+        note: 'Voice channel (Vapi) is not configured — intent recorded on the lead timeline.',
+      };
+    }
+
+    const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
+    const recentActivities = await prisma.activity.findMany({
+      where: { leadId: lead.id },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+    const voicePlaybooks = await getVoicePlaybookText(ctx.organizationId);
+    const contactName = contact ? `${contact.firstName} ${contact.lastName || ''}`.trim() : undefined;
+
+    const systemPrompt = buildCallSystemPrompt({
+      organizationName: org?.name || 'our company',
+      objective: input.objective,
+      lead: {
+        companyName: lead.companyName,
+        contactName,
+        status: lead.status,
+        aiSummary: lead.aiSummary,
+        recentTimeline: recentActivities.map((a) => `${a.type}: ${a.summary}`),
+      },
+      voicePlaybooks,
+    });
+    const firstMessage = `Hi${contactName ? ` ${contactName.split(' ')[0]}` : ''}, this is the assistant calling on behalf of ${org?.name || 'our team'} — do you have a quick minute?`;
+
+    const delivery = await channels.placeVapiCall({
+      toNumber,
+      systemPrompt,
+      firstMessage,
+      metadata: {
+        organizationId: ctx.organizationId,
+        leadId: lead.id,
+        agentRunId: ctx.runId,
+        ...(input.campaignId ? { campaignId: input.campaignId } : {}),
+      },
+    });
+    if (!delivery.sent) {
+      return { called: false, reason: `Call placement failed: ${delivery.error}` };
+    }
+
     await leadService.logActivity({
       organizationId: ctx.organizationId,
       leadId: lead.id,
       type: 'CALL_PLACED',
-      summary: `AI call queued (voice channel pending setup): ${input.objective}`,
-      payload: { objective: input.objective, status: 'pending_channel_setup' },
+      summary: `AI call placed to ${toNumber}: ${input.objective}`,
+      payload: { objective: input.objective, vapiCallId: delivery.externalId, to: toNumber },
       campaignId: input.campaignId,
       agentRunId: ctx.runId,
     });
     return {
-      queued: true,
-      note: 'Voice channel is phase 2 and not configured yet — intent recorded on the lead timeline.',
+      called: true,
+      to: toNumber,
+      vapiCallId: delivery.externalId,
+      note: 'Call in progress — the transcript and outcome will appear on the lead timeline when the call ends.',
     };
   },
 

@@ -44,6 +44,7 @@ model Organization {
   agentJobs    AgentJob[]
   engineChats  EngineChat[]
   calendarEvents CalendarEvent[]
+  playbooks    Playbook[]
 }
 
 model User {
@@ -91,7 +92,8 @@ model LeadGroup {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  leads Lead[]
+  leads     Lead[]
+  playbooks Playbook[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -206,6 +208,7 @@ model Campaign {
   campaignLeads CampaignLead[]
   activities    Activity[]
   agentJobs     AgentJob[]
+  playbooks     Playbook[]
 
   @@index([organizationId, status])
 }
@@ -411,6 +414,47 @@ model AgentJob {
   @@index([status, runAt])
   @@index([organizationId, status])
   @@index([leadId])
+}
+
+// ============================================
+// PLAYBOOKS (custom Engine protocols)
+// ============================================
+
+enum PlaybookScope {
+  GLOBAL
+  GROUP
+  CAMPAIGN
+  LEAD_STATUS
+}
+
+enum PlaybookChannel {
+  ALL
+  EMAIL
+  SMS
+  VOICE
+}
+
+model Playbook {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name         String
+  scope        PlaybookScope   @default(GLOBAL)
+  groupId      String?
+  group        LeadGroup?      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  campaignId   String?
+  campaign     Campaign?       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  leadStatus   LeadStatus?
+  channel      PlaybookChannel @default(ALL)
+  instructions String
+  isActive     Boolean         @default(true)
+  priority     Int             @default(100)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, isActive])
 }
 
 // ============================================

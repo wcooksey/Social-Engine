@@ -19,6 +19,8 @@ import leadGroupsRoutes from './routes/lead-groups.routes';
 import leadsRoutes from './routes/leads.routes';
 import modelsRoutes from './routes/models.routes';
 import organizationsRoutes from './routes/organizations.routes';
+import playbooksRoutes from './routes/playbooks.routes';
+import vapiWebhookRoutes from './routes/webhooks.vapi.routes';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -49,6 +51,11 @@ app.use('/api/agent', apiRateLimit, authMiddleware, agentRoutes);
 app.use('/api/engine', apiRateLimit, authMiddleware, engineRoutes);
 app.use('/api/organizations', apiRateLimit, authMiddleware, organizationsRoutes);
 app.use('/api/models', apiRateLimit, authMiddleware, modelsRoutes);
+app.use('/api/playbooks', apiRateLimit, authMiddleware, playbooksRoutes);
+
+// Webhooks: no auth middleware; validated inside handlers
+const webhookRateLimit = rateLimit({ windowMs: 60 * 1000, max: 600 });
+app.use('/api/webhooks/vapi', webhookRateLimit, vapiWebhookRoutes);
 
 // Serve the built Angular frontend (single-service deployment, Railway-style)
 const frontendDistPath = path.join(__dirname, '../../frontend/dist/social-engine-frontend/browser');

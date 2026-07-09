@@ -1,0 +1,153 @@
+<div class="playbooks-page">
+  <div class="page-header">
+    <div>
+      <h1>Playbooks</h1>
+      <p class="subtitle">Protocols the Engine follows — scoped to groups, campaigns, statuses, or channels</p>
+    </div>
+    <app-button variant="primary" icon="bi-plus-lg" (clicked)="openCreate()">New playbook</app-button>
+  </div>
+
+  @if (loading()) {
+    <div class="loading-state">
+      <span class="spinner"></span>
+      <p>Loading playbooks...</p>
+    </div>
+  } @else if (playbooks().length) {
+    <div class="playbooks-list">
+      @for (playbook of playbooks(); track playbook.id) {
+        <app-card padding="lg" class="playbook-card">
+          <div class="playbook-main">
+            <div class="playbook-header">
+              <h3>{{ playbook.name }}</h3>
+              <app-switch
+                size="sm"
+                [ngModel]="playbook.isActive"
+                (valueChange)="toggleActive(playbook, $event)"
+                [ngModelOptions]="{ standalone: true }">
+              </app-switch>
+            </div>
+
+            <div class="badge-row">
+              <app-badge [variant]="scopeBadgeVariant(playbook.scope)" size="sm">{{ scopeBadgeText(playbook) }}</app-badge>
+              @if (playbook.channel !== 'ALL') {
+                <app-badge [variant]="channelBadgeVariant(playbook.channel)" size="sm">{{ playbook.channel }}</app-badge>
+              }
+              @if (!playbook.isActive) {
+                <app-badge variant="neutral" size="sm">Inactive</app-badge>
+              }
+            </div>
+
+            <p class="playbook-instructions">{{ playbook.instructions }}</p>
+          </div>
+
+          <div class="playbook-actions">
+            <button class="icon-btn" (click)="openEdit(playbook)" title="Edit"><i class="bi bi-pencil"></i></button>
+            <button class="icon-btn icon-btn--danger" (click)="deletePlaybook(playbook)" title="Delete"><i class="bi bi-trash"></i></button>
+          </div>
+        </app-card>
+      }
+    </div>
+  } @else {
+    <div class="empty-state">
+      <i class="bi bi-journal-text"></i>
+      <p>No playbooks yet. Playbooks are custom instructions the Engine follows in specific situations.</p>
+      <p class="empty-example">e.g. "For INTERESTED leads: book a demo within 24 hours, offer Tuesday/Thursday slots."</p>
+      <app-button variant="primary" icon="bi-plus-lg" (clicked)="openCreate()">New playbook</app-button>
+    </div>
+  }
+</div>
+
+<app-dialog
+  [title]="editingPlaybook ? 'Edit Playbook' : 'New Playbook'"
+  [show]="showDialog()"
+  size="lg"
+  (close)="showDialog.set(false)">
+  <div class="playbook-form">
+    <app-input label="Name" [required]="true" [(ngModel)]="form.name" [ngModelOptions]="{ standalone: true }"></app-input>
+
+    <div class="form-row">
+      <app-select
+        label="Scope"
+        [showPlaceholderOption]="false"
+        [options]="scopeOptions"
+        [(ngModel)]="form.scope"
+        (ngModelChange)="onScopeChange()"
+        [ngModelOptions]="{ standalone: true }">
+      </app-select>
+
+      @if (form.scope === 'GROUP') {
+        <app-select
+          label="Group"
+          placeholder="Select a group..."
+          [options]="groupOptions"
+          [(ngModel)]="form.groupId"
+          [ngModelOptions]="{ standalone: true }">
+        </app-select>
+      } @else if (form.scope === 'CAMPAIGN') {
+        <app-select
+          label="Campaign"
+          placeholder="Select a campaign..."
+          [options]="campaignOptions"
+          [(ngModel)]="form.campaignId"
+          [ngModelOptions]="{ standalone: true }">
+        </app-select>
+      } @else if (form.scope === 'LEAD_STATUS') {
+        <app-select
+          label="Lead Status"
+          placeholder="Select a status..."
+          [options]="leadStatusOptions"
+          [(ngModel)]="form.leadStatus"
+          [ngModelOptions]="{ standalone: true }">
+        </app-select>
+      }
+    </div>
+
+    <app-select
+      label="Channel"
+      [showPlaceholderOption]="false"
+      [options]="channelOptions"
+      [(ngModel)]="form.channel"
+      [ngModelOptions]="{ standalone: true }"
+      helperText="Voice playbooks are used as the AI's call script">
+    </app-select>
+
+    <div class="textarea-field">
+      <label>Instructions</label>
+      <textarea
+        rows="10"
+        class="instructions-input"
+        [(ngModel)]="form.instructions"
+        [ngModelOptions]="{ standalone: true }"
+        placeholder="e.g. For INTERESTED leads: book a demo within 24 hours, offer Tuesday/Thursday slots."></textarea>
+    </div>
+
+    <div class="form-row">
+      <app-input
+        label="Priority"
+        type="number"
+        helperText="Lower numbers are applied first"
+        [(ngModel)]="form.priority"
+        [ngModelOptions]="{ standalone: true }">
+      </app-input>
+      <div class="field active-field">
+        <label>Active</label>
+        <app-switch [(ngModel)]="form.isActive" [ngModelOptions]="{ standalone: true }"></app-switch>
+      </div>
+    </div>
+  </div>
+
+  <div dialog-footer>
+    @if (editingPlaybook) {
+      <app-button variant="danger" [disabled]="saving()" (clicked)="deletePlaybook()">Delete</app-button>
+    }
+    <div class="footer-spacer"></div>
+    <app-button variant="ghost" (clicked)="showDialog.set(false)">Cancel</app-button>
+    <app-button
+      variant="primary"
+      [loading]="saving()"
+      [disabled]="!form.name.trim() || !form.instructions.trim()"
+      (clicked)="submit()">
+      {{ editingPlaybook ? 'Save Changes' : 'Create Playbook' }}
+    </app-button>
+  </div>
+</app-dialog>

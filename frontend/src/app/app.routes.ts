@@ -48,6 +48,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/campaigns/campaigns.component').then(m => m.CampaignsComponent)
       },
       {
+        path: 'playbooks',
+        loadComponent: () => import('./features/playbooks/playbooks.component').then(m => m.PlaybooksComponent)
+      },
+      {
         path: 'calendar',
         loadComponent: () => import('./features/calendar/calendar.component').then(m => m.CalendarComponent)
       },
