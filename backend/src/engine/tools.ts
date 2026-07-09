@@ -22,6 +22,9 @@ import {
   saveStorageState,
 } from '../services/social-account.service';
 import { getOrgConfig } from '../services/settings.service';
+import { notify } from '../services/notification.service';
+import { signToken } from '../utils/signing';
+import { resolveLeadTimezone, localHourIn, isWithinQuietHours } from '../utils/timezone';
 import { runBrowserAgent } from './browser/browser-agent.service';
 import { AgentRole, defaultRoleForJobType } from './roles';
 import { buildCallSystemPrompt } from './prompts';
@@ -343,6 +346,12 @@ export const engineTools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'get_booking_links',
+    description:
+      "List this organization's active public booking links (self-serve scheduling pages). Include a link URL in outreach so interested leads can book a meeting themselves — often more effective than negotiating a time back and forth.",
+    input_schema: { type: 'object' as const, properties: {} },
+  },
+  {
     name: 'create_calendar_event',
     description:
       'Book an event on the calendar: a meeting, demo, or call with a lead. Use after a lead agrees to a time. Also logs the booking on the lead timeline.',
@@ -537,15 +546,22 @@ function assertContactable(lead: { doNotContact: boolean; companyName: string })
  * Outbound guardrails: org kill switch, quiet hours, daily send cap.
  * Returns a reason string when sending is blocked, else null.
  */
-async function outboundBlockReason(organizationId: string): Promise<string | null> {
+async function outboundBlockReason(
+  organizationId: string,
+  lead?: { timezone?: string | null; state?: string | null }
+): Promise<string | null> {
   const org = await prisma.organization.findUnique({ where: { id: organizationId } });
   if (!org) return 'Organization not found';
   if (org.paused) return 'Organization is paused (kill switch) — no outbound allowed. Save drafts instead.';
 
-  const hour = new Date().getHours();
+  // Quiet hours are evaluated in the LEAD's local timezone when known, so we
+  // never text/email someone in the middle of their night.
   const { quietHoursStart: start, quietHoursEnd: end } = org;
-  const inQuietHours = start > end ? hour >= start || hour < end : hour >= start && hour < end;
-  if (inQuietHours) return `Inside quiet hours (${start}:00–${end}:00) — schedule the send for later instead.`;
+  const tz = lead ? resolveLeadTimezone(lead) : undefined;
+  const hour = tz ? localHourIn(tz) : new Date().getHours();
+  if (isWithinQuietHours(start, end, hour)) {
+    return `Inside the lead's quiet hours (${start}:00–${end}:00${tz ? ` ${tz}` : ''}) — schedule the send for later instead.`;
+  }
 
   const since = new Date();
   since.setHours(0, 0, 0, 0);
@@ -795,6 +811,17 @@ const executors: Record<string, ToolExecutor> = {
       summary: `Status changed from ${lead.status} to ${input.status}${input.reason ? ` — ${input.reason}` : ''}`,
       agentRunId: ctx.runId,
     });
+    // Alert humans when a lead turns hot (newly INTERESTED).
+    if (input.status === 'INTERESTED' && lead.status !== 'INTERESTED') {
+      await notify({
+        organizationId: ctx.organizationId,
+        type: 'LEAD_INTERESTED',
+        title: `Lead interested: ${lead.companyName}`,
+        body: input.reason || 'The Engine marked this lead as interested.',
+        leadId: lead.id,
+        emailAlert: true,
+      });
+    }
     return { ok: true, previousStatus: lead.status, status: input.status };
   },
 
@@ -835,16 +862,19 @@ const executors: Record<string, ToolExecutor> = {
     const contact = input.contactId
       ? await prisma.contact.findFirst({ where: { id: input.contactId, leadId: lead.id } })
       : await prisma.contact.findFirst({
-          where: { leadId: lead.id, email: { not: null }, optedOut: false },
+          where: { leadId: lead.id, email: { not: null }, optedOut: false, emailStatus: null },
           orderBy: { isPrimary: 'desc' },
         });
     if (!contact?.email) {
       return { sent: false, reason: 'No contact with an email address on this lead. Research one first.' };
     }
     if (contact.optedOut) return { sent: false, reason: 'Contact has opted out — do not message them.' };
+    if (contact.emailStatus) {
+      return { sent: false, reason: `This email previously ${contact.emailStatus} — address suppressed. Try another contact or channel.` };
+    }
 
     const orgConfig = await getOrgConfig(ctx.organizationId);
-    const blocked = await outboundBlockReason(ctx.organizationId);
+    const blocked = await outboundBlockReason(ctx.organizationId, lead);
     const draftReason = await draftOnlyReason(
       input.campaignId,
       ctx.organizationId,
@@ -875,6 +905,8 @@ const executors: Record<string, ToolExecutor> = {
         subject: input.subject,
         body: input.body,
         fromName: org?.name,
+        // One-click unsubscribe (List-Unsubscribe header) — deliverability + CAN-SPAM.
+        unsubscribeUrl: `${config.appPublicUrl}/api/public/unsubscribe?c=${signToken(contact.id)}`,
       },
       orgConfig.mailgun
     );
@@ -912,7 +944,7 @@ const executors: Record<string, ToolExecutor> = {
     if (contact.optedOut) return { sent: false, reason: 'Contact has opted out — do not message them.' };
 
     const orgConfig = await getOrgConfig(ctx.organizationId);
-    const blocked = await outboundBlockReason(ctx.organizationId);
+    const blocked = await outboundBlockReason(ctx.organizationId, lead);
     const draftReason = await draftOnlyReason(
       input.campaignId,
       ctx.organizationId,
@@ -970,7 +1002,7 @@ const executors: Record<string, ToolExecutor> = {
     }
     if (contact?.optedOut) return { called: false, reason: 'Contact has opted out — do not call them.' };
 
-    const blocked = await outboundBlockReason(ctx.organizationId);
+    const blocked = await outboundBlockReason(ctx.organizationId, lead);
     if (blocked) return { called: false, reason: blocked };
 
     const orgConfig = await getOrgConfig(ctx.organizationId);
@@ -1096,7 +1128,7 @@ const executors: Record<string, ToolExecutor> = {
     assertContactable(lead);
     const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
 
-    const blocked = await outboundBlockReason(ctx.organizationId);
+    const blocked = await outboundBlockReason(ctx.organizationId, lead);
     const model = org?.engineModel || config.engine.model;
 
     const recordTouch = async (status: string, summary: string, extra?: Record<string, unknown>) => {
@@ -1262,6 +1294,26 @@ const executors: Record<string, ToolExecutor> = {
     };
   },
 
+  get_booking_links: async (_input, ctx) => {
+    const links = await prisma.bookingLink.findMany({
+      where: { organizationId: ctx.organizationId, active: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (links.length === 0) {
+      return {
+        links: [],
+        note: 'No booking links set up yet. Create one in Settings → Booking links, then share it with interested leads.',
+      };
+    }
+    return {
+      links: links.map((l) => ({
+        title: l.title,
+        url: `${config.appPublicUrl}/book/${l.slug}`,
+        durationMinutes: l.durationMinutes,
+      })),
+    };
+  },
+
   create_calendar_event: async (input, ctx) => {
     const startAt = new Date(input.startAtIso);
     if (isNaN(startAt.getTime())) throw new Error(`Invalid startAtIso: ${input.startAtIso}`);
@@ -1301,6 +1353,15 @@ const executors: Record<string, ToolExecutor> = {
         agentRunId: ctx.runId,
       });
     }
+    // Alert the humans — a booked meeting is the whole point of the platform.
+    await notify({
+      organizationId: ctx.organizationId,
+      type: 'MEETING_BOOKED',
+      title: `Meeting booked: ${event.title}`,
+      body: `${event.type} scheduled for ${startAt.toUTCString()}.`,
+      leadId: input.leadId,
+      emailAlert: true,
+    });
     return { eventId: event.id, startAt: startAt.toISOString(), title: event.title };
   },
 

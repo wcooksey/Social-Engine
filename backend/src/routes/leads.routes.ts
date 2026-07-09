@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../config/database';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { leadService } from '../services/lead.service';
+import { importLeadsCsv } from '../services/import.service';
 
 const router = Router();
 
@@ -126,6 +127,21 @@ router.delete(
     if (!existing) throw new AppError('Lead not found', 404);
     await prisma.lead.delete({ where: { id: existing.id } });
     res.json({ success: true, data: null });
+  })
+);
+
+// Bulk CSV import. Body: { csv: string, groupName?: string }. Upserts via the
+// same dedup path as the Engine so imports never create duplicates.
+router.post(
+  '/import',
+  asyncHandler(async (req, res) => {
+    const csv = String(req.body?.csv || '');
+    if (!csv.trim()) throw new AppError('csv is required');
+    if (csv.length > 5_000_000) throw new AppError('CSV too large (max ~5MB)');
+    const result = await importLeadsCsv(req.user!.organizationId, csv, {
+      groupName: req.body?.groupName,
+    });
+    res.json({ success: true, data: result });
   })
 );
 

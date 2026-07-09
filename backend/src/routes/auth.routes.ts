@@ -38,4 +38,25 @@ router.get(
   })
 );
 
+// Logout-everywhere: bumps the token version so all issued tokens stop
+// refreshing (access tokens die at their short expiry).
+router.post(
+  '/logout',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    await authService.revokeTokens(req.user!.userId);
+    res.json({ success: true, data: null });
+  })
+);
+
+// Toggle whether this user receives notification/digest emails.
+router.patch(
+  '/me/notifications',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const data = await authService.setNotifyByEmail(req.user!.userId, !!req.body?.notifyByEmail);
+    res.json({ success: true, data });
+  })
+);
+
 export default router;

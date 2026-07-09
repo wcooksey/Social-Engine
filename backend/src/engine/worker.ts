@@ -1,12 +1,17 @@
 import { prisma } from '../config/database';
 import { engineService } from './engine.service';
 import { getPlatformEngineConfig } from '../services/settings.service';
+import { runReminderSweep, runDigestSweepIfDue } from '../services/reminder.service';
 import { AgentRole } from './roles';
 
 const MAX_ATTEMPTS = 3;
 
 let timer: NodeJS.Timeout | null = null;
 let draining = false;
+// Time-driven sweeps (reminders/digest) are cheaper than the job drain, so run
+// them on a throttle rather than every tick.
+let lastSweepAt = 0;
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
  * The scheduler that gives the team its autonomy: polls the AgentJob table for
@@ -22,6 +27,7 @@ export async function startEngineWorker(): Promise<void> {
   const platform = await getPlatformEngineConfig();
   timer = setInterval(() => {
     void drainDueJobs();
+    void runTimeSweeps();
   }, platform.workerIntervalMs);
   console.log(
     `Engine worker started (every ${platform.workerIntervalMs}ms, ` +
@@ -125,6 +131,19 @@ async function runJob(job: ClaimedJob): Promise<void> {
           ? { status: 'FAILED', lastError: message }
           : { status: 'PENDING', lastError: message, runAt: new Date(Date.now() + 10 * 60 * 1000) },
     });
+  }
+}
+
+/** Throttled meeting-reminder + daily-digest sweeps. */
+async function runTimeSweeps(): Promise<void> {
+  const now = Date.now();
+  if (now - lastSweepAt < SWEEP_INTERVAL_MS) return;
+  lastSweepAt = now;
+  try {
+    await runReminderSweep();
+    await runDigestSweepIfDue();
+  } catch (err) {
+    console.error('Time sweep error:', err instanceof Error ? err.message : err);
   }
 }
 

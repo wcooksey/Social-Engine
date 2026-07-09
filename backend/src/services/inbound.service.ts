@@ -3,6 +3,7 @@ import { prisma } from '../config/database';
 import { leadService } from './lead.service';
 import { normalizePhone } from './lead.service';
 import { recordResponseForInbound } from './experiment.service';
+import { notify } from './notification.service';
 
 /**
  * Handle an inbound reply from a lead on any channel. Matches the message to a
@@ -202,6 +203,17 @@ export async function handleInbound(input: InboundMessage): Promise<{
   if (lead && (lead.status === 'CONTACTED' || lead.status === 'NEW')) {
     await prisma.lead.update({ where: { id: leadId }, data: { status: 'ENGAGED' } });
   }
+
+  // Alert the humans that a lead replied (hot signal worth a look).
+  const replyLead = lead ?? (await prisma.lead.findUnique({ where: { id: leadId } }));
+  await notify({
+    organizationId,
+    type: 'HOT_REPLY',
+    title: `New reply from ${replyLead?.companyName || 'a lead'}`,
+    body: `${input.channel} reply: "${input.body.slice(0, 140)}"`,
+    leadId,
+    emailAlert: true,
+  });
 
   // Queue an SDR to read the thread and reply — the two-way loop. The lead's
   // text is quoted as delimited data so it can't masquerade as instructions.

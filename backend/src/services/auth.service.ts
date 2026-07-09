@@ -21,6 +21,7 @@ function serializeUser(user: {
   firstName: string;
   lastName: string;
   role: string;
+  notifyByEmail?: boolean;
   organization: { id: string; name: string; slug: string };
 }) {
   return {
@@ -30,6 +31,7 @@ function serializeUser(user: {
     lastName: user.lastName,
     role: user.role,
     isSuperAdmin: isSuperAdmin(user.email),
+    notifyByEmail: user.notifyByEmail ?? true,
     organization: {
       id: user.organization.id,
       name: user.organization.name,
@@ -89,6 +91,7 @@ class AuthService {
       email: user.email,
       organizationId: user.organizationId,
       role: user.role,
+      tv: user.tokenVersion,
     };
     return { ...issueTokens(payload), user: serializeUser(user) };
   }
@@ -110,6 +113,7 @@ class AuthService {
       email: user.email,
       organizationId: user.organizationId,
       role: user.role,
+      tv: user.tokenVersion,
     };
     return { ...issueTokens(payload), user: serializeUser(user) };
   }
@@ -126,14 +130,36 @@ class AuthService {
       include: { organization: true },
     });
     if (!user || !user.isActive) throw new AppError('Invalid refresh token', 401);
+    // Reject tokens issued before a logout / password change bumped the version.
+    if ((payload.tv ?? 0) !== user.tokenVersion) {
+      throw new AppError('Session expired, please sign in again', 401);
+    }
 
     const fresh: JwtPayload = {
       userId: user.id,
       email: user.email,
       organizationId: user.organizationId,
       role: user.role,
+      tv: user.tokenVersion,
     };
     return { ...issueTokens(fresh), user: serializeUser(user) };
+  }
+
+  /** Invalidate all issued tokens for a user (logout-everywhere / password change). */
+  async revokeTokens(userId: string): Promise<void> {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { tokenVersion: { increment: 1 } },
+    });
+  }
+
+  async setNotifyByEmail(userId: string, enabled: boolean) {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { notifyByEmail: enabled },
+      include: { organization: true },
+    });
+    return serializeUser(user);
   }
 
   async me(userId: string) {

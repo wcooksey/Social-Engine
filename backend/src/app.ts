@@ -10,6 +10,7 @@ import { authMiddleware } from './middleware/auth.middleware';
 import { errorMiddleware } from './middleware/error.middleware';
 import agentRoutes from './routes/agent.routes';
 import authRoutes from './routes/auth.routes';
+import bookingLinksRoutes from './routes/booking-links.routes';
 import calendarRoutes from './routes/calendar.routes';
 import campaignsRoutes from './routes/campaigns.routes';
 import contactsRoutes from './routes/contacts.routes';
@@ -21,8 +22,10 @@ import engineRoutes from './routes/engine.routes';
 import leadGroupsRoutes from './routes/lead-groups.routes';
 import leadsRoutes from './routes/leads.routes';
 import modelsRoutes from './routes/models.routes';
+import notificationsRoutes from './routes/notifications.routes';
 import organizationsRoutes from './routes/organizations.routes';
 import playbooksRoutes from './routes/playbooks.routes';
+import publicRoutes from './routes/public.routes';
 import settingsRoutes from './routes/settings.routes';
 import socialAccountsRoutes from './routes/social-accounts.routes';
 import vapiWebhookRoutes from './routes/webhooks.vapi.routes';
@@ -58,6 +61,10 @@ const apiRateLimit = rateLimit({ windowMs: 60 * 1000, max: 300 });
 
 app.get('/api/health', (_req, res) => res.json({ success: true, data: { status: 'ok' } }));
 
+// Public, unauthenticated endpoints (lead-facing booking pages, unsubscribe).
+const publicRateLimit = rateLimit({ windowMs: 60 * 1000, max: 120 });
+app.use('/api/public', publicRateLimit, publicRoutes);
+
 app.use('/api/auth', authRateLimit, authRoutes);
 app.use('/api/dashboard', apiRateLimit, authMiddleware, dashboardRoutes);
 app.use('/api/lead-groups', apiRateLimit, authMiddleware, leadGroupsRoutes);
@@ -71,6 +78,8 @@ app.use('/api/engine', apiRateLimit, authMiddleware, engineRoutes);
 app.use('/api/organizations', apiRateLimit, authMiddleware, organizationsRoutes);
 app.use('/api/models', apiRateLimit, authMiddleware, modelsRoutes);
 app.use('/api/playbooks', apiRateLimit, authMiddleware, playbooksRoutes);
+app.use('/api/booking-links', apiRateLimit, authMiddleware, bookingLinksRoutes);
+app.use('/api/notifications', apiRateLimit, authMiddleware, notificationsRoutes);
 app.use('/api/settings', apiRateLimit, authMiddleware, settingsRoutes);
 app.use('/api/social-accounts', apiRateLimit, authMiddleware, socialAccountsRoutes);
 app.use('/api/experiments', apiRateLimit, authMiddleware, experimentsRoutes);

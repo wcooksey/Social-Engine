@@ -11,6 +11,11 @@ export const config = {
 
   superAdminEmail: process.env.SUPER_ADMIN_EMAIL || '',
 
+  // Public base URL of this deployment (no trailing slash). Used to build
+  // booking links, unsubscribe links, and calendar invite URLs that leads
+  // click. Falls back to localhost for dev.
+  appPublicUrl: (process.env.APP_PUBLIC_URL || 'http://localhost:3000').replace(/\/$/, ''),
+
   // Extra allowed CORS origins in production (comma-separated). The backend
   // serves the frontend itself, so this stays empty unless the UI is hosted
   // on a different origin.

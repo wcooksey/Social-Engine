@@ -5,6 +5,7 @@ import { AppError, asyncHandler } from '../middleware/error.middleware';
 import * as channels from '../services/channels.service';
 import { getOrgConfig } from '../services/settings.service';
 import { leadService } from '../services/lead.service';
+import { dispatchApprovedSocialDm } from '../services/social-send.service';
 
 const router = Router();
 
@@ -224,6 +225,22 @@ router.post(
 
     const body = String(req.body?.body ?? message.body).trim();
     if (!body) throw new AppError('body cannot be empty');
+
+    // Social DMs go out through the browser agent in the background — the
+    // request returns immediately with a 'sending' status the UI can poll.
+    if (conversation.channel === 'SOCIAL') {
+      const lead = await prisma.lead.findFirst({
+        where: { id: conversation.leadId, organizationId: req.user!.organizationId },
+      });
+      if (lead?.doNotContact) throw new AppError('This lead has opted out of being contacted.', 400);
+      const updated = await prisma.message.update({
+        where: { id: message.id },
+        data: { body, status: 'sending' },
+      });
+      void dispatchApprovedSocialDm(message.id);
+      res.json({ success: true, data: updated });
+      return;
+    }
 
     const delivery = await deliverOnConversation(
       req.user!.organizationId,

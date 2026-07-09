@@ -36,23 +36,61 @@ export function isEmailConfigured(creds: EmailCreds): boolean {
   return !!(creds.apiKey && creds.domain);
 }
 
-export async function sendEmail(
-  opts: { to: string; subject: string; body: string; fromName?: string },
-  creds: EmailCreds
-): Promise<SendResult> {
+export interface IcsAttachment {
+  filename: string; // e.g. "invite.ics"
+  content: string; // raw iCalendar text
+}
+
+export interface SendEmailOptions {
+  to: string;
+  subject: string;
+  body: string;
+  fromName?: string;
+  /** Optional HTML alternative part. */
+  html?: string;
+  /** RFC 2369 List-Unsubscribe target (mailto: or https:). Adds one-click too. */
+  unsubscribeUrl?: string;
+  /** Calendar invite to attach (renders as an "add to calendar" invite). */
+  ics?: IcsAttachment;
+}
+
+export async function sendEmail(opts: SendEmailOptions, creds: EmailCreds): Promise<SendResult> {
   if (!isEmailConfigured(creds)) return { sent: false, error: 'Email channel not configured' };
 
   const from = `${opts.fromName || 'Social Engine'} <noreply@${creds.domain}>`;
-  const form = new URLSearchParams({ from, to: opts.to, subject: opts.subject, text: opts.body });
+
+  // Multipart form so we can attach an .ics calendar invite alongside the text.
+  const form = new FormData();
+  form.append('from', from);
+  form.append('to', opts.to);
+  form.append('subject', opts.subject);
+  form.append('text', opts.body);
+  if (opts.html) form.append('html', opts.html);
+  if (opts.unsubscribeUrl) {
+    // Header value differs for mailto vs http; add one-click for http targets.
+    const value = opts.unsubscribeUrl.startsWith('mailto:')
+      ? `<${opts.unsubscribeUrl}>`
+      : `<${opts.unsubscribeUrl}>`;
+    form.append('h:List-Unsubscribe', value);
+    if (!opts.unsubscribeUrl.startsWith('mailto:')) {
+      form.append('h:List-Unsubscribe-Post', 'List-Unsubscribe=One-Click');
+    }
+  }
+  if (opts.ics) {
+    form.append(
+      'attachment',
+      new Blob([opts.ics.content], { type: 'text/calendar; method=REQUEST' }),
+      opts.ics.filename
+    );
+  }
 
   try {
     const res = await fetch(`https://api.mailgun.net/v3/${creds.domain}/messages`, {
       method: 'POST',
       headers: {
         Authorization: `Basic ${Buffer.from(`api:${creds.apiKey}`).toString('base64')}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: form.toString(),
+      body: form,
       signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) {

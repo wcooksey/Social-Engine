@@ -6,6 +6,9 @@ export interface JwtPayload {
   email: string;
   organizationId: string;
   role: string;
+  // Snapshot of User.tokenVersion at issue time; bumped server-side on logout /
+  // password change to invalidate previously issued tokens.
+  tv?: number;
 }
 
 export function signAccessToken(payload: JwtPayload): string {

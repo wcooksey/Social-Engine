@@ -51,6 +51,8 @@ model Organization {
   socialAccounts SocialAccount[]
   experiments  Experiment[]
   orgSettings  OrgSetting[]
+  bookingLinks BookingLink[]
+  notifications Notification[]
 }
 
 model User {
@@ -67,8 +69,14 @@ model User {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
+  // Bumped on logout / password change to invalidate all issued JWTs.
+  tokenVersion   Int          @default(0)
+  // Whether this user receives notification emails (alerts + daily digest).
+  notifyByEmail  Boolean      @default(true)
+
   engineChats EngineChat[]
   agentRuns   AgentRun[]
+  notifications Notification[]
 
   @@index([organizationId])
 }
@@ -126,6 +134,9 @@ model Lead {
   // Hard opt-out (SMS STOP / unsubscribe). Enforced deterministically in the
   // send tools — never left to the AI's discretion. Compliance: TCPA/CAN-SPAM.
   doNotContact Boolean     @default(false)
+  // IANA timezone (e.g. "America/New_York"), derived from state when unknown.
+  // Quiet-hours guardrails compute the lead's LOCAL hour from this.
+  timezone    String?
   source      String?      // how it was found: "web_research", "manual", "import"
   aiSummary   String?      // Engine's rolling notes on this lead
   socials     Json?        // { linkedin, facebook, instagram, x, ... }
@@ -163,6 +174,8 @@ model Contact {
   source    String?
   isPrimary Boolean @default(false)
   optedOut  Boolean @default(false)
+  // Deliverability suppression from Mailgun events: null=ok, 'bounced', 'complained'.
+  emailStatus String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -634,12 +647,81 @@ model CalendarEvent {
   allDay      Boolean             @default(false)
 
   createdByRunId String? // AgentRun that booked this (Engine audit trail)
+  bookingLinkId  String? // set when a lead self-booked via a public link
+  bookingLink    BookingLink? @relation(fields: [bookingLinkId], references: [id], onDelete: SetNull)
+  // Which lead reminders have already fired (e.g. ["24h","1h"]) so the sweep
+  // never double-sends. Null/[] = none sent yet.
+  remindersSent  Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([organizationId, startAt])
   @@index([leadId])
+  @@index([status, startAt])
+}
+
+// ============================================
+// BOOKING LINKS (leads self-book on the calendar)
+// ============================================
+
+model BookingLink {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  slug           String       @unique // public URL segment
+  title          String
+  description    String?
+  durationMinutes Int         @default(30)
+  bufferMinutes  Int          @default(0)
+  timezone       String       @default("America/New_York") // tz the windows are defined in
+  // Weekly availability windows: { "1": [["09:00","17:00"]], "2": [...] }
+  // keyed by ISO weekday (1=Mon..7=Sun). Missing/empty = unavailable that day.
+  availability   Json
+  active         Boolean      @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events CalendarEvent[]
+
+  @@index([organizationId])
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+enum NotificationType {
+  MEETING_BOOKED
+  MEETING_REMINDER
+  HOT_REPLY
+  LEAD_INTERESTED
+  CALL_COMPLETED
+  DIGEST
+  SYSTEM
+}
+
+model Notification {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  // null = visible to the whole org; set = a specific user's notification.
+  userId         String?
+  user           User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type      NotificationType
+  title     String
+  body      String?
+  leadId    String?  // deep-link target (not a FK — lead may be archived)
+  read      Boolean  @default(false)
+  emailedAt DateTime? // set once an alert email has been sent for this row
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, read])
 }
 
 // ============================================

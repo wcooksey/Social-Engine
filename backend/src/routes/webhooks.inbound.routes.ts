@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { Router } from 'express';
 import { config } from '../config/environment';
+import { prisma } from '../config/database';
 import { asyncHandler } from '../middleware/error.middleware';
 import { handleInbound } from '../services/inbound.service';
 
@@ -102,6 +103,61 @@ router.post(
       externalId: body.id,
     });
     res.json({ success: true, data: result });
+  })
+);
+
+/**
+ * Mailgun event webhook (deliverability). Point Mailgun's "permanent failure"
+ * and "spam complaint" webhooks at
+ * {API_URL}/api/webhooks/inbound/mailgun-events?secret=INBOUND_WEBHOOK_SECRET.
+ * Suppresses the offending address so we stop mailing bounced/complained
+ * contacts — protecting sender reputation and deliverability.
+ */
+router.post(
+  '/mailgun-events',
+  asyncHandler(async (req, res) => {
+    if (!checkSecret(req.query.secret)) {
+      rejectUnauthorized(res);
+      return;
+    }
+    const data = (req.body?.['event-data'] || req.body) as Record<string, any>;
+    const event = String(data?.event || '');
+    const recipient = extractEmail(data?.recipient);
+    if (!recipient) {
+      res.json({ success: true, data: { ignored: 'no recipient' } });
+      return;
+    }
+
+    const isComplaint = event === 'complained';
+    const isHardBounce =
+      event === 'failed' && String(data?.severity || '').toLowerCase() === 'permanent';
+    if (!isComplaint && !isHardBounce) {
+      res.json({ success: true, data: { ignored: event } });
+      return;
+    }
+
+    const status = isComplaint ? 'complained' : 'bounced';
+    const contacts = await prisma.contact.findMany({ where: { email: recipient } });
+    for (const contact of contacts) {
+      await prisma.contact.update({
+        where: { id: contact.id },
+        data: { emailStatus: status, ...(isComplaint ? { optedOut: true } : {}) },
+      });
+      // A spam complaint is a hard opt-out signal across all channels.
+      if (isComplaint) {
+        await prisma.lead.update({ where: { id: contact.leadId }, data: { doNotContact: true } });
+      }
+      await prisma.activity.create({
+        data: {
+          organizationId: contact.organizationId,
+          leadId: contact.leadId,
+          type: 'STATUS_CHANGE',
+          summary: `Email ${status} for ${recipient} — address suppressed.`,
+          payload: { emailEvent: event, recipient },
+        },
+      });
+    }
+    res.json({ success: true, data: { processed: contacts.length, status } });
   })
 );
 

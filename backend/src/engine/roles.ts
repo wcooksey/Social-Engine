@@ -15,6 +15,7 @@ const SHARED = [
   'add_note',
   'update_lead_status',
   'list_calendar_events',
+  'get_booking_links',
   'list_playbooks',
   'update_group_summary',
   'schedule_followup',
