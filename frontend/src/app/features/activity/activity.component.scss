@@ -71,6 +71,13 @@
   color: var(--text-tertiary);
 }
 
+.job-badges {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  flex-shrink: 0;
+}
+
 .run-detail {
   display: flex;
   flex-direction: column;

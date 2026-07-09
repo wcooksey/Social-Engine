@@ -1,7 +1,7 @@
 <div class="activity-page">
   <div class="page-header">
     <h1>Engine Activity</h1>
-    <p class="subtitle">Everything the Engine has run, and what's scheduled next</p>
+    <p class="subtitle">Runs from your Coordinator, Researcher, Caller, and SDR agents, and what's scheduled next</p>
   </div>
 
   <app-card padding="lg" class="section-card">
@@ -16,6 +16,10 @@
 
       <ng-template appDataCell="objective" let-value>
         <span class="dt-strong">{{ value }}</span>
+      </ng-template>
+
+      <ng-template appDataCell="role" let-value>
+        <app-badge [variant]="roleBadgeVariant(value)" size="sm">{{ roleLabel(value) }}</app-badge>
       </ng-template>
 
       <ng-template appDataCell="status" let-value>
@@ -54,7 +58,10 @@
                 · {{ job.runAt | date: 'MMM d, h:mm a' }}
               </span>
             </div>
-            <app-badge variant="neutral" size="sm">{{ job.status }}</app-badge>
+            <div class="job-badges">
+              <app-badge [variant]="roleBadgeVariant(job.role)" size="sm">{{ roleLabel(job.role) }}</app-badge>
+              <app-badge variant="neutral" size="sm">{{ job.status }}</app-badge>
+            </div>
           </li>
         }
       </ul>
@@ -72,6 +79,7 @@
     <div class="run-detail">
       <div class="run-summary">
         <div><strong>Objective:</strong> {{ run.objective }}</div>
+        <div><strong>Role:</strong> <app-badge [variant]="roleBadgeVariant(run.role)" size="sm">{{ roleLabel(run.role) }}</app-badge></div>
         <div><strong>Trigger:</strong> {{ run.trigger }}</div>
         <div><strong>Status:</strong> <app-badge [variant]="statusBadgeVariant(run.status)" size="sm">{{ run.status }}</app-badge></div>
         @if (run.summary) {

@@ -1,7 +1,7 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AgentService } from '../../core/services/agent.service';
-import { AgentJob, AgentRun } from '../../core/models/agent.model';
+import { AgentJob, AgentRole, AgentRun } from '../../core/models/agent.model';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { BadgeComponent, BadgeVariant } from '../../shared/components/badge/badge.component';
 import { DataTableComponent, DataTableCellDirective, DataTableColumn } from '../../shared/components/data-table';
@@ -27,6 +27,7 @@ export class ActivityComponent implements OnInit {
 
   runColumns: DataTableColumn[] = [
     { key: 'objective', header: 'Objective' },
+    { key: 'role', header: 'Role' },
     { key: 'trigger', header: 'Trigger' },
     { key: 'status', header: 'Status' },
     { key: 'startedAt', header: 'Started' },
@@ -82,6 +83,26 @@ export class ActivityComponent implements OnInit {
       case 'FAILED': return 'error';
       case 'RUNNING': return 'info';
       case 'CANCELLED': return 'neutral';
+      default: return 'default';
+    }
+  }
+
+  roleLabel(role: AgentRole): string {
+    switch (role) {
+      case 'COORDINATOR': return 'Coordinator';
+      case 'RESEARCHER': return 'Researcher';
+      case 'CALLER': return 'Caller';
+      case 'SDR': return 'SDR';
+      default: return role;
+    }
+  }
+
+  roleBadgeVariant(role: AgentRole): BadgeVariant {
+    switch (role) {
+      case 'COORDINATOR': return 'info';
+      case 'RESEARCHER': return 'purple';
+      case 'CALLER': return 'orange';
+      case 'SDR': return 'success';
       default: return 'default';
     }
   }
