@@ -3,28 +3,29 @@
     <span class="spinner"></span>
     <p>Loading lead...</p>
   </div>
-} @else if (lead(); as lead) {
+} @else {
+@if (lead(); as l) {
   <div class="lead-detail-page">
     <a routerLink="/leads" class="back-link"><i class="bi bi-arrow-left"></i> Back to Leads</a>
 
     <app-card class="header-card" padding="lg">
       <div class="header-top">
         <div>
-          <h1>{{ lead.companyName }}</h1>
+          <h1>{{ l.companyName }}</h1>
           <div class="meta-row">
-            @if (lead.website) {
-              <a [href]="lead.website" target="_blank" rel="noopener noreferrer" class="meta-link">
-                <i class="bi bi-globe"></i> {{ lead.website }}
+            @if (l.website) {
+              <a [href]="l.website" target="_blank" rel="noopener noreferrer" class="meta-link">
+                <i class="bi bi-globe"></i> {{ l.website }}
               </a>
             }
-            @if (lead.phone) {
-              <span class="meta-item"><i class="bi bi-telephone"></i> {{ lead.phone }}</span>
+            @if (l.phone) {
+              <span class="meta-item"><i class="bi bi-telephone"></i> {{ l.phone }}</span>
             }
-            @if (lead.city || lead.state) {
-              <span class="meta-item"><i class="bi bi-geo-alt"></i> {{ lead.city }}{{ lead.city && lead.state ? ', ' : '' }}{{ lead.state }}</span>
+            @if (l.city || l.state) {
+              <span class="meta-item"><i class="bi bi-geo-alt"></i> {{ l.city }}{{ l.city && l.state ? ', ' : '' }}{{ l.state }}</span>
             }
-            @if (lead.industry) {
-              <span class="meta-item"><i class="bi bi-building"></i> {{ lead.industry }}</span>
+            @if (l.industry) {
+              <span class="meta-item"><i class="bi bi-building"></i> {{ l.industry }}</span>
             }
           </div>
         </div>
@@ -33,18 +34,18 @@
             size="sm"
             [showPlaceholderOption]="false"
             [options]="statusOptions"
-            [ngModel]="lead.status"
+            [ngModel]="l.status"
             [ngModelOptions]="{ standalone: true }"
             (selectionChange)="changeStatus($event)">
           </app-select>
-          <app-badge [variant]="statusBadgeVariant(lead.status)">{{ lead.status }}</app-badge>
+          <app-badge [variant]="statusBadgeVariant(l.status)">{{ l.status }}</app-badge>
         </div>
       </div>
 
-      @if (lead.aiSummary) {
+      @if (l.aiSummary) {
         <div class="ai-notes">
           <div class="ai-notes-header"><i class="bi bi-stars"></i> Engine notes</div>
-          <p>{{ lead.aiSummary }}</p>
+          <p>{{ l.aiSummary }}</p>
         </div>
       }
     </app-card>
@@ -56,9 +57,9 @@
           <app-button variant="ghost" size="sm" icon="bi-plus-lg" (clicked)="openAddContact()">Add Contact</app-button>
         </div>
 
-        @if (lead.contacts && lead.contacts.length) {
+        @if (l.contacts && l.contacts.length) {
           <ul class="contact-list">
-            @for (contact of lead.contacts; track contact.id) {
+            @for (contact of l.contacts; track contact.id) {
               <li class="contact-item">
                 <div class="contact-main">
                   <span class="contact-name">{{ contact.firstName }} {{ contact.lastName }}</span>
@@ -84,9 +85,9 @@
 
       <app-card padding="lg">
         <h3>Activity</h3>
-        @if (lead.activities && lead.activities.length) {
+        @if (l.activities && l.activities.length) {
           <ul class="timeline">
-            @for (activity of lead.activities; track activity.id) {
+            @for (activity of l.activities; track activity.id) {
               <li class="timeline-item">
                 <div class="timeline-icon"><i [class]="'bi ' + activityIcon(activity.type)"></i></div>
                 <div class="timeline-content">
@@ -107,6 +108,7 @@
     <p>Lead not found.</p>
   </div>
 }
+}
 
 <app-dialog
   [title]="editingContact ? 'Edit Contact' : 'Add Contact'"
@@ -115,8 +117,8 @@
   (close)="showContactDialog.set(false)">
   <div class="contact-form">
     <div class="form-row">
-      <app-input label="First name" required [(ngModel)]="contactForm.firstName" [ngModelOptions]="{ standalone: true }"></app-input>
-      <app-input label="Last name" required [(ngModel)]="contactForm.lastName" [ngModelOptions]="{ standalone: true }"></app-input>
+      <app-input label="First name" [required]="true" [(ngModel)]="contactForm.firstName" [ngModelOptions]="{ standalone: true }"></app-input>
+      <app-input label="Last name" [required]="true" [(ngModel)]="contactForm.lastName" [ngModelOptions]="{ standalone: true }"></app-input>
     </div>
     <app-input label="Title" [(ngModel)]="contactForm.title" [ngModelOptions]="{ standalone: true }"></app-input>
     <app-input label="Email" type="email" [(ngModel)]="contactForm.email" [ngModelOptions]="{ standalone: true }"></app-input>

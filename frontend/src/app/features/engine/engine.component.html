@@ -1,0 +1,86 @@
+<div class="engine-page">
+  <aside class="chat-list-panel">
+    <button class="new-chat-btn" (click)="startNewChat()">
+      <i class="bi bi-plus-lg"></i> New chat
+    </button>
+
+    <div class="chat-list">
+      @if (loadingChats()) {
+        <p class="chat-list-empty">Loading conversations...</p>
+      } @else if (chats().length) {
+        @for (chat of chats(); track chat.id) {
+          <button
+            class="chat-list-item"
+            [class.active]="activeChatId() === chat.id"
+            (click)="selectChat(chat)">
+            <i class="bi bi-chat-left-text"></i>
+            <span class="chat-title">{{ chat.title || 'New conversation' }}</span>
+          </button>
+        }
+      } @else {
+        <p class="chat-list-empty">No conversations yet.</p>
+      }
+    </div>
+  </aside>
+
+  <main class="engine-main">
+    @if (!activeChatId() && messages().length === 0) {
+      <div class="hero">
+        <div class="hero-glow"></div>
+        <i class="bi bi-stars hero-icon"></i>
+        <h1>What should the Engine work on?</h1>
+        <p class="hero-subtitle">Ask it to research prospects, build lead lists, launch campaigns, or follow up.</p>
+
+        <div class="example-chips">
+          @for (prompt of examplePrompts; track prompt) {
+            <button class="example-chip" (click)="useExamplePrompt(prompt)">{{ prompt }}</button>
+          }
+        </div>
+      </div>
+    } @else {
+      <div class="thread">
+        @if (loadingMessages()) {
+          <p class="thread-loading">Loading conversation...</p>
+        }
+        @for (message of messages(); track message.id) {
+          <div class="message-row" [class.message-row--user]="message.role === 'user'">
+            <div class="message-bubble" [class.message-bubble--user]="message.role === 'user'">
+              @if (message.toolEvents && message.toolEvents.length) {
+                <div class="tool-chips">
+                  @for (event of message.toolEvents; track $index) {
+                    <span class="tool-chip" [class.tool-chip--done]="!!event.summary">
+                      <i [class]="'bi ' + toolIcon(event.toolName)"></i>
+                      {{ toolLabel(event) }}
+                    </span>
+                  }
+                </div>
+              }
+              <p class="message-content">{{ message.content }}@if (message.streaming) {<span class="cursor-blink"></span>}</p>
+            </div>
+          </div>
+        }
+        <div #threadEnd></div>
+      </div>
+    }
+
+    <div class="input-bar">
+      <div class="input-shell">
+        <textarea
+          #textarea
+          class="input-textarea"
+          rows="1"
+          placeholder="Ask the Engine anything..."
+          [(ngModel)]="draft"
+          (keydown)="handleKeydown($event)">
+        </textarea>
+        <button class="send-btn" [disabled]="!draft.trim() || sending()" (click)="send()">
+          @if (sending()) {
+            <i class="bi bi-hourglass-split"></i>
+          } @else {
+            <i class="bi bi-arrow-up"></i>
+          }
+        </button>
+      </div>
+    </div>
+  </main>
+</div>

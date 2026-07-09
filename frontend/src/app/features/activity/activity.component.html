@@ -1,0 +1,100 @@
+<div class="activity-page">
+  <div class="page-header">
+    <h1>Engine Activity</h1>
+    <p class="subtitle">Everything the Engine has run, and what's scheduled next</p>
+  </div>
+
+  <app-card padding="lg" class="section-card">
+    <h3>Agent Runs</h3>
+    <app-data-table
+      [columns]="runColumns"
+      [rows]="runs()"
+      [loading]="loadingRuns()"
+      [clickableRows]="true"
+      emptyText="No Engine runs yet."
+      (rowClick)="openRun($event)">
+
+      <ng-template appDataCell="objective" let-value>
+        <span class="dt-strong">{{ value }}</span>
+      </ng-template>
+
+      <ng-template appDataCell="status" let-value>
+        <app-badge [variant]="statusBadgeVariant(value)" size="sm">{{ value }}</app-badge>
+      </ng-template>
+
+      <ng-template appDataCell="startedAt" let-value>
+        {{ value | date: 'MMM d, h:mm a' }}
+      </ng-template>
+
+      <ng-template appDataCell="duration" let-row="row">
+        {{ duration(row) }}
+      </ng-template>
+
+      <ng-template appDataCell="stepCount" let-value>
+        <span class="dt-num">{{ value }}</span>
+      </ng-template>
+    </app-data-table>
+  </app-card>
+
+  <app-card padding="lg" class="section-card">
+    <h3>Scheduled Follow-ups</h3>
+    @if (loadingJobs()) {
+      <p class="empty-text">Loading jobs...</p>
+    } @else if (jobs().length) {
+      <ul class="job-list">
+        @for (job of jobs(); track job.id) {
+          <li class="job-item">
+            <div class="job-icon"><i class="bi bi-clock-history"></i></div>
+            <div class="job-content">
+              <span class="job-objective">{{ job.objective }}</span>
+              <span class="job-meta">
+                {{ job.type }}
+                @if (job.lead) { · {{ job.lead.companyName }} }
+                @if (job.campaign) { · {{ job.campaign.name }} }
+                · {{ job.runAt | date: 'MMM d, h:mm a' }}
+              </span>
+            </div>
+            <app-badge variant="neutral" size="sm">{{ job.status }}</app-badge>
+          </li>
+        }
+      </ul>
+    } @else {
+      <p class="empty-text">No jobs scheduled.</p>
+    }
+  </app-card>
+</div>
+
+<app-dialog title="Run Detail" [show]="showRunDialog()" size="lg" (close)="showRunDialog.set(false)">
+  @if (loadingRunDetail()) {
+    <p class="empty-text">Loading run...</p>
+  } @else {
+  @if (selectedRun(); as run) {
+    <div class="run-detail">
+      <div class="run-summary">
+        <div><strong>Objective:</strong> {{ run.objective }}</div>
+        <div><strong>Trigger:</strong> {{ run.trigger }}</div>
+        <div><strong>Status:</strong> <app-badge [variant]="statusBadgeVariant(run.status)" size="sm">{{ run.status }}</app-badge></div>
+        @if (run.summary) {
+          <div><strong>Summary:</strong> {{ run.summary }}</div>
+        }
+      </div>
+
+      @if (run.steps && run.steps.length) {
+        <ul class="step-list">
+          @for (step of run.steps; track step.index) {
+            <li class="step-item">
+              <span class="step-index">{{ step.index + 1 }}</span>
+              <div class="step-content">
+                <span class="step-type">{{ step.type }}<span *ngIf="step.toolName"> · {{ step.toolName }}</span></span>
+                <span class="step-time">{{ step.createdAt | date: 'h:mm:ss a' }}</span>
+              </div>
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="empty-text">No steps recorded.</p>
+      }
+    </div>
+  }
+  }
+</app-dialog>

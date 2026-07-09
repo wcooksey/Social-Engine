@@ -66,7 +66,7 @@
 
 <app-dialog title="Add Lead" [show]="showAddDialog()" size="md" (close)="showAddDialog.set(false)">
   <div class="add-lead-form">
-    <app-input label="Company name" required [(ngModel)]="newLead.companyName" [ngModelOptions]="{ standalone: true }"></app-input>
+    <app-input label="Company name" [required]="true" [(ngModel)]="newLead.companyName" [ngModelOptions]="{ standalone: true }"></app-input>
     <app-input label="Website" [(ngModel)]="newLead.website" [ngModelOptions]="{ standalone: true }"></app-input>
     <app-input label="Phone" [(ngModel)]="newLead.phone" [ngModelOptions]="{ standalone: true }"></app-input>
     <div class="form-row">

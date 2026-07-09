@@ -9,7 +9,8 @@
       <span class="spinner"></span>
       <p>Loading dashboard...</p>
     </div>
-  } @else if (stats(); as s) {
+  } @else {
+  @if (stats(); as s) {
     <div class="stats-grid">
       <app-card class="stat-card" [routerLink]="['/leads']">
         <div class="stat-icon" style="background: rgba(66, 93, 185, 0.12);">
@@ -110,5 +111,6 @@
         }
       </app-card>
     </div>
+  }
   }
 </div>

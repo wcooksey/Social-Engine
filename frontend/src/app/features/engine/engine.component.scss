@@ -1,0 +1,353 @@
+@import '../../../assets/styles/variables';
+@import '../../../assets/styles/mixins';
+
+:host {
+  display: block;
+  height: 100%;
+}
+
+.engine-page {
+  display: flex;
+  height: calc(100vh - 60px - #{$spacing-lg} - #{$spacing-xl});
+  min-height: 560px;
+  gap: $spacing-lg;
+  margin: -#{$spacing-lg} -#{$spacing-xl} -#{$spacing-xl};
+  padding: $spacing-lg $spacing-xl $spacing-xl;
+
+  @include responsive($breakpoint-lg) {
+    flex-direction: column;
+    height: auto;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+// ---- Chat list panel ----
+.chat-list-panel {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-lg;
+  padding: $spacing-md;
+
+  @include responsive($breakpoint-lg) {
+    width: 100%;
+    max-height: 200px;
+  }
+}
+
+.new-chat-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-md;
+  border-radius: $border-radius-md;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: $font-size-sm;
+  font-weight: 500;
+  transition: all $transition-fast;
+
+  &:hover {
+    border-color: $primary-blue;
+    color: $primary-blue;
+  }
+}
+
+.chat-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.chat-list-empty {
+  color: var(--text-tertiary);
+  font-size: $font-size-sm;
+  font-style: italic;
+  padding: $spacing-sm;
+}
+
+.chat-list-item {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm;
+  border-radius: $border-radius-md;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  font-size: $font-size-sm;
+  transition: all $transition-fast;
+
+  i {
+    flex-shrink: 0;
+    color: var(--text-tertiary);
+  }
+
+  .chat-title {
+    @include truncate;
+  }
+
+  &:hover {
+    background: var(--bg-tertiary);
+  }
+
+  &.active {
+    background: rgba(66, 93, 185, 0.15);
+    color: $primary-blue;
+
+    i {
+      color: $primary-blue;
+    }
+  }
+}
+
+// ---- Main panel ----
+.engine-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  position: relative;
+}
+
+// ---- Hero (empty state) ----
+.hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: $spacing-2xl $spacing-lg;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-glow {
+  position: absolute;
+  top: 20%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 480px;
+  height: 480px;
+  background: radial-gradient(circle, rgba($primary-blue, 0.16) 0%, transparent 70%);
+  pointer-events: none;
+
+  [data-theme="light"] &,
+  :host-context([data-theme="light"]) & {
+    background: radial-gradient(circle, rgba($primary-blue, 0.08) 0%, transparent 70%);
+  }
+}
+
+.hero-icon {
+  font-size: 2.2rem;
+  color: $primary-blue;
+  margin-bottom: $spacing-md;
+  position: relative;
+  animation: hero-breathe 3s ease-in-out infinite;
+}
+
+@keyframes hero-breathe {
+  0%, 100% { opacity: 0.75; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+.hero h1 {
+  position: relative;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-3xl;
+}
+
+.hero-subtitle {
+  position: relative;
+  color: var(--text-secondary);
+  max-width: 480px;
+  margin-bottom: $spacing-xl;
+}
+
+.example-chips {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: $spacing-sm;
+  max-width: 640px;
+}
+
+.example-chip {
+  padding: $spacing-sm $spacing-md;
+  border-radius: $border-radius-full;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: $font-size-sm;
+  transition: all $transition-fast;
+
+  &:hover {
+    border-color: $primary-blue;
+    color: $primary-blue;
+    transform: translateY(-1px);
+  }
+}
+
+// ---- Thread ----
+.thread {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+  padding: $spacing-md $spacing-xs $spacing-lg;
+}
+
+.thread-loading {
+  color: var(--text-tertiary);
+  font-size: $font-size-sm;
+  text-align: center;
+}
+
+.message-row {
+  display: flex;
+
+  &--user {
+    justify-content: flex-end;
+  }
+}
+
+.message-bubble {
+  max-width: 70%;
+  background: var(--bg-tertiary);
+  border-radius: $border-radius-lg;
+  padding: $spacing-md;
+
+  &--user {
+    background: rgba($primary-blue, 0.16);
+  }
+
+  @include responsive($breakpoint-md) {
+    max-width: 88%;
+  }
+}
+
+.message-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: $font-size-sm;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.cursor-blink {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--text-primary);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 1s step-start infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+.tool-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+  margin-bottom: $spacing-sm;
+}
+
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: $border-radius-full;
+  background: rgba($secondary-orange, 0.14);
+  border: 1px solid rgba($secondary-orange, 0.3);
+  color: $secondary-orange;
+  font-size: $font-size-xs;
+  font-weight: 500;
+
+  &--done {
+    background: rgba($success-green, 0.14);
+    border-color: rgba($success-green, 0.3);
+    color: $success-green;
+  }
+}
+
+// ---- Input bar ----
+.input-bar {
+  padding: $spacing-md $spacing-xs 0;
+}
+
+.input-shell {
+  display: flex;
+  align-items: flex-end;
+  gap: $spacing-sm;
+  padding: $spacing-sm;
+  border-radius: $border-radius-xl;
+  background: var(--bg-card);
+  border: 1px solid var(--border-secondary);
+  transition: border-color $transition-fast, box-shadow $transition-fast;
+
+  &:focus-within {
+    border-color: $primary-blue;
+    box-shadow: 0 0 0 3px rgba($primary-blue, 0.15);
+  }
+}
+
+.input-textarea {
+  flex: 1;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: $font-family-primary;
+  font-size: $font-size-base;
+  padding: $spacing-sm;
+  min-height: 24px;
+  max-height: 160px;
+
+  &::placeholder {
+    color: var(--text-tertiary);
+  }
+}
+
+.send-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: $primary-blue;
+  color: white;
+  cursor: pointer;
+  @include flex-center;
+  flex-shrink: 0;
+  transition: all $transition-fast;
+
+  &:hover:not(:disabled) {
+    background: darken($primary-blue, 8%);
+    transform: translateY(-1px);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}

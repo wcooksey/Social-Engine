@@ -1,0 +1,74 @@
+<div class="settings-page">
+  <div class="page-header">
+    <h1>Settings</h1>
+    <p class="subtitle">Your profile, organization guardrails, and integrations</p>
+  </div>
+
+  @if (currentUser(); as user) {
+    <app-card padding="lg" class="section-card">
+      <h3>Profile</h3>
+      <div class="form-row">
+        <app-input label="First name" [ngModel]="user.firstName" [ngModelOptions]="{ standalone: true }" [disabled]="true"></app-input>
+        <app-input label="Last name" [ngModel]="user.lastName" [ngModelOptions]="{ standalone: true }" [disabled]="true"></app-input>
+      </div>
+      <app-input label="Email" [ngModel]="user.email" [ngModelOptions]="{ standalone: true }" [disabled]="true"></app-input>
+    </app-card>
+
+    @if (user.organization) {
+      <app-card padding="lg" class="section-card">
+        <h3>Organization</h3>
+        <app-input label="Organization name" [ngModel]="user.organization.name" [ngModelOptions]="{ standalone: true }" [disabled]="true"></app-input>
+
+        <div class="guardrails">
+          <div class="guardrail-row">
+            <app-input label="Daily send cap" type="number" [(ngModel)]="dailySendCap" [ngModelOptions]="{ standalone: true }"></app-input>
+          </div>
+          <div class="form-row">
+            <app-input label="Quiet hours start" type="time" [(ngModel)]="quietHoursStart" [ngModelOptions]="{ standalone: true }"></app-input>
+            <app-input label="Quiet hours end" type="time" [(ngModel)]="quietHoursEnd" [ngModelOptions]="{ standalone: true }"></app-input>
+          </div>
+
+          <div class="kill-switch-row">
+            <div class="kill-switch-label">
+              <span class="label-title">Engine active</span>
+              <span class="label-sub">Pause to halt all autonomous research, outreach, and follow-ups immediately.</span>
+            </div>
+            <app-switch [ngModel]="engineActive" (valueChange)="toggleEngine()" [ngModelOptions]="{ standalone: true }"></app-switch>
+          </div>
+
+          <div class="guardrails-actions">
+            <app-button variant="primary" [loading]="savingGuardrails" (clicked)="saveGuardrails()">Save Guardrails</app-button>
+          </div>
+        </div>
+      </app-card>
+    }
+  }
+
+  <app-card padding="lg" class="section-card">
+    <h3>Appearance</h3>
+    <div class="theme-row">
+      <span>Theme</span>
+      <div class="theme-toggle-wrapper">
+        <app-theme-toggle></app-theme-toggle>
+      </div>
+    </div>
+  </app-card>
+
+  <app-card padding="lg" class="section-card">
+    <h3>Integrations</h3>
+    <div class="integrations-grid">
+      @for (integration of integrations; track integration.name) {
+        <div class="integration-card">
+          <div class="integration-icon"><i [class]="'bi ' + integration.icon"></i></div>
+          <div class="integration-body">
+            <div class="integration-header">
+              <span class="integration-name">{{ integration.name }}</span>
+              <app-badge variant="neutral" size="sm">Not configured</app-badge>
+            </div>
+            <p class="integration-description">{{ integration.description }}</p>
+          </div>
+        </div>
+      }
+    </div>
+  </app-card>
+</div>

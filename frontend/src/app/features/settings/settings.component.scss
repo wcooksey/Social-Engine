@@ -1,0 +1,136 @@
+@import '../../../assets/styles/variables';
+@import '../../../assets/styles/mixins';
+
+.settings-page {
+  max-width: 800px;
+}
+
+.page-header {
+  margin-bottom: $spacing-lg;
+
+  .subtitle {
+    color: var(--text-secondary);
+    margin-top: $spacing-xs;
+  }
+}
+
+.section-card {
+  margin-bottom: $spacing-lg;
+
+  h3 {
+    margin-bottom: $spacing-md;
+  }
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: $spacing-md;
+  margin-bottom: $spacing-md;
+}
+
+.guardrails {
+  margin-top: $spacing-lg;
+  padding-top: $spacing-lg;
+  border-top: 1px solid var(--border-primary);
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.guardrail-row {
+  max-width: 240px;
+}
+
+.kill-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  padding: $spacing-md;
+  border-radius: $border-radius-md;
+  background: var(--bg-tertiary);
+}
+
+.kill-switch-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.label-title {
+  font-weight: 600;
+  font-size: $font-size-sm;
+}
+
+.label-sub {
+  font-size: $font-size-xs;
+  color: var(--text-secondary);
+  max-width: 420px;
+}
+
+.guardrails-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.theme-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+}
+
+.theme-toggle-wrapper {
+  width: 44px;
+}
+
+.integrations-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: $spacing-md;
+
+  @include responsive($breakpoint-md) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.integration-card {
+  display: flex;
+  gap: $spacing-md;
+  padding: $spacing-md;
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+}
+
+.integration-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: $border-radius-md;
+  background: var(--bg-tertiary);
+  color: $primary-blue;
+  @include flex-center;
+  flex-shrink: 0;
+}
+
+.integration-body {
+  min-width: 0;
+}
+
+.integration-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+}
+
+.integration-name {
+  font-weight: 600;
+  font-size: $font-size-sm;
+}
+
+.integration-description {
+  color: var(--text-secondary);
+  font-size: $font-size-xs;
+  margin-top: $spacing-xs;
+}
