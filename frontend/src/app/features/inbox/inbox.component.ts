@@ -4,16 +4,17 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged, Subject } from 'rxjs';
 import { ConversationsService } from '../../core/services/conversations.service';
-import { ConversationDetail, ConversationSummary } from '../../core/models/conversation.model';
+import { ConversationDetail, ConversationSummary, Message } from '../../core/models/conversation.model';
 import { ToastService } from '../../core/services/toast.service';
 import { InputComponent } from '../../shared/components/input/input.component';
 import { SelectComponent, SelectOption } from '../../shared/components/select/select.component';
 import { BadgeComponent, BadgeVariant } from '../../shared/components/badge/badge.component';
+import { ButtonComponent } from '../../shared/components/button/button.component';
 
 @Component({
   selector: 'app-inbox',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, InputComponent, SelectComponent, BadgeComponent],
+  imports: [CommonModule, FormsModule, RouterLink, InputComponent, SelectComponent, BadgeComponent, ButtonComponent],
   templateUrl: './inbox.component.html',
   styleUrl: './inbox.component.scss'
 })
@@ -27,6 +28,12 @@ export class InboxComponent implements OnInit {
   loadingDetail = signal(false);
 
   mobileShowThread = signal(false);
+
+  sendingReply = signal(false);
+  // Message id of the draft currently being approved/discarded, if any.
+  actingMessageId = signal<string | null>(null);
+
+  replyBody = '';
 
   search = '';
   channel = '';
@@ -89,6 +96,7 @@ export class InboxComponent implements OnInit {
   selectConversation(summary: ConversationSummary): void {
     this.selectedId.set(summary.id);
     this.mobileShowThread.set(true);
+    this.replyBody = '';
     this.loadingDetail.set(true);
     this.conversationsService.getConversation(summary.id).subscribe({
       next: (detail) => {
@@ -104,6 +112,83 @@ export class InboxComponent implements OnInit {
 
   backToList(): void {
     this.mobileShowThread.set(false);
+  }
+
+  /** Reload the open thread (without the full-pane spinner) and the list previews. */
+  refreshThread(): void {
+    const id = this.selectedId();
+    if (!id) return;
+    this.conversationsService.getConversation(id).subscribe({
+      next: (detail) => this.selectedConversation.set(detail),
+      error: () => this.toast.error('Failed to refresh conversation')
+    });
+    this.load();
+  }
+
+  canReply(convo: ConversationDetail): boolean {
+    return convo.channel === 'EMAIL' || convo.channel === 'SMS';
+  }
+
+  isDraft(message: Message): boolean {
+    return message.direction === 'OUTBOUND' && !!message.status?.startsWith('draft');
+  }
+
+  draftLabel(message: Message): string {
+    return message.status === 'draft_blocked' ? 'Draft — blocked' : 'Draft — pending approval';
+  }
+
+  sendReply(convo: ConversationDetail): void {
+    const body = this.replyBody.trim();
+    if (!body || this.sendingReply()) return;
+    this.sendingReply.set(true);
+    this.conversationsService.sendMessage(convo.id, body).subscribe({
+      next: () => {
+        this.sendingReply.set(false);
+        this.replyBody = '';
+        this.toast.success('Reply sent');
+        this.refreshThread();
+      },
+      error: (err) => {
+        this.sendingReply.set(false);
+        this.toast.error(this.errorMessage(err, 'Failed to send reply'));
+      }
+    });
+  }
+
+  approveDraft(convo: ConversationDetail, message: Message): void {
+    if (this.actingMessageId()) return;
+    this.actingMessageId.set(message.id);
+    this.conversationsService.approveDraft(convo.id, message.id).subscribe({
+      next: () => {
+        this.actingMessageId.set(null);
+        this.toast.success('Draft approved and sent');
+        this.refreshThread();
+      },
+      error: (err) => {
+        this.actingMessageId.set(null);
+        this.toast.error(this.errorMessage(err, 'Failed to send draft'));
+      }
+    });
+  }
+
+  discardDraft(convo: ConversationDetail, message: Message): void {
+    if (this.actingMessageId()) return;
+    this.actingMessageId.set(message.id);
+    this.conversationsService.discardDraft(convo.id, message.id).subscribe({
+      next: () => {
+        this.actingMessageId.set(null);
+        this.toast.success('Draft discarded');
+        this.refreshThread();
+      },
+      error: (err) => {
+        this.actingMessageId.set(null);
+        this.toast.error(this.errorMessage(err, 'Failed to discard draft'));
+      }
+    });
+  }
+
+  private errorMessage(err: any, fallback: string): string {
+    return err?.error?.error || err?.error?.message || fallback;
   }
 
   channelIcon(channel: string): string {

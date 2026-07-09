@@ -102,18 +102,76 @@
         <div class="message-list">
           @if (convo.messages.length) {
             @for (m of convo.messages; track m.id) {
-              <div class="message-bubble" [class.outbound]="m.direction === 'OUTBOUND'" [class.inbound]="m.direction === 'INBOUND'">
+              <div
+                class="message-bubble"
+                [class.outbound]="m.direction === 'OUTBOUND'"
+                [class.inbound]="m.direction === 'INBOUND'"
+                [class.draft]="isDraft(m)">
+                @if (isDraft(m)) {
+                  <div class="draft-header">
+                    <app-badge variant="warning" size="xs" icon="bi-pencil-square">{{ draftLabel(m) }}</app-badge>
+                  </div>
+                }
                 <div class="bubble-content">{{ m.body }}</div>
                 <div class="bubble-footer">
-                  @if (m.status) { <span class="bubble-status">{{ m.status }}</span> }
+                  @if (m.status && !isDraft(m)) { <span class="bubble-status">{{ m.status }}</span> }
                   <span class="bubble-time">{{ relativeTime(m.sentAt || m.createdAt) }}</span>
                 </div>
+                @if (isDraft(m)) {
+                  <div class="draft-actions">
+                    <app-button
+                      size="sm"
+                      variant="primary"
+                      icon="bi-send"
+                      [loading]="actingMessageId() === m.id"
+                      [disabled]="actingMessageId() !== null && actingMessageId() !== m.id"
+                      (clicked)="approveDraft(convo, m)">
+                      Approve &amp; send
+                    </app-button>
+                    <app-button
+                      size="sm"
+                      variant="ghost"
+                      icon="bi-trash"
+                      [disabled]="actingMessageId() !== null"
+                      (clicked)="discardDraft(convo, m)">
+                      Discard
+                    </app-button>
+                  </div>
+                }
               </div>
             }
           } @else {
             <p class="empty-text">No messages in this conversation.</p>
           }
         </div>
+
+        @if (canReply(convo)) {
+          <div class="composer">
+            <textarea
+              class="composer-input"
+              rows="3"
+              [placeholder]="convo.channel === 'EMAIL' ? 'Write an email reply...' : 'Write an SMS reply...'"
+              [(ngModel)]="replyBody"
+              [disabled]="sendingReply()">
+            </textarea>
+            <div class="composer-actions">
+              <app-button
+                size="sm"
+                variant="primary"
+                icon="bi-send"
+                [loading]="sendingReply()"
+                [disabled]="!replyBody.trim()"
+                (clicked)="sendReply(convo)">
+                Send
+              </app-button>
+            </div>
+          </div>
+        } @else if (convo.channel === 'SOCIAL') {
+          <div class="composer-hint">
+            <i class="bi bi-robot"></i>
+            <span>Social DMs are sent by the Engine's browser agent.</span>
+          </div>
+        }
       </div>
     } @else {
       <div class="empty-state">

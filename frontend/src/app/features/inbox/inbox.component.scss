@@ -310,6 +310,81 @@
   text-transform: capitalize;
 }
 
+// ---------- Draft messages ----------
+
+.message-bubble.draft {
+  border: 1px dashed rgba($warning-yellow, 0.6);
+  background: rgba($warning-yellow, 0.08);
+}
+
+.draft-header {
+  display: flex;
+  align-items: center;
+}
+
+.draft-actions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-top: $spacing-xs;
+}
+
+// ---------- Reply composer ----------
+
+.composer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  padding: $spacing-md $spacing-lg;
+  border-top: 1px solid var(--border-primary);
+}
+
+.composer-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 64px;
+  padding: $spacing-sm $spacing-md;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: $font-size-sm;
+  line-height: 1.5;
+
+  &::placeholder {
+    color: var(--text-tertiary);
+  }
+
+  &:focus {
+    outline: none;
+    border-color: $primary-blue;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.composer-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.composer-hint {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  padding: $spacing-md $spacing-lg;
+  border-top: 1px solid var(--border-primary);
+  color: var(--text-tertiary);
+  font-size: $font-size-sm;
+  font-style: italic;
+}
+
 // ---------- Shared states ----------
 
 .loading-state,
