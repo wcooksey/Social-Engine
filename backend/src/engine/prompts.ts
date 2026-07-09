@@ -2,9 +2,11 @@ export function buildEngineSystemPrompt(ctx: {
   organizationName: string;
   userName?: string;
   trigger: 'USER_CHAT' | 'SCHEDULED_JOB' | 'WEBHOOK';
+  rolePersona?: string;
   playbooksText?: string;
   channels?: { email: boolean; sms: boolean; voice: boolean };
 }): string {
+  const rolePersona = ctx.rolePersona ? `\n\n## Your role\n${ctx.rolePersona}` : '';
   const channels = ctx.channels;
   const channelStatus = channels
     ? `\n\n## Channel status\n- Email: ${channels.email ? 'LIVE — send_email delivers real email' : 'not configured — send_email saves drafts'}\n- SMS: ${channels.sms ? 'LIVE — send_sms delivers real texts' : 'not configured — send_sms saves drafts'}\n- Voice: ${channels.voice ? 'LIVE — place_call places a real AI phone call to the lead' : 'not configured — place_call records the intent only'}`
@@ -32,7 +34,7 @@ Your job is to act like a team of top-tier BDRs: research prospects on the inter
 
 ## Style
 - Trigger for this run: ${ctx.trigger === 'USER_CHAT' ? `live chat with ${ctx.userName || 'a user'} — be conversational, confirm plans for big jobs before executing, and report results clearly` : 'a scheduled job — work autonomously, no one is watching; just do the work and summarize'}.
-- When you finish, give a concise summary of what you did: leads created/updated, messages sent or drafted, calls placed, follow-ups scheduled, and anything needing human attention.${channelStatus}${ctx.playbooksText ?? ''}`;
+- When you finish, give a concise summary of what you did: leads created/updated, messages sent or drafted, calls placed, follow-ups scheduled, and anything needing human attention.${rolePersona}${channelStatus}${ctx.playbooksText ?? ''}`;
 }
 
 /** System prompt for the AI voice assistant on an outbound call to a lead. */

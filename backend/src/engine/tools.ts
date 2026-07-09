@@ -11,6 +11,7 @@ import {
   saveStorageState,
 } from '../services/social-account.service';
 import { runBrowserAgent } from './browser/browser-agent.service';
+import { AgentRole, defaultRoleForJobType } from './roles';
 import { buildCallSystemPrompt } from './prompts';
 import { researchService } from './research.service';
 
@@ -295,12 +296,17 @@ export const engineTools: Anthropic.Tool[] = [
   {
     name: 'schedule_followup',
     description:
-      'Schedule your own future work: a follow-up on a lead, the next campaign step, or a research continuation. The Engine wakes up at runAt and executes the objective. This is how you stay persistent across days/weeks.',
+      'Schedule future work — for your future self OR to hand off to a specialist agent. Set role to delegate: RESEARCHER (find/enrich leads), CALLER (place a call), SDR (email/SMS/social outreach), or COORDINATOR (general). The assigned agent wakes at runAt with the full shared context and executes the objective. This is how the team divides labor and stays persistent across days/weeks.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        objective: { type: 'string', description: 'Instruction to your future self, with all needed context' },
+        objective: { type: 'string', description: 'Instruction for the agent that runs this, with all needed context' },
         type: { type: 'string', enum: ['FOLLOW_UP', 'RESEARCH', 'CAMPAIGN_STEP', 'CUSTOM'] },
+        role: {
+          type: 'string',
+          enum: ['RESEARCHER', 'CALLER', 'SDR', 'COORDINATOR'],
+          description: 'Which specialist should run this job. Defaults from type if omitted.',
+        },
         leadId: { type: 'string' },
         campaignId: { type: 'string' },
         delayHours: { type: 'number', description: 'Hours from now (alternative to runAtIso)' },
@@ -1007,10 +1013,13 @@ const executors: Record<string, ToolExecutor> = {
     }
     if (input.leadId) await requireLead(input.leadId, ctx.organizationId);
 
+    const type = input.type || 'FOLLOW_UP';
+    const role = (input.role as AgentRole | undefined) || defaultRoleForJobType(type);
     const job = await prisma.agentJob.create({
       data: {
         organizationId: ctx.organizationId,
-        type: input.type || 'FOLLOW_UP',
+        type,
+        role,
         objective: input.objective,
         leadId: input.leadId,
         campaignId: input.campaignId,

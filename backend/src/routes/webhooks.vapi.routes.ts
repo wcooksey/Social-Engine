@@ -68,7 +68,8 @@ router.post(
         leadId,
         campaignId: campaignId || null,
         type: 'FOLLOW_UP',
-        objective: `An AI phone call with this lead just ended. Review the latest CALL_COMPLETED activity on its timeline (summary and transcript), then: update the lead status if warranted, record any commitments as calendar events, and schedule the appropriate next follow-up per the playbooks. Call summary: ${summary.slice(0, 800)}`,
+        role: 'COORDINATOR',
+        objective: `An AI phone call with this lead just ended. Review the latest CALL_COMPLETED activity on its timeline (summary and transcript), then: update the lead status if warranted, record any commitments as calendar events, and schedule the appropriate next follow-up per the playbooks (delegate outreach to an SDR or another call to a Caller as needed). Call summary: ${summary.slice(0, 800)}`,
         runAt: new Date(),
       },
     });

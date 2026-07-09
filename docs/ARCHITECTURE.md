@@ -120,12 +120,31 @@ The context problem: a campaign runs for weeks, but a model context window is fi
 - **Chunked work.** Big objectives ("every dealership in Florida") are decomposed into `AgentJob`
   rows (e.g. per-metro research jobs) processed by the worker over time — no single giant run.
 
+### Specialist roles & parallel execution
+
+The Engine runs under a **role** that scopes its tools and persona, so work divides like a real
+team while everyone shares the one database brain:
+
+- **Coordinator** — generalist, all tools; drives live chat and orchestrates by delegating.
+- **Researcher** — prospect/enrich/dedup via web + browser; no outbound sending.
+- **Caller** — places AI voice calls and books meetings.
+- **SDR** — email / SMS / social outreach.
+
+Every specialist can `schedule_followup` with a target role, so agents hand work to each other
+(a Researcher finishes enrichment → schedules an SDR outreach job → a Caller books the demo).
+
+The **worker runs a concurrency pool**: up to `ENGINE_WORKER_CONCURRENCY` agents at once globally,
+capped at `ENGINE_ORG_CONCURRENCY` per organization (so parallelism can't exceed rate limits or
+let one org starve another). Jobs are claimed atomically (no double-run), leads dedupe on write,
+and the timeline is append-only — so a Researcher, a Caller, and an SDR can work the same lead
+pool simultaneously without conflict.
+
 ### Autonomy & scheduling
 
 - A **worker loop** polls for due `AgentJob`s (follow-ups, campaign steps, research chunks) and
-  executes them as Engine runs.
-- The Engine can call `schedule_followup` to create future jobs — this is how it "sets its own
-  schedule."
+  executes them as role-scoped Engine runs, several in parallel.
+- The Engine can call `schedule_followup` to create future jobs (and delegate them to a role) —
+  this is how it "sets its own schedule" and divides labor.
 - Guardrails: per-org daily send caps, quiet hours, channel rate limits, kill switch
   (pause org/campaign), and human-approval mode per campaign (draft-first vs. autonomous).
 

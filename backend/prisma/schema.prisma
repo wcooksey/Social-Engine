@@ -341,6 +341,13 @@ enum AgentRunTrigger {
   WEBHOOK
 }
 
+enum AgentRole {
+  COORDINATOR // generalist: all tools (live chat + custom jobs)
+  RESEARCHER  // prospecting, enrichment, dedup — no outbound sending
+  CALLER      // AI voice calls + booking
+  SDR         // email / SMS / social outreach
+}
+
 model AgentRun {
   id             String          @id @default(uuid())
   organizationId String
@@ -348,6 +355,7 @@ model AgentRun {
   userId         String?
   user           User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
   trigger        AgentRunTrigger
+  role           AgentRole       @default(COORDINATOR)
   objective      String          // what this run was asked to do
   model          String?         // model that actually served the run (after any failover)
   status         AgentRunStatus  @default(RUNNING)
@@ -404,6 +412,7 @@ model AgentJob {
   campaign       Campaign?      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   type      AgentJobType
+  role      AgentRole      @default(COORDINATOR)
   objective String       // instruction the Engine executes when the job fires
   payload   Json?
   runAt     DateTime

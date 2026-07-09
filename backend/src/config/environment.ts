@@ -21,6 +21,10 @@ export const config = {
     model: process.env.ENGINE_MODEL || 'claude-sonnet-5',
     maxIterations: parseInt(process.env.ENGINE_MAX_ITERATIONS || '25', 10),
     workerIntervalMs: parseInt(process.env.ENGINE_WORKER_INTERVAL_MS || '15000', 10),
+    // How many agent jobs run at once across all orgs, and the cap per org so
+    // one org can't starve others or blow past its rate limits.
+    workerConcurrency: parseInt(process.env.ENGINE_WORKER_CONCURRENCY || '4', 10),
+    orgConcurrency: parseInt(process.env.ENGINE_ORG_CONCURRENCY || '2', 10),
   },
 
   search: {

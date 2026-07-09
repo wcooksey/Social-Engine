@@ -26,6 +26,7 @@ router.get(
         runs: runs.map((r) => ({
           id: r.id,
           trigger: r.trigger,
+          role: r.role,
           objective: r.objective,
           status: r.status,
           summary: r.summary,

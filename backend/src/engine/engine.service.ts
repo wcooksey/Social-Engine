@@ -4,6 +4,7 @@ import { isEmailConfigured, isSmsConfigured, isVoiceConfigured } from '../servic
 import { formatPlaybooksForPrompt, getActivePlaybooks } from '../services/playbook.service';
 import { buildEngineSystemPrompt } from './prompts';
 import { LlmMessage, LlmToolDefinition, llmService } from './llm/llm.service';
+import { AgentRole, roleAllowsTool, rolePersona } from './roles';
 import { engineTools, executeTool, ToolContext } from './tools';
 
 export type EngineEvent =
@@ -18,6 +19,8 @@ export interface RunEngineOptions {
   organizationId: string;
   userId?: string;
   trigger: 'USER_CHAT' | 'SCHEDULED_JOB' | 'WEBHOOK';
+  /** Specialist role driving this run (defaults to the generalist Coordinator). */
+  role?: AgentRole;
   objective: string;
   /** Prior chat turns for USER_CHAT runs. */
   history?: { role: 'user' | 'assistant'; content: string }[];
@@ -60,12 +63,16 @@ class EngineService {
       : null;
 
     const model = organization.engineModel || config.engine.model;
+    const role: AgentRole = options.role || 'COORDINATOR';
+    // Scope the tools to the role — a Researcher can't send, an SDR can't dial.
+    const roleTools = llmTools.filter((t) => roleAllowsTool(role, t.name));
 
     const run = await prisma.agentRun.create({
       data: {
         organizationId: options.organizationId,
         userId: options.userId,
         trigger: options.trigger,
+        role,
         objective: options.objective.slice(0, 2000),
         model,
       },
@@ -101,6 +108,7 @@ class EngineService {
       organizationName: organization.name,
       userName: user ? `${user.firstName} ${user.lastName}`.trim() : undefined,
       trigger: options.trigger,
+      rolePersona: rolePersona(role),
       playbooksText: formatPlaybooksForPrompt(playbooks),
       channels: {
         email: isEmailConfigured(),
@@ -123,7 +131,7 @@ class EngineService {
 
       for (let iteration = 0; iteration < config.engine.maxIterations; iteration++) {
         const response = await llmService.chatWithFailover(
-          { model, system, messages, tools: llmTools, maxTokens: 8192 },
+          { model, system, messages, tools: roleTools, maxTokens: 8192 },
           (fromModel, toModel, reason) => {
             emit({ type: 'model_failover', fromModel, toModel, reason });
             void recordStep('model_failover', {
