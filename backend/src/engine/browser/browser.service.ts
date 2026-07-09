@@ -34,7 +34,7 @@ export class BrowserSession {
   private context: BrowserContext | null = null;
   private page: Page | null = null;
 
-  async open(): Promise<void> {
+  async open(opts?: { storageState?: Record<string, unknown> | string }): Promise<void> {
     const { chromium } = await import('playwright');
     // Honor the environment's HTTPS proxy so the browser reaches the internet
     // through the same egress path as the rest of the app.
@@ -53,7 +53,10 @@ export class BrowserSession {
       args: ['--no-sandbox', '--disable-dev-shm-usage'],
       ...(proxyUrl ? { proxy: { server: proxyUrl, bypass } } : {}),
     });
-    const storageState = config.browser.storageStatePath || undefined;
+    // Priority: a session object passed in (per-org social login) > a file
+    // path from config > no stored session.
+    const storageState =
+      (opts?.storageState as never) || config.browser.storageStatePath || undefined;
     this.context = await this.browser.newContext({
       viewport: { width: 1280, height: 900 },
       ignoreHTTPSErrors: true,
@@ -145,6 +148,12 @@ export class BrowserSession {
     });
 
     return { url, title, text, elements };
+  }
+
+  /** Export the current cookies + localStorage to persist the refreshed session. */
+  async exportState(): Promise<Record<string, unknown>> {
+    if (!this.context) return {};
+    return (await this.context.storageState()) as unknown as Record<string, unknown>;
   }
 
   async close(): Promise<void> {

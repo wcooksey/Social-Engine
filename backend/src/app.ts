@@ -21,6 +21,7 @@ import leadsRoutes from './routes/leads.routes';
 import modelsRoutes from './routes/models.routes';
 import organizationsRoutes from './routes/organizations.routes';
 import playbooksRoutes from './routes/playbooks.routes';
+import socialAccountsRoutes from './routes/social-accounts.routes';
 import vapiWebhookRoutes from './routes/webhooks.vapi.routes';
 
 const app = express();
@@ -54,6 +55,7 @@ app.use('/api/engine', apiRateLimit, authMiddleware, engineRoutes);
 app.use('/api/organizations', apiRateLimit, authMiddleware, organizationsRoutes);
 app.use('/api/models', apiRateLimit, authMiddleware, modelsRoutes);
 app.use('/api/playbooks', apiRateLimit, authMiddleware, playbooksRoutes);
+app.use('/api/social-accounts', apiRateLimit, authMiddleware, socialAccountsRoutes);
 
 // Webhooks: no auth middleware; validated inside handlers
 const webhookRateLimit = rateLimit({ windowMs: 60 * 1000, max: 600 });

@@ -18,6 +18,10 @@ export interface BrowserAgentOptions {
   model: string;
   /** If false, the agent may research/read but must NOT send messages/DMs. */
   allowSend: boolean;
+  /** Pre-authenticated session (cookies + localStorage) to start logged in. */
+  storageState?: Record<string, unknown>;
+  /** Called with the refreshed session after the run, to keep the login alive. */
+  persistState?: (state: Record<string, unknown>) => Promise<void>;
   onStep?: (note: string) => void;
 }
 
@@ -117,8 +121,18 @@ Objective: ${opts.objective}
     },
   ];
 
+  const persist = async () => {
+    if (!opts.persistState) return;
+    try {
+      const state = await session.exportState();
+      await opts.persistState(state);
+    } catch {
+      /* best-effort session refresh */
+    }
+  };
+
   try {
-    await session.open();
+    await session.open({ storageState: opts.storageState });
 
     for (let step = 0; step < maxSteps; step++) {
       const response = await llmService.chat({
@@ -131,6 +145,8 @@ Objective: ${opts.objective}
 
       if (response.toolCalls.length === 0) {
         // Model answered without acting — treat its text as the summary.
+        await persist();
+        await session.close();
         return {
           status: 'completed',
           summary: response.text || 'No action taken.',
@@ -150,6 +166,7 @@ Objective: ${opts.objective}
       for (const call of response.toolCalls) {
         if (call.name === 'finish') {
           const input = call.input as { summary?: string; data?: unknown };
+          await persist();
           await session.close();
           return {
             status: 'completed',
@@ -193,6 +210,7 @@ Objective: ${opts.objective}
       messages.push({ role: 'tool', results });
     }
 
+    await persist();
     await session.close();
     return {
       status: 'max_steps',

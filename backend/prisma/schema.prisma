@@ -48,6 +48,7 @@ model Organization {
   engineChats  EngineChat[]
   calendarEvents CalendarEvent[]
   playbooks    Playbook[]
+  socialAccounts SocialAccount[]
 }
 
 model User {
@@ -417,6 +418,44 @@ model AgentJob {
   @@index([status, runAt])
   @@index([organizationId, status])
   @@index([leadId])
+}
+
+// ============================================
+// SOCIAL ACCOUNTS (persistent browser logins)
+// ============================================
+
+enum SocialPlatform {
+  LINKEDIN
+  FACEBOOK
+  INSTAGRAM
+  X
+}
+
+enum SocialAccountStatus {
+  CONNECTED
+  EXPIRED
+  ERROR
+}
+
+model SocialAccount {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  platform SocialPlatform
+  label    String              @default("default")
+  // AES-256-GCM encrypted Playwright storageState (cookies + localStorage).
+  // This IS the login — treated as a secret, never returned by the API.
+  encryptedState String
+  status         SocialAccountStatus @default(CONNECTED)
+  lastValidatedAt DateTime?
+  lastUsedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, platform, label])
+  @@index([organizationId])
 }
 
 // ============================================

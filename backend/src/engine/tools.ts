@@ -5,6 +5,11 @@ import { config } from '../config/environment';
 import * as channels from '../services/channels.service';
 import { leadService } from '../services/lead.service';
 import { getVoicePlaybookText } from '../services/playbook.service';
+import {
+  loadStorageState,
+  PlatformKey,
+  saveStorageState,
+} from '../services/social-account.service';
 import { runBrowserAgent } from './browser/browser-agent.service';
 import { buildCallSystemPrompt } from './prompts';
 import { researchService } from './research.service';
@@ -258,6 +263,11 @@ export const engineTools: Anthropic.Tool[] = [
           description: 'What to find or accomplish, e.g. "Find the LinkedIn profile and title of the General Manager of Sunshine Toyota in Tampa FL"',
         },
         startUrl: { type: 'string', description: 'Optional starting URL' },
+        platform: {
+          type: 'string',
+          enum: ['linkedin', 'facebook', 'instagram', 'x'],
+          description: 'If researching on a social platform, set this to use the connected logged-in session',
+        },
         leadId: { type: 'string', description: 'Lead to attach findings to (logs a research activity)' },
       },
       required: ['objective'],
@@ -855,11 +865,19 @@ const executors: Record<string, ToolExecutor> = {
   browse_web: async (input, ctx) => {
     const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
     const model = org?.engineModel || config.engine.model;
+    const platform = input.platform as PlatformKey | undefined;
+    const storageState = platform
+      ? (await loadStorageState(ctx.organizationId, platform)) || undefined
+      : undefined;
     const result = await runBrowserAgent({
       objective: input.objective,
       startUrl: input.startUrl,
       model,
       allowSend: false,
+      storageState,
+      ...(platform && storageState
+        ? { persistState: (state) => saveStorageState(ctx.organizationId, platform, state) }
+        : {}),
     });
     if (input.leadId) {
       await prisma.lead
@@ -937,16 +955,32 @@ const executors: Record<string, ToolExecutor> = {
       return { sent: false, drafted: true, note: reason };
     }
 
+    const platform = input.platform as PlatformKey;
+    const storageState = await loadStorageState(ctx.organizationId, platform);
+    if (!storageState) {
+      await recordTouch(
+        'draft_pending_approval',
+        `${input.platform} DM drafted — no connected ${input.platform} account`
+      );
+      return {
+        sent: false,
+        drafted: true,
+        note: `No connected ${input.platform} account. Connect one in Settings → Social accounts (log in once), then I can send without logging in per lead.`,
+      };
+    }
+
     const target = input.profileUrl
       ? `their profile at ${input.profileUrl}`
       : `${input.personName || 'the decision maker'} at ${lead.companyName}`;
-    const objective = `On ${input.platform}, find ${target} and send them this direct message, personalized naturally: "${input.message}". Confirm the message was sent.`;
+    const objective = `You are already logged in to ${input.platform}. Find ${target} and send them this direct message, personalized naturally: "${input.message}". Confirm the message was sent.`;
 
     const result = await runBrowserAgent({
       objective,
       startUrl: input.profileUrl,
       model,
       allowSend: true,
+      storageState,
+      persistState: (state) => saveStorageState(ctx.organizationId, platform, state),
     });
 
     const success = result.status === 'completed';

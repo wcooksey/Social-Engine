@@ -143,6 +143,10 @@ The context problem: a campaign runs for weeks, but a model context window is fi
   status_change, research; includes channel payloads.
 - **Conversation / Message** — threaded messages per lead+channel for the unified inbox.
 - **AgentRun / AgentStep** — every Engine execution and each tool call within it (audit trail).
+- **SocialAccount** — a persistent, per-org social login (LinkedIn/Facebook/Instagram/X):
+  an encrypted Playwright storageState (cookies + localStorage). Captured once via a local
+  login helper, reused by the browser agent for every lead (no per-lead login), and
+  auto-refreshed on each use so it stays alive for weeks.
 - **AgentJob** — scheduled unit of work (type, payload, runAt, status) — the scheduler's queue.
 - **CalendarEvent** — shared calendar (meetings/demos/calls with leads); both humans and the
   Engine read and write it. Events booked by the Engine carry the AgentRun id for auditability.
