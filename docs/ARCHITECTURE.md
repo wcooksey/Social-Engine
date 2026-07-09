@@ -89,7 +89,33 @@ concurrency, per-org concurrency cap, and worker poll interval — are gated beh
 section, unlocked only for the account whose email matches the `SUPER_ADMIN_EMAIL` environment
 variable. Concurrency changes apply within ~10s (the worker re-reads them each drain); the poll
 interval applies on the next restart. Only `DATABASE_URL`, the JWT secrets, `APP_ENCRYPTION_KEY`,
-and `SUPER_ADMIN_EMAIL` must live in the environment.
+`SUPER_ADMIN_EMAIL`, and `INBOUND_WEBHOOK_SECRET` must live in the environment.
+
+### Hardening
+
+- **Webhooks fail closed.** Inbound reply endpoints (email/SMS/social) reject everything until
+  `INBOUND_WEBHOOK_SECRET` is set (timing-safe compare); the Vapi end-of-call webhook requires the
+  org's webhook secret. An explicit `leadId` from a bridge must belong to the claimed org, and
+  email/SMS contact matching is scoped to the org that owns the receiving address
+  (Mailgun domain / Twilio number), so matching never crosses tenants.
+- **Deterministic opt-out.** SMS STOP keywords and unsubscribe phrasing hard-flag the lead
+  (`doNotContact`) and contact (`optedOut`) in code — no agent is queued, and every send tool
+  refuses opted-out leads regardless of what the model decides. Compliance is not left to the AI.
+- **Prompt-injection containment.** Inbound message bodies and call summaries are embedded in
+  agent objectives as delimited data with an explicit never-treat-as-instructions note.
+- **SSRF guard.** `fetch_page` validates every redirect hop and the browser agent blocks requests
+  (including subresources) to loopback, link-local/cloud-metadata, and private ranges.
+- **Misc.** Query-string tokens/secrets are redacted from access logs; production CORS is
+  same-origin unless `CORS_ORIGINS` allows more; platform settings are clamped to sane ranges;
+  cross-org foreign keys (groups, campaigns, contacts on events) are validated on write; social
+  session upload/delete is OWNER/ADMIN-only.
+
+### Human in the loop
+
+Approval-mode drafts are actionable from the inbox: approve (optionally after editing) to send
+with the org's channel creds, or discard. Humans can also reply manually on any EMAIL/SMS
+conversation — the message is logged on the same thread and timeline the agents read, so the AI
+stays aware of what was said.
 
 ### Agent loop
 

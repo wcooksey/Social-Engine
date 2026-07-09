@@ -86,7 +86,7 @@ export class LlmNotConfiguredError extends Error {
   provider: Provider;
   constructor(provider: Provider) {
     super(
-      `${PROVIDERS[provider].label} is not configured — set the API key in the backend environment.`
+      `${PROVIDERS[provider].label} is not configured — add its API key in Settings → Integrations & API keys.`
     );
     this.provider = provider;
   }

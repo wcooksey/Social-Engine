@@ -8,13 +8,14 @@ interface RoleDefinition {
 }
 
 // Tools every specialist keeps: read context, take notes, move the pipeline,
-// check the calendar, and hand work to another agent via schedule_followup.
+// check the calendar/playbooks, and hand work to another agent via schedule_followup.
 const SHARED = [
   'search_leads',
   'get_lead_timeline',
   'add_note',
   'update_lead_status',
   'list_calendar_events',
+  'list_playbooks',
   'update_group_summary',
   'schedule_followup',
 ];
@@ -65,6 +66,11 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
       'add_leads_to_campaign',
       'create_calendar_event',
       'update_calendar_event',
+      // Split tests: the SDR is the main autonomous sender, so it must be
+      // able to allocate variants and read results (creating/concluding
+      // experiments stays with the Coordinator).
+      'pick_experiment_variant',
+      'list_experiments',
     ],
   },
 };

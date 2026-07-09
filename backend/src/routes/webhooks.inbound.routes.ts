@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Router } from 'express';
 import { config } from '../config/environment';
 import { asyncHandler } from '../middleware/error.middleware';
@@ -5,10 +6,23 @@ import { handleInbound } from '../services/inbound.service';
 
 const router = Router();
 
+// Fail closed: inbound endpoints refuse all traffic until a shared secret is
+// configured. These webhooks inject lead messages and trigger autonomous
+// agent replies, so anonymous access is never acceptable.
 function checkSecret(provided: unknown): boolean {
   const secret = config.inbound.webhookSecret;
-  if (!secret) return true; // no secret set → accept (dev)
-  return provided === secret;
+  if (!secret) return false;
+  if (typeof provided !== 'string' || provided.length === 0) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(secret);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function rejectUnauthorized(res: { status: (code: number) => { json: (body: unknown) => void } }): void {
+  const reason = config.inbound.webhookSecret
+    ? 'Invalid secret'
+    : 'Inbound webhooks disabled — set INBOUND_WEBHOOK_SECRET to enable';
+  res.status(401).json({ success: false, error: reason });
 }
 
 /**
@@ -19,7 +33,7 @@ router.post(
   '/email',
   asyncHandler(async (req, res) => {
     if (!checkSecret(req.query.secret)) {
-      res.status(401).json({ success: false, error: 'Invalid secret' });
+      rejectUnauthorized(res);
       return;
     }
     const body = req.body || {};
@@ -27,12 +41,14 @@ router.post(
     const text = body['stripped-text'] || body['body-plain'] || body.text || '';
     const subject = body.subject || body.Subject;
 
+    const recipient = extractEmail(body.recipient || body.To || body.to);
     const result = await handleInbound({
       channel: 'EMAIL',
       fromEmail,
       subject,
       body: String(text),
       externalId: body['Message-Id'] || body['message-id'],
+      toEmailDomain: recipient?.split('@')[1],
     });
     res.json({ success: true, data: result });
   })
@@ -46,7 +62,7 @@ router.post(
   '/sms',
   asyncHandler(async (req, res) => {
     if (!checkSecret(req.query.secret)) {
-      res.status(401).json({ success: false, error: 'Invalid secret' });
+      rejectUnauthorized(res);
       return;
     }
     const body = req.body || {};
@@ -55,6 +71,7 @@ router.post(
       fromPhone: body.From,
       body: String(body.Body || ''),
       externalId: body.MessageSid,
+      toPhone: body.To,
     });
     // Twilio expects TwiML (empty response is fine — no auto-reply here)
     res.set('Content-Type', 'text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
@@ -71,7 +88,7 @@ router.post(
   '/social',
   asyncHandler(async (req, res) => {
     if (!checkSecret(req.query.secret || req.headers['x-inbound-secret'])) {
-      res.status(401).json({ success: false, error: 'Invalid secret' });
+      rejectUnauthorized(res);
       return;
     }
     const body = req.body || {};

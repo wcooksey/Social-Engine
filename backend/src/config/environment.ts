@@ -11,6 +11,14 @@ export const config = {
 
   superAdminEmail: process.env.SUPER_ADMIN_EMAIL || '',
 
+  // Extra allowed CORS origins in production (comma-separated). The backend
+  // serves the frontend itself, so this stays empty unless the UI is hosted
+  // on a different origin.
+  corsOrigins: (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+
   jwt: {
     secret: process.env.JWT_SECRET || 'dev-secret',
     refreshSecret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret',
@@ -34,16 +42,8 @@ export const config = {
     provider: process.env.SEARCH_API_PROVIDER || 'brave',
   },
 
-  mailgun: {
-    apiKey: process.env.MAILGUN_API_KEY || '',
-    domain: process.env.MAILGUN_DOMAIN || '',
-  },
-
-  twilio: {
-    accountSid: process.env.TWILIO_ACCOUNT_SID || '',
-    authToken: process.env.TWILIO_AUTH_TOKEN || '',
-    fromNumber: process.env.TWILIO_FROM_NUMBER || '',
-  },
+  // Channel credentials (Mailgun/Twilio/Vapi) live in per-org settings now —
+  // resolved via settings.service getOrgConfig with process.env as fallback.
 
   browser: {
     // Path to a Playwright storageState JSON for pre-authenticated social sessions
@@ -56,14 +56,6 @@ export const config = {
     webhookSecret: process.env.INBOUND_WEBHOOK_SECRET || '',
   },
 
-  vapi: {
-    apiKey: process.env.VAPI_API_KEY || '',
-    phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID || '',
-    webhookSecret: process.env.VAPI_WEBHOOK_SECRET || '',
-    assistantModel: process.env.VAPI_ASSISTANT_MODEL || 'gpt-4o',
-    voiceProvider: process.env.VAPI_VOICE_PROVIDER || '11labs',
-    voiceId: process.env.VAPI_VOICE_ID || 'burt',
-  },
 };
 
 export function assertSecurityConfig(): void {

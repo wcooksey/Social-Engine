@@ -9,11 +9,27 @@ const includeRelations = {
   campaign: { select: { id: true, name: true } },
 } as const;
 
-function validateScopeTarget(body: Record<string, unknown>): void {
+async function validateScopeTarget(
+  body: Record<string, unknown>,
+  organizationId: string
+): Promise<void> {
   const scope = body.scope || 'GLOBAL';
-  if (scope === 'GROUP' && !body.groupId) throw new AppError('groupId is required for GROUP scope');
-  if (scope === 'CAMPAIGN' && !body.campaignId)
-    throw new AppError('campaignId is required for CAMPAIGN scope');
+  if (scope === 'GROUP') {
+    if (!body.groupId) throw new AppError('groupId is required for GROUP scope');
+    const group = await prisma.leadGroup.findFirst({
+      where: { id: String(body.groupId), organizationId },
+      select: { id: true },
+    });
+    if (!group) throw new AppError('Lead group not found', 404);
+  }
+  if (scope === 'CAMPAIGN') {
+    if (!body.campaignId) throw new AppError('campaignId is required for CAMPAIGN scope');
+    const campaign = await prisma.campaign.findFirst({
+      where: { id: String(body.campaignId), organizationId },
+      select: { id: true },
+    });
+    if (!campaign) throw new AppError('Campaign not found', 404);
+  }
   if (scope === 'LEAD_STATUS' && !body.leadStatus)
     throw new AppError('leadStatus is required for LEAD_STATUS scope');
 }
@@ -35,7 +51,7 @@ router.post(
   asyncHandler(async (req, res) => {
     if (!req.body.name?.trim()) throw new AppError('name is required');
     if (!req.body.instructions?.trim()) throw new AppError('instructions are required');
-    validateScopeTarget(req.body);
+    await validateScopeTarget(req.body, req.user!.organizationId);
 
     const playbook = await prisma.playbook.create({
       data: {
@@ -69,7 +85,7 @@ router.patch(
       if (key in req.body) data[key] = req.body[key];
     }
     if ('scope' in req.body) {
-      validateScopeTarget({ ...req.body });
+      await validateScopeTarget({ ...req.body }, req.user!.organizationId);
       data.scope = req.body.scope;
       data.groupId = req.body.scope === 'GROUP' ? req.body.groupId : null;
       data.campaignId = req.body.scope === 'CAMPAIGN' ? req.body.campaignId : null;

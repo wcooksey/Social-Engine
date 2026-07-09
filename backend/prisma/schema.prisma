@@ -123,6 +123,9 @@ model Lead {
   country     String?      @default("US")
   industry    String?
   status      LeadStatus   @default(NEW)
+  // Hard opt-out (SMS STOP / unsubscribe). Enforced deterministically in the
+  // send tools — never left to the AI's discretion. Compliance: TCPA/CAN-SPAM.
+  doNotContact Boolean     @default(false)
   source      String?      // how it was found: "web_research", "manual", "import"
   aiSummary   String?      // Engine's rolling notes on this lead
   socials     Json?        // { linkedin, facebook, instagram, x, ... }

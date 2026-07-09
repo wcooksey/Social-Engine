@@ -1,4 +1,5 @@
 import { config } from '../config/environment';
+import { assertPublicUrl } from '../utils/url-guard';
 
 /**
  * Web research channel for the Engine. Phase 1 wires a real search provider;
@@ -49,18 +50,28 @@ class ResearchService {
 
   async fetchPage(url: string): Promise<{ url: string; text?: string; error?: string }> {
     try {
-      const parsed = new URL(url);
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        return { url, error: 'Only http/https URLs are supported' };
+      // SSRF guard: the target is agent-chosen (and thus influenceable by web
+      // content). Validate every hop of a redirect chain, not just the first.
+      let current = (await assertPublicUrl(url)).toString();
+      let res: Response | null = null;
+      for (let hop = 0; hop < 5; hop++) {
+        res = await fetch(current, {
+          redirect: 'manual',
+          signal: AbortSignal.timeout(15000),
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; SocialEngine/0.1; +https://social-engine.app)',
+            Accept: 'text/html,application/xhtml+xml',
+          },
+        });
+        if (res.status >= 300 && res.status < 400) {
+          const location = res.headers.get('location');
+          if (!location) break;
+          current = (await assertPublicUrl(new URL(location, current).toString())).toString();
+          continue;
+        }
+        break;
       }
-      const res = await fetch(url, {
-        redirect: 'follow',
-        signal: AbortSignal.timeout(15000),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; SocialEngine/0.1; +https://social-engine.app)',
-          Accept: 'text/html,application/xhtml+xml',
-        },
-      });
+      if (!res) return { url, error: 'Fetch failed' };
       if (!res.ok) return { url, error: `HTTP ${res.status} ${res.statusText}` };
 
       const html = await res.text();

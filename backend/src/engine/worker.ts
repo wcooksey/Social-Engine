@@ -51,14 +51,20 @@ async function claimNextJob(
   orgInFlight: Map<string, number>,
   orgConcurrency: number
 ): Promise<ClaimedJob | null> {
+  // Skip orgs already at their cap in the query itself so a hot org with a
+  // deep backlog can't crowd claimable work from other orgs out of the batch.
+  const overCapOrgs = [...orgInFlight.entries()]
+    .filter(([, n]) => n >= orgConcurrency)
+    .map(([orgId]) => orgId);
   const candidates = await prisma.agentJob.findMany({
     where: {
       status: 'PENDING',
       runAt: { lte: new Date() },
       organization: { paused: false },
+      ...(overCapOrgs.length ? { organizationId: { notIn: overCapOrgs } } : {}),
     },
     orderBy: { runAt: 'asc' },
-    take: 25,
+    take: 50,
   });
 
   for (const job of candidates) {

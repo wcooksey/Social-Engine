@@ -31,15 +31,26 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use(helmet({ contentSecurityPolicy: false }));
+// The backend serves the built frontend from the same origin, so production
+// needs no cross-origin access unless CORS_ORIGINS explicitly allows some.
 app.use(
   cors({
-    origin: config.isProduction ? true : ['http://localhost:4200'],
+    origin: config.isProduction
+      ? config.corsOrigins.length
+        ? config.corsOrigins
+        : false
+      : ['http://localhost:4200'],
     credentials: true,
   })
 );
 app.use(express.json({ limit: '2mb' }));
 // Inbound provider webhooks (Mailgun, Twilio) post form-encoded bodies.
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+// Redact credentials that legitimately travel in query strings (SSE auth
+// tokens, webhook shared secrets) so they never land in access logs.
+morgan.token('url', (req) =>
+  (req.url || '').replace(/([?&])(token|secret)=[^&]*/gi, '$1$2=[redacted]')
+);
 app.use(morgan(config.isProduction ? 'combined' : 'dev'));
 
 const authRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 50 });

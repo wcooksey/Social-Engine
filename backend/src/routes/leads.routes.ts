@@ -94,6 +94,15 @@ router.patch(
       if (key in req.body) data[key] = req.body[key];
     }
 
+    // A supplied group must belong to this org (cross-tenant reference guard).
+    if (data.groupId) {
+      const group = await prisma.leadGroup.findFirst({
+        where: { id: String(data.groupId), organizationId: req.user!.organizationId },
+        select: { id: true },
+      });
+      if (!group) throw new AppError('Lead group not found', 404);
+    }
+
     const lead = await prisma.lead.update({ where: { id: existing.id }, data });
 
     if (data.status && data.status !== existing.status) {

@@ -1,5 +1,6 @@
 import type { Browser, BrowserContext, Page } from 'playwright';
 import { config } from '../../config/environment';
+import { isForbiddenUrlSync } from '../../utils/url-guard';
 
 /**
  * A controlled browser session for the browser-use agent. Wraps Playwright
@@ -64,6 +65,16 @@ export class BrowserSession {
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
       ...(storageState ? { storageState } : {}),
     });
+    // SSRF guard: navigation targets are agent-chosen (and influenceable by
+    // page content), so block requests to loopback/link-local/private hosts —
+    // including redirects and subresource loads — at the network layer.
+    await this.context.route('**/*', (route) => {
+      if (isForbiddenUrlSync(route.request().url())) {
+        void route.abort('blockedbyclient');
+        return;
+      }
+      void route.continue();
+    });
     this.page = await this.context.newPage();
     this.page.setDefaultTimeout(20000);
   }
@@ -75,6 +86,9 @@ export class BrowserSession {
 
   async goto(url: string): Promise<PageObservation> {
     const page = this.requirePage();
+    if (isForbiddenUrlSync(url)) {
+      throw new Error('Blocked URL: internal/private addresses are not allowed');
+    }
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1200);
     return this.observe();

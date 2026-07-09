@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../config/database';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
+import { roleMiddleware } from '../middleware/auth.middleware';
 import { isEncryptionConfigured } from '../utils/encryption';
 import { PlatformKey, upsertAccount, validateAccount } from '../services/social-account.service';
 
@@ -39,6 +40,7 @@ router.get(
  */
 router.post(
   '/',
+  roleMiddleware('OWNER', 'ADMIN'),
   asyncHandler(async (req, res) => {
     if (!isEncryptionConfigured()) {
       throw new AppError('APP_ENCRYPTION_KEY is not configured on the server — cannot store sessions securely.', 400);
@@ -91,6 +93,7 @@ router.post(
 
 router.delete(
   '/:id',
+  roleMiddleware('OWNER', 'ADMIN'),
   asyncHandler(async (req, res) => {
     const existing = await prisma.socialAccount.findFirst({
       where: { id: req.params.id, organizationId: req.user!.organizationId },

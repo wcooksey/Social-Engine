@@ -428,7 +428,7 @@ export const engineTools: Anthropic.Tool[] = [
           type: 'string',
           enum: ['NEW', 'RESEARCHING', 'CONTACTED', 'ENGAGED', 'INTERESTED', 'NOT_INTERESTED', 'CUSTOMER', 'ARCHIVED'],
         },
-        channel: { type: 'string', enum: ['ALL', 'EMAIL', 'SMS', 'VOICE', 'SOCIAL'] },
+        channel: { type: 'string', enum: ['ALL', 'EMAIL', 'SMS', 'VOICE'] },
       },
       required: ['name', 'instructions'],
     },
@@ -450,7 +450,11 @@ export const engineTools: Anthropic.Tool[] = [
       type: 'object' as const,
       properties: {
         name: { type: 'string' },
-        channel: { type: 'string', enum: ['EMAIL', 'SMS', 'VOICE', 'SOCIAL'] },
+        channel: {
+          type: 'string',
+          enum: ['EMAIL', 'SMS'],
+          description: 'Only EMAIL and SMS support automatic send/response attribution',
+        },
         goal: { type: 'string', description: 'What a "response" means / what you\'re optimizing for' },
         variants: {
           type: 'array',
@@ -515,6 +519,18 @@ async function requireLead(leadId: string, organizationId: string) {
   const lead = await prisma.lead.findFirst({ where: { id: leadId, organizationId } });
   if (!lead) throw new Error(`Lead ${leadId} not found in this organization`);
   return lead;
+}
+
+/**
+ * Hard compliance stop for opted-out leads (SMS STOP / unsubscribe). Enforced
+ * in code, not by the model — send tools throw before any draft or send.
+ */
+function assertContactable(lead: { doNotContact: boolean; companyName: string }): void {
+  if (lead.doNotContact) {
+    throw new Error(
+      `${lead.companyName} has opted out of being contacted (do-not-contact). Do not message this lead on any channel; move on to other work.`
+    );
+  }
 }
 
 /**
@@ -815,6 +831,7 @@ const executors: Record<string, ToolExecutor> = {
 
   send_email: async (input, ctx) => {
     const lead = await requireLead(input.leadId, ctx.organizationId);
+    assertContactable(lead);
     const contact = input.contactId
       ? await prisma.contact.findFirst({ where: { id: input.contactId, leadId: lead.id } })
       : await prisma.contact.findFirst({
@@ -882,6 +899,7 @@ const executors: Record<string, ToolExecutor> = {
 
   send_sms: async (input, ctx) => {
     const lead = await requireLead(input.leadId, ctx.organizationId);
+    assertContactable(lead);
     const contact = input.contactId
       ? await prisma.contact.findFirst({ where: { id: input.contactId, leadId: lead.id } })
       : await prisma.contact.findFirst({
@@ -939,6 +957,7 @@ const executors: Record<string, ToolExecutor> = {
 
   place_call: async (input, ctx) => {
     const lead = await requireLead(input.leadId, ctx.organizationId);
+    assertContactable(lead);
     const contact = input.contactId
       ? await prisma.contact.findFirst({ where: { id: input.contactId, leadId: lead.id } })
       : await prisma.contact.findFirst({
@@ -1031,6 +1050,7 @@ const executors: Record<string, ToolExecutor> = {
 
   browse_web: async (input, ctx) => {
     const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
+    const orgConfig = await getOrgConfig(ctx.organizationId);
     const model = org?.engineModel || config.engine.model;
     const platform = input.platform as PlatformKey | undefined;
     const storageState = platform
@@ -1040,6 +1060,7 @@ const executors: Record<string, ToolExecutor> = {
       objective: input.objective,
       startUrl: input.startUrl,
       model,
+      providerKeys: orgConfig.providerKeys,
       allowSend: false,
       storageState,
       ...(platform && storageState
@@ -1072,6 +1093,7 @@ const executors: Record<string, ToolExecutor> = {
 
   send_social_dm: async (input, ctx) => {
     const lead = await requireLead(input.leadId, ctx.organizationId);
+    assertContactable(lead);
     const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
 
     const blocked = await outboundBlockReason(ctx.organizationId);
@@ -1141,10 +1163,12 @@ const executors: Record<string, ToolExecutor> = {
       : `${input.personName || 'the decision maker'} at ${lead.companyName}`;
     const objective = `You are already logged in to ${input.platform}. Find ${target} and send them this direct message, personalized naturally: "${input.message}". Confirm the message was sent.`;
 
+    const orgConfig = await getOrgConfig(ctx.organizationId);
     const result = await runBrowserAgent({
       objective,
       startUrl: input.profileUrl,
       model,
+      providerKeys: orgConfig.providerKeys,
       allowSend: true,
       storageState,
       persistState: (state) => saveStorageState(ctx.organizationId, platform, state),
@@ -1244,6 +1268,13 @@ const executors: Record<string, ToolExecutor> = {
     const endAt = input.endAtIso ? new Date(input.endAtIso) : null;
     if (endAt && isNaN(endAt.getTime())) throw new Error(`Invalid endAtIso: ${input.endAtIso}`);
     if (input.leadId) await requireLead(input.leadId, ctx.organizationId);
+    if (input.contactId) {
+      const contact = await prisma.contact.findFirst({
+        where: { id: input.contactId, organizationId: ctx.organizationId },
+        select: { id: true },
+      });
+      if (!contact) throw new Error(`Contact ${input.contactId} not found in this organization`);
+    }
 
     const event = await prisma.calendarEvent.create({
       data: {

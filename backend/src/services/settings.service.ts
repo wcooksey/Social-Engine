@@ -50,12 +50,14 @@ export interface PlatformSettingDef {
   label: string;
   type: 'number';
   default: number;
+  min: number;
+  max: number;
 }
 export const PLATFORM_SETTING_DEFS: PlatformSettingDef[] = [
-  { key: 'ENGINE_MAX_ITERATIONS', label: 'Engine max iterations per run', type: 'number', default: config.engine.maxIterations },
-  { key: 'ENGINE_WORKER_CONCURRENCY', label: 'Concurrent agents (global)', type: 'number', default: config.engine.workerConcurrency },
-  { key: 'ENGINE_ORG_CONCURRENCY', label: 'Concurrent agents per organization', type: 'number', default: config.engine.orgConcurrency },
-  { key: 'ENGINE_WORKER_INTERVAL_MS', label: 'Worker poll interval (ms)', type: 'number', default: config.engine.workerIntervalMs },
+  { key: 'ENGINE_MAX_ITERATIONS', label: 'Engine max iterations per run', type: 'number', default: config.engine.maxIterations, min: 1, max: 200 },
+  { key: 'ENGINE_WORKER_CONCURRENCY', label: 'Concurrent agents (global)', type: 'number', default: config.engine.workerConcurrency, min: 1, max: 64 },
+  { key: 'ENGINE_ORG_CONCURRENCY', label: 'Concurrent agents per organization', type: 'number', default: config.engine.orgConcurrency, min: 1, max: 32 },
+  { key: 'ENGINE_WORKER_INTERVAL_MS', label: 'Worker poll interval (ms)', type: 'number', default: config.engine.workerIntervalMs, min: 1000, max: 600000 },
 ];
 
 // --- Raw value resolution -------------------------------------------------
@@ -237,9 +239,13 @@ export async function listPlatformSettings() {
 }
 
 export async function setPlatformSetting(key: string, value: string): Promise<void> {
-  if (!PLATFORM_SETTING_DEFS.some((d) => d.key === key)) throw new Error(`Unknown platform setting: ${key}`);
+  const def = PLATFORM_SETTING_DEFS.find((d) => d.key === key);
+  if (!def) throw new Error(`Unknown platform setting: ${key}`);
   const n = parseInt(value, 10);
   if (isNaN(n)) throw new Error('Value must be a number');
+  if (n < def.min || n > def.max) {
+    throw new Error(`${def.label} must be between ${def.min} and ${def.max}`);
+  }
   await prisma.platformSetting.upsert({
     where: { key },
     create: { key, value: String(n) },

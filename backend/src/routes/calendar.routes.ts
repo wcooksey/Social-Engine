@@ -15,6 +15,19 @@ function parseDate(value: unknown, field: string): Date {
   return date;
 }
 
+async function assertOrgOwned(
+  model: 'lead' | 'contact',
+  id: unknown,
+  organizationId: string
+): Promise<void> {
+  if (!id) return;
+  const found =
+    model === 'lead'
+      ? await prisma.lead.findFirst({ where: { id: String(id), organizationId }, select: { id: true } })
+      : await prisma.contact.findFirst({ where: { id: String(id), organizationId }, select: { id: true } });
+  if (!found) throw new AppError(`${model === 'lead' ? 'Lead' : 'Contact'} not found`, 404);
+}
+
 router.get(
   '/events',
   asyncHandler(async (req, res) => {
@@ -43,12 +56,8 @@ router.post(
     if (!req.body.title?.trim()) throw new AppError('title is required');
     const startAt = parseDate(req.body.startAt, 'startAt');
 
-    if (req.body.leadId) {
-      const lead = await prisma.lead.findFirst({
-        where: { id: req.body.leadId, organizationId: req.user!.organizationId },
-      });
-      if (!lead) throw new AppError('Lead not found', 404);
-    }
+    await assertOrgOwned('lead', req.body.leadId, req.user!.organizationId);
+    await assertOrgOwned('contact', req.body.contactId, req.user!.organizationId);
 
     const event = await prisma.calendarEvent.create({
       data: {
@@ -76,6 +85,9 @@ router.patch(
       where: { id: req.params.id, organizationId: req.user!.organizationId },
     });
     if (!existing) throw new AppError('Event not found', 404);
+
+    await assertOrgOwned('lead', req.body.leadId, req.user!.organizationId);
+    await assertOrgOwned('contact', req.body.contactId, req.user!.organizationId);
 
     const data: Record<string, unknown> = {};
     for (const key of ['title', 'description', 'location', 'type', 'status', 'allDay', 'leadId', 'contactId'] as const) {

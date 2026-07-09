@@ -1,4 +1,5 @@
 import { config } from '../../config/environment';
+import { ProviderKeys } from '../llm/catalog';
 import { llmService, LlmMessage, LlmToolDefinition } from '../llm/llm.service';
 import { BrowserSession, PageObservation } from './browser.service';
 
@@ -16,6 +17,9 @@ export interface BrowserAgentOptions {
   objective: string;
   startUrl?: string;
   model: string;
+  /** Org-resolved provider API keys (settings → env fallback). Without these
+   *  the LLM layer only sees env vars and org-configured keys never apply. */
+  providerKeys?: ProviderKeys;
   /** If false, the agent may research/read but must NOT send messages/DMs. */
   allowSend: boolean;
   /** Pre-authenticated session (cookies + localStorage) to start logged in. */
@@ -135,13 +139,16 @@ Objective: ${opts.objective}
     await session.open({ storageState: opts.storageState });
 
     for (let step = 0; step < maxSteps; step++) {
-      const response = await llmService.chat({
-        model: opts.model,
-        system,
-        messages,
-        tools: BROWSER_TOOLS,
-        maxTokens: 1500,
-      });
+      const response = await llmService.chatWithFailover(
+        {
+          model: opts.model,
+          system,
+          messages,
+          tools: BROWSER_TOOLS,
+          maxTokens: 1500,
+        },
+        opts.providerKeys
+      );
 
       if (response.toolCalls.length === 0) {
         // Model answered without acting — treat its text as the summary.
