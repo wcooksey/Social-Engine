@@ -115,4 +115,109 @@
       }
     </div>
   </app-card>
+
+  <app-card padding="lg" class="section-card">
+    <h3>Connected social accounts</h3>
+    <p class="social-accounts-description">
+      Connect a social account once and the Engine's browser agent stays logged in for every lead — no per-lead login.
+      Run the capture helper (<code>backend/scripts/capture-social-login.mjs</code>) to log in and export a session, then paste it here.
+    </p>
+
+    @if (!encryptionConfigured()) {
+      <div class="encryption-warning">
+        <i class="bi bi-exclamation-triangle"></i>
+        <span>Server encryption key not configured — set APP_ENCRYPTION_KEY to connect accounts.</span>
+      </div>
+    }
+
+    <div class="social-accounts-grid">
+      @for (card of socialPlatforms; track card.platform) {
+        <div class="social-account-card" *ngIf="accountFor(card.platform) as account; else notConnectedCard">
+          <div class="social-account-icon"><i [class]="'bi ' + card.icon"></i></div>
+          <div class="social-account-body">
+            <div class="social-account-header">
+              <span class="social-account-name">{{ card.name }}</span>
+              <app-badge [variant]="statusVariant(account)" size="sm">{{ statusLabel(account) }}</app-badge>
+            </div>
+            @if (account.lastValidatedAt) {
+              <p class="social-account-meta">Last validated {{ relativeTime(account.lastValidatedAt) }}</p>
+            }
+            <div class="social-account-actions">
+              <app-button
+                variant="secondary"
+                size="sm"
+                [disabled]="!encryptionConfigured()"
+                (clicked)="openConnectDialog(card)">
+                Update
+              </app-button>
+              <app-button
+                variant="ghost"
+                size="sm"
+                [loading]="testingAccountId === account.id"
+                (clicked)="testAccount(account)">
+                Test
+              </app-button>
+              <app-button
+                variant="danger"
+                size="sm"
+                [loading]="disconnectingAccountId === account.id"
+                (clicked)="disconnectAccount(account)">
+                Disconnect
+              </app-button>
+            </div>
+          </div>
+        </div>
+        <ng-template #notConnectedCard>
+          <div class="social-account-card">
+            <div class="social-account-icon"><i [class]="'bi ' + card.icon"></i></div>
+            <div class="social-account-body">
+              <div class="social-account-header">
+                <span class="social-account-name">{{ card.name }}</span>
+                <app-badge variant="neutral" size="sm">Not connected</app-badge>
+              </div>
+              <div class="social-account-actions">
+                <app-button
+                  variant="secondary"
+                  size="sm"
+                  [disabled]="!encryptionConfigured()"
+                  (clicked)="openConnectDialog(card)">
+                  Connect
+                </app-button>
+              </div>
+            </div>
+          </div>
+        </ng-template>
+      }
+    </div>
+  </app-card>
 </div>
+
+<app-dialog
+  [title]="'Connect ' + (connectTarget?.name ?? '')"
+  [show]="showConnectDialog"
+  size="md"
+  (close)="closeConnectDialog()">
+  <div class="connect-account-form">
+    <div class="textarea-field">
+      <label>Session JSON</label>
+      <textarea
+        rows="10"
+        class="storage-state-input"
+        [(ngModel)]="connectStorageState"
+        [ngModelOptions]="{ standalone: true }"
+        placeholder="Paste the storageState JSON exported by the capture helper..."></textarea>
+      <p class="field-hint">Paste the JSON from the capture helper for this platform. This is treated as a secret and stored encrypted.</p>
+    </div>
+  </div>
+
+  <div dialog-footer>
+    <app-button variant="ghost" (clicked)="closeConnectDialog()">Cancel</app-button>
+    <app-button
+      variant="primary"
+      [loading]="savingConnect"
+      [disabled]="!connectStorageState.trim()"
+      (clicked)="submitConnect()">
+      Save
+    </app-button>
+  </div>
+</app-dialog>

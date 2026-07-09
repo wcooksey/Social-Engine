@@ -151,3 +151,132 @@
   font-size: $font-size-xs;
   margin-top: $spacing-xs;
 }
+
+.social-accounts-description {
+  color: var(--text-secondary);
+  font-size: $font-size-sm;
+  max-width: 640px;
+  margin-bottom: $spacing-md;
+
+  code {
+    font-size: $font-size-xs;
+    background: var(--bg-tertiary);
+    padding: 2px 6px;
+    border-radius: $border-radius-sm;
+  }
+}
+
+.encryption-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-sm;
+  padding: $spacing-md;
+  border-radius: $border-radius-md;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  font-size: $font-size-sm;
+  margin-bottom: $spacing-md;
+
+  i {
+    color: $warning-yellow;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+}
+
+.social-accounts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: $spacing-md;
+
+  @include responsive($breakpoint-md) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.social-account-card {
+  display: flex;
+  gap: $spacing-md;
+  padding: $spacing-md;
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+}
+
+.social-account-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: $border-radius-md;
+  background: var(--bg-tertiary);
+  color: $primary-blue;
+  @include flex-center;
+  flex-shrink: 0;
+}
+
+.social-account-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.social-account-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+}
+
+.social-account-name {
+  font-weight: 600;
+  font-size: $font-size-sm;
+}
+
+.social-account-meta {
+  color: var(--text-secondary);
+  font-size: $font-size-xs;
+  margin-top: $spacing-xs;
+}
+
+.social-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+  margin-top: $spacing-sm;
+}
+
+.connect-account-form {
+  .textarea-field {
+    display: flex;
+    flex-direction: column;
+    gap: $spacing-xs;
+
+    label {
+      font-size: $font-size-sm;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+  }
+
+  textarea {
+    width: 100%;
+    padding: $spacing-sm $spacing-md;
+    font-family: $font-family-mono, monospace;
+    font-size: $font-size-xs;
+    color: var(--text-primary);
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-secondary);
+    border-radius: $border-radius-md;
+    resize: vertical;
+
+    &:focus {
+      outline: none;
+      border-color: $primary-blue;
+      box-shadow: 0 0 0 3px rgba(66, 93, 185, 0.1);
+    }
+  }
+
+  .field-hint {
+    color: var(--text-secondary);
+    font-size: $font-size-xs;
+    margin-top: $spacing-xs;
+  }
+}

@@ -7,13 +7,16 @@ import { ThemeService } from '../../core/services/theme.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ModelsService } from '../../core/services/models.service';
 import { ModelProvider } from '../../core/models/model.model';
+import { SocialAccountsService } from '../../core/services/social-accounts.service';
+import { SocialAccount, SocialPlatform, SocialPlatformParam } from '../../core/models/social-account.model';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { InputComponent } from '../../shared/components/input/input.component';
 import { ButtonComponent } from '../../shared/components/button/button.component';
 import { SwitchComponent } from '../../shared/components/switch/switch.component';
-import { BadgeComponent } from '../../shared/components/badge/badge.component';
+import { BadgeComponent, BadgeVariant } from '../../shared/components/badge/badge.component';
 import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme-toggle.component';
 import { SelectComponent, SelectOption } from '../../shared/components/select/select.component';
+import { DialogComponent } from '../../shared/components/dialog/dialog.component';
 
 interface Integration {
   name: string;
@@ -25,6 +28,13 @@ interface ModelProviderCard {
   provider: ModelProvider;
   name: string;
   description: string;
+  icon: string;
+}
+
+interface SocialPlatformCard {
+  platform: SocialPlatform;
+  param: SocialPlatformParam;
+  name: string;
   icon: string;
 }
 
@@ -49,7 +59,8 @@ function timeToHour(time: string): number {
     SwitchComponent,
     BadgeComponent,
     ThemeToggleComponent,
-    SelectComponent
+    SelectComponent,
+    DialogComponent
   ],
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.scss'
@@ -93,12 +104,32 @@ export class SettingsComponent implements OnInit {
     }))
   );
 
+  // Connected social accounts
+  loadingSocialAccounts = true;
+  socialAccounts = computed(() => this.socialAccountsService.accounts());
+  encryptionConfigured = computed(() => this.socialAccountsService.encryptionConfigured());
+
+  socialPlatforms: SocialPlatformCard[] = [
+    { platform: 'LINKEDIN', param: 'linkedin', name: 'LinkedIn', icon: 'bi-linkedin' },
+    { platform: 'FACEBOOK', param: 'facebook', name: 'Facebook', icon: 'bi-facebook' },
+    { platform: 'INSTAGRAM', param: 'instagram', name: 'Instagram', icon: 'bi-instagram' },
+    { platform: 'X', param: 'x', name: 'X', icon: 'bi-twitter-x' }
+  ];
+
+  showConnectDialog = false;
+  connectTarget: SocialPlatformCard | null = null;
+  connectStorageState = '';
+  savingConnect = false;
+  testingAccountId: string | null = null;
+  disconnectingAccountId: string | null = null;
+
   constructor(
     private authService: AuthService,
     private organizationService: OrganizationService,
     public themeService: ThemeService,
     private toast: ToastService,
-    private modelsService: ModelsService
+    private modelsService: ModelsService,
+    private socialAccountsService: SocialAccountsService
   ) {}
 
   ngOnInit(): void {
@@ -127,6 +158,123 @@ export class SettingsComponent implements OnInit {
         this.toast.error('Failed to load Engine models');
       }
     });
+
+    this.loadSocialAccounts();
+  }
+
+  loadSocialAccounts(): void {
+    this.loadingSocialAccounts = true;
+    this.socialAccountsService.list().subscribe({
+      next: () => {
+        this.loadingSocialAccounts = false;
+      },
+      error: () => {
+        this.loadingSocialAccounts = false;
+        this.toast.error('Failed to load connected social accounts');
+      }
+    });
+  }
+
+  accountFor(platform: SocialPlatform): SocialAccount | undefined {
+    return this.socialAccounts().find(a => a.platform === platform);
+  }
+
+  statusVariant(account?: SocialAccount): BadgeVariant {
+    if (!account) return 'neutral';
+    if (account.status === 'CONNECTED') return 'success';
+    if (account.status === 'EXPIRED') return 'warning';
+    return 'error';
+  }
+
+  statusLabel(account?: SocialAccount): string {
+    if (!account) return 'Not connected';
+    if (account.status === 'CONNECTED') return 'Connected';
+    if (account.status === 'EXPIRED') return 'Expired';
+    return 'Error';
+  }
+
+  relativeTime(iso: string): string {
+    const diff = Date.now() - new Date(iso).getTime();
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
+  openConnectDialog(card: SocialPlatformCard): void {
+    this.connectTarget = card;
+    this.connectStorageState = '';
+    this.showConnectDialog = true;
+  }
+
+  closeConnectDialog(): void {
+    this.showConnectDialog = false;
+    this.connectTarget = null;
+  }
+
+  submitConnect(): void {
+    const target = this.connectTarget;
+    if (!target || !this.connectStorageState.trim()) return;
+
+    this.savingConnect = true;
+    this.socialAccountsService.connect(target.param, this.connectStorageState.trim()).subscribe({
+      next: () => {
+        this.savingConnect = false;
+        this.showConnectDialog = false;
+        this.connectTarget = null;
+        this.toast.success(`Connected ${target.name}`);
+        this.loadSocialAccounts();
+      },
+      error: (err) => {
+        this.savingConnect = false;
+        const message = err?.error?.error?.message || err?.error?.message || 'Failed to connect account — check the pasted session JSON';
+        this.toast.error(message);
+      }
+    });
+  }
+
+  testAccount(account: SocialAccount): void {
+    this.testingAccountId = account.id;
+    this.socialAccountsService.validate(account.id).subscribe({
+      next: (res) => {
+        this.testingAccountId = null;
+        if (res.live) {
+          this.toast.success('Session is live and working');
+        } else {
+          this.toast.warning('Session could not be validated — it may be expired');
+        }
+        this.loadSocialAccounts();
+      },
+      error: () => {
+        this.testingAccountId = null;
+        this.toast.error('Failed to test the connection');
+      }
+    });
+  }
+
+  disconnectAccount(account: SocialAccount): void {
+    const label = account.label || this.platformName(account.platform);
+    if (!confirm(`Disconnect ${label}? The Engine will no longer be able to use this session.`)) return;
+
+    this.disconnectingAccountId = account.id;
+    this.socialAccountsService.disconnect(account.id).subscribe({
+      next: () => {
+        this.disconnectingAccountId = null;
+        this.toast.success('Account disconnected');
+        this.loadSocialAccounts();
+      },
+      error: () => {
+        this.disconnectingAccountId = null;
+        this.toast.error('Failed to disconnect account');
+      }
+    });
+  }
+
+  platformName(platform: SocialPlatform): string {
+    return this.socialPlatforms.find(p => p.platform === platform)?.name ?? platform;
   }
 
   isProviderConfigured(provider: ModelProvider): boolean {
