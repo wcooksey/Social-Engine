@@ -13,8 +13,13 @@ export const config = {
 
   // Public base URL of this deployment (no trailing slash). Used to build
   // booking links, unsubscribe links, and calendar invite URLs that leads
-  // click. Falls back to localhost for dev.
-  appPublicUrl: (process.env.APP_PUBLIC_URL || 'http://localhost:3000').replace(/\/$/, ''),
+  // click. Tolerates a bare host (no scheme) by assuming https, so a value
+  // like "app.example.com" or "app.example.com/" both work. Dev fallback.
+  appPublicUrl: (() => {
+    let u = (process.env.APP_PUBLIC_URL || 'http://localhost:3000').trim().replace(/\/+$/, '');
+    if (u && !/^https?:\/\//i.test(u)) u = `https://${u}`;
+    return u;
+  })(),
 
   // Extra allowed CORS origins in production (comma-separated). The backend
   // serves the frontend itself, so this stays empty unless the UI is hosted
