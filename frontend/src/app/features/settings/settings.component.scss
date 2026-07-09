@@ -74,6 +74,23 @@
   justify-content: flex-end;
 }
 
+.engine-model-description {
+  color: var(--text-secondary);
+  font-size: $font-size-sm;
+  max-width: 560px;
+  margin-bottom: $spacing-md;
+}
+
+.engine-model-row {
+  max-width: 400px;
+  margin-bottom: $spacing-md;
+}
+
+.engine-model-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .theme-row {
   display: flex;
   align-items: center;

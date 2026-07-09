@@ -34,5 +34,6 @@ export type EngineStreamEvent =
   | { type: 'text'; delta: string }
   | { type: 'tool_call'; toolName: string; input?: unknown }
   | { type: 'tool_result'; toolName: string; summary?: string }
+  | { type: 'model_failover'; fromModel: string; toModel: string; reason: string }
   | { type: 'done'; runId: string; messageId: string }
   | { type: 'error'; message: string };

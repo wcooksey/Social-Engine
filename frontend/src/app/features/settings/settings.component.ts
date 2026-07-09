@@ -5,14 +5,24 @@ import { AuthService } from '../../core/services/auth.service';
 import { OrganizationService } from '../../core/services/organization.service';
 import { ThemeService } from '../../core/services/theme.service';
 import { ToastService } from '../../core/services/toast.service';
+import { ModelsService } from '../../core/services/models.service';
+import { ModelProvider } from '../../core/models/model.model';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { InputComponent } from '../../shared/components/input/input.component';
 import { ButtonComponent } from '../../shared/components/button/button.component';
 import { SwitchComponent } from '../../shared/components/switch/switch.component';
 import { BadgeComponent } from '../../shared/components/badge/badge.component';
 import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme-toggle.component';
+import { SelectComponent, SelectOption } from '../../shared/components/select/select.component';
 
 interface Integration {
+  name: string;
+  description: string;
+  icon: string;
+}
+
+interface ModelProviderCard {
+  provider: ModelProvider;
   name: string;
   description: string;
   icon: string;
@@ -38,7 +48,8 @@ function timeToHour(time: string): number {
     ButtonComponent,
     SwitchComponent,
     BadgeComponent,
-    ThemeToggleComponent
+    ThemeToggleComponent,
+    SelectComponent
   ],
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.scss'
@@ -60,11 +71,33 @@ export class SettingsComponent implements OnInit {
     { name: 'Search API', description: 'Power the Engine\'s web research for prospecting.', icon: 'bi-search' }
   ];
 
+  modelProviders: ModelProviderCard[] = [
+    { provider: 'anthropic', name: 'Anthropic (Claude)', description: 'Powers Claude models for the Engine.', icon: 'bi-stars' },
+    { provider: 'openai', name: 'OpenAI', description: 'Powers GPT models for the Engine.', icon: 'bi-cpu' },
+    { provider: 'google', name: 'Google Gemini', description: 'Powers Gemini models for the Engine.', icon: 'bi-google' },
+    { provider: 'xai', name: 'xAI Grok', description: 'Powers Grok models for the Engine.', icon: 'bi-lightning-charge' },
+    { provider: 'deepseek', name: 'DeepSeek', description: 'Powers DeepSeek models for the Engine.', icon: 'bi-search' }
+  ];
+
+  // Engine model
+  loadingModels = true;
+  savingEngineModel = false;
+  engineModelSelection: string | null = null;
+
+  engineModelOptions = computed<SelectOption[]>(() =>
+    this.modelsService.models().map(model => ({
+      label: model.configured ? `${model.label} — ${model.providerLabel}` : `${model.label} — ${model.providerLabel} (not configured)`,
+      value: model.id,
+      disabled: !model.configured
+    }))
+  );
+
   constructor(
     private authService: AuthService,
     private organizationService: OrganizationService,
     public themeService: ThemeService,
-    private toast: ToastService
+    private toast: ToastService,
+    private modelsService: ModelsService
   ) {}
 
   ngOnInit(): void {
@@ -79,6 +112,39 @@ export class SettingsComponent implements OnInit {
       error: () => {
         this.loadingOrg = false;
         this.toast.error('Failed to load organization settings');
+      }
+    });
+
+    this.modelsService.getModels().subscribe({
+      next: res => {
+        this.engineModelSelection = res.current;
+        this.loadingModels = false;
+      },
+      error: () => {
+        this.loadingModels = false;
+        this.toast.error('Failed to load Engine models');
+      }
+    });
+  }
+
+  isProviderConfigured(provider: ModelProvider): boolean {
+    return this.modelsService.isProviderConfigured(provider);
+  }
+
+  saveEngineModel(): void {
+    if (!this.engineModelSelection) return;
+    const selection = this.engineModelSelection;
+    const label = this.modelsService.models().find(m => m.id === selection)?.label ?? selection;
+
+    this.savingEngineModel = true;
+    this.modelsService.setModel(selection).subscribe({
+      next: () => {
+        this.savingEngineModel = false;
+        this.toast.success(`Engine model set to ${label}`);
+      },
+      error: () => {
+        this.savingEngineModel = false;
+        this.toast.error('Failed to update the Engine model');
       }
     });
   }

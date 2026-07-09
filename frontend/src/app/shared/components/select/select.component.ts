@@ -5,6 +5,7 @@ import { CommonModule } from '@angular/common';
 export interface SelectOption {
   label: string;
   value: any;
+  disabled?: boolean;
 }
 
 @Component({

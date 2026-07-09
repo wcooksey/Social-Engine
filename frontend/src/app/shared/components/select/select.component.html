@@ -24,7 +24,7 @@
         <option value="">{{ placeholder }}</option>
       }
       @for (option of options; track option.value) {
-        <option [value]="option.value">{{ option.label }}</option>
+        <option [value]="option.value" [disabled]="option.disabled">{{ option.label }}</option>
       }
     </select>
     <span class="select-arrow">

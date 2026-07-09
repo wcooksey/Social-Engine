@@ -158,6 +158,16 @@ export class EngineComponent implements OnInit {
               msg.toolEvents = toolEvents;
               break;
             }
+            case 'model_failover': {
+              const toolEvents = [...(msg.toolEvents || [])];
+              toolEvents.push({
+                toolName: 'model failover',
+                summary: `${event.fromModel} unavailable — continuing on ${event.toModel}`
+              });
+              msg.toolEvents = toolEvents;
+              this.toast.info(`Provider issue — Engine switched to ${event.toModel} for this run`);
+              break;
+            }
             case 'done':
               msg.streaming = false;
               msg.agentRunId = event.runId;
