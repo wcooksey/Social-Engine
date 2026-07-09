@@ -36,6 +36,14 @@
             <app-switch [ngModel]="engineActive" (valueChange)="toggleEngine()" [ngModelOptions]="{ standalone: true }"></app-switch>
           </div>
 
+          <div class="kill-switch-row">
+            <div class="kill-switch-label">
+              <span class="label-title">Autonomous social DMs</span>
+              <span class="label-sub">Let the browser agent send direct messages on social platforms. Off keeps DMs as drafts for approval (recommended — automated DMs can violate platform terms).</span>
+            </div>
+            <app-switch [ngModel]="socialAutonomy" (valueChange)="toggleSocialAutonomy()" [ngModelOptions]="{ standalone: true }"></app-switch>
+          </div>
+
           <div class="guardrails-actions">
             <app-button variant="primary" [loading]="savingGuardrails" (clicked)="saveGuardrails()">Save Guardrails</app-button>
           </div>

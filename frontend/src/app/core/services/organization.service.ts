@@ -10,6 +10,7 @@ export interface OrganizationSettings {
   quietHoursStart: number;
   quietHoursEnd: number;
   paused: boolean;
+  socialAutonomy: boolean;
   createdAt: string;
 }
 
@@ -21,7 +22,7 @@ export class OrganizationService {
     return this.api.get<OrganizationSettings>('/api/organizations/mine');
   }
 
-  updateMine(patch: Partial<Pick<OrganizationSettings, 'name' | 'dailySendCap' | 'quietHoursStart' | 'quietHoursEnd' | 'paused'>>): Observable<OrganizationSettings> {
+  updateMine(patch: Partial<Pick<OrganizationSettings, 'name' | 'dailySendCap' | 'quietHoursStart' | 'quietHoursEnd' | 'paused' | 'socialAutonomy'>>): Observable<OrganizationSettings> {
     return this.api.patch<OrganizationSettings>('/api/organizations/mine', patch);
   }
 }

@@ -25,6 +25,7 @@ export class SidebarComponent {
   navItems: NavItem[] = [
     { icon: 'bi-grid-1x2', label: 'Dashboard', route: '/dashboard' },
     { icon: 'bi-stars', label: 'Engine', route: '/engine' },
+    { icon: 'bi-chat-left-text', label: 'Inbox', route: '/inbox' },
     { icon: 'bi-building', label: 'Leads', route: '/leads' },
     { icon: 'bi-collection', label: 'Groups', route: '/groups' },
     { icon: 'bi-megaphone', label: 'Campaigns', route: '/campaigns' },

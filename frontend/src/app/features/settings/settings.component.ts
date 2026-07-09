@@ -61,6 +61,7 @@ export class SettingsComponent implements OnInit {
   quietHoursStart = '20:00';
   quietHoursEnd = '08:00';
   engineActive = true;
+  socialAutonomy = false;
   savingGuardrails = false;
   loadingOrg = true;
 
@@ -107,6 +108,7 @@ export class SettingsComponent implements OnInit {
         this.quietHoursStart = hourToTime(org.quietHoursStart);
         this.quietHoursEnd = hourToTime(org.quietHoursEnd);
         this.engineActive = !org.paused;
+        this.socialAutonomy = org.socialAutonomy;
         this.loadingOrg = false;
       },
       error: () => {
@@ -177,6 +179,17 @@ export class SettingsComponent implements OnInit {
         this.toast.info(next ? 'Engine resumed' : 'Engine paused — all autonomous actions halted');
       },
       error: () => this.toast.error('Failed to update Engine state')
+    });
+  }
+
+  toggleSocialAutonomy(): void {
+    const next = !this.socialAutonomy;
+    this.organizationService.updateMine({ socialAutonomy: next }).subscribe({
+      next: () => {
+        this.socialAutonomy = next;
+        this.toast.info(next ? 'Autonomous social DMs enabled' : 'Social DMs will now be saved as drafts');
+      },
+      error: () => this.toast.error('Failed to update social autonomy')
     });
   }
 }

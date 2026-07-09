@@ -27,6 +27,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/engine/engine.component').then(m => m.EngineComponent)
       },
       {
+        path: 'inbox',
+        loadComponent: () => import('./features/inbox/inbox.component').then(m => m.InboxComponent)
+      },
+      {
         path: 'leads',
         children: [
           {

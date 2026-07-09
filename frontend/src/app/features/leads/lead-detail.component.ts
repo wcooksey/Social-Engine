@@ -11,6 +11,8 @@ import { SelectComponent, SelectOption } from '../../shared/components/select/se
 import { BadgeComponent, BadgeVariant } from '../../shared/components/badge/badge.component';
 import { DialogComponent } from '../../shared/components/dialog/dialog.component';
 import { ToastService } from '../../core/services/toast.service';
+import { ConversationsService } from '../../core/services/conversations.service';
+import { Conversation } from '../../core/models/conversation.model';
 
 @Component({
   selector: 'app-lead-detail',
@@ -39,6 +41,10 @@ export class LeadDetailComponent implements OnInit {
   savingContact = signal(false);
   contactForm = { firstName: '', lastName: '', title: '', email: '', phone: '' };
 
+  conversations = signal<Conversation[]>([]);
+  loadingConversations = signal(true);
+  private expandedIds = signal<Set<string>>(new Set());
+
   statusOptions: SelectOption[] = [
     { label: 'New', value: 'NEW' },
     { label: 'Researching', value: 'RESEARCHING' },
@@ -54,12 +60,16 @@ export class LeadDetailComponent implements OnInit {
     private route: ActivatedRoute,
     private router: Router,
     private leadsService: LeadsService,
+    private conversationsService: ConversationsService,
     private toast: ToastService
   ) {}
 
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id');
-    if (id) this.load(id);
+    if (id) {
+      this.load(id);
+      this.loadConversations(id);
+    }
   }
 
   load(id: string): void {
@@ -74,6 +84,54 @@ export class LeadDetailComponent implements OnInit {
         this.toast.error('Failed to load lead');
       }
     });
+  }
+
+  loadConversations(leadId: string): void {
+    this.loadingConversations.set(true);
+    this.conversationsService.getLeadConversations(leadId).subscribe({
+      next: (conversations) => {
+        this.conversations.set(conversations);
+        this.loadingConversations.set(false);
+      },
+      error: () => {
+        this.loadingConversations.set(false);
+        this.toast.error('Failed to load conversations');
+      }
+    });
+  }
+
+  isExpanded(conversationId: string): boolean {
+    return this.expandedIds().has(conversationId);
+  }
+
+  toggleConversation(conversationId: string): void {
+    const next = new Set(this.expandedIds());
+    if (next.has(conversationId)) {
+      next.delete(conversationId);
+    } else {
+      next.add(conversationId);
+    }
+    this.expandedIds.set(next);
+  }
+
+  channelIcon(channel: string): string {
+    const map: Record<string, string> = {
+      EMAIL: 'bi-envelope',
+      SMS: 'bi-chat-dots',
+      VOICE: 'bi-telephone',
+      SOCIAL: 'bi-share'
+    };
+    return map[channel] || 'bi-chat';
+  }
+
+  channelBadgeVariant(channel: string): BadgeVariant {
+    switch (channel) {
+      case 'EMAIL': return 'info';
+      case 'SMS': return 'success';
+      case 'VOICE': return 'orange';
+      case 'SOCIAL': return 'purple';
+      default: return 'default';
+    }
   }
 
   changeStatus(status: string): void {
