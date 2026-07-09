@@ -73,6 +73,20 @@
   &--with-icon-right {
     padding-right: 2.5rem;
   }
+
+  // Let native date/time pickers pick light or dark glyphs to match the app theme
+  // instead of always rendering dark icons on a dark background.
+  &[type="date"],
+  &[type="time"] {
+    color-scheme: light;
+  }
+}
+
+:host-context([data-theme="dark"]) {
+  .input[type="date"],
+  .input[type="time"] {
+    color-scheme: dark;
+  }
 }
 
 .input-icon {

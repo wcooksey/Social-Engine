@@ -89,6 +89,8 @@ A run works like this:
 | `send_email` / `send_sms` | Send a message through the channel services |
 | `place_call` | Kick off an AI voice call |
 | `schedule_followup` | Schedule its own future work (self-scheduling) |
+| `list_calendar_events` | Read the shared calendar (avoid double-booking) |
+| `create_calendar_event` / `update_calendar_event` | Book, reschedule, or cancel meetings/demos/calls with leads |
 | `log_activity` / `add_note` | Write to the lead timeline / memory |
 
 Tools are the **only** way the Engine touches data — every mutation is validated, org-scoped,
@@ -131,6 +133,8 @@ The context problem: a campaign runs for weeks, but a model context window is fi
 - **Conversation / Message** — threaded messages per lead+channel for the unified inbox.
 - **AgentRun / AgentStep** — every Engine execution and each tool call within it (audit trail).
 - **AgentJob** — scheduled unit of work (type, payload, runAt, status) — the scheduler's queue.
+- **CalendarEvent** — shared calendar (meetings/demos/calls with leads); both humans and the
+  Engine read and write it. Events booked by the Engine carry the AgentRun id for auditability.
 - **EngineChat / EngineChatMessage** — the user↔Engine console threads.
 
 ## Channels (integration roadmap)

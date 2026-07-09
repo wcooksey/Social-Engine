@@ -40,6 +40,7 @@ model Organization {
   agentRuns    AgentRun[]
   agentJobs    AgentJob[]
   engineChats  EngineChat[]
+  calendarEvents CalendarEvent[]
 }
 
 model User {
@@ -124,6 +125,7 @@ model Lead {
   conversations Conversation[]
   campaignLeads CampaignLead[]
   agentJobs     AgentJob[]
+  calendarEvents CalendarEvent[]
 
   @@unique([organizationId, domain])
   @@index([organizationId, status])
@@ -151,7 +153,8 @@ model Contact {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  conversations Conversation[]
+  conversations  Conversation[]
+  calendarEvents CalendarEvent[]
 
   @@unique([leadId, email])
   @@index([organizationId])
@@ -403,6 +406,51 @@ model AgentJob {
 
   @@index([status, runAt])
   @@index([organizationId, status])
+  @@index([leadId])
+}
+
+// ============================================
+// CALENDAR
+// ============================================
+
+enum CalendarEventType {
+  MEETING
+  CALL
+  DEMO
+  FOLLOW_UP
+  OTHER
+}
+
+enum CalendarEventStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+model CalendarEvent {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leadId         String?
+  lead           Lead?        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  contactId      String?
+  contact        Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  title       String
+  description String?
+  location    String?
+  type        CalendarEventType   @default(MEETING)
+  status      CalendarEventStatus @default(SCHEDULED)
+  startAt     DateTime
+  endAt       DateTime?
+  allDay      Boolean             @default(false)
+
+  createdByRunId String? // AgentRun that booked this (Engine audit trail)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, startAt])
   @@index([leadId])
 }
 

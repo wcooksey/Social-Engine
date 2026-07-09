@@ -20,7 +20,7 @@ export class AgentService {
     return this.api.get<AgentRun>(`/api/agent/runs/${id}`);
   }
 
-  listJobs(): Observable<AgentJob[]> {
-    return this.api.get<AgentJob[]>('/api/agent/jobs');
+  listJobs(params: { status?: string } = {}): Observable<AgentJob[]> {
+    return this.api.get<AgentJob[]>('/api/agent/jobs', params);
   }
 }

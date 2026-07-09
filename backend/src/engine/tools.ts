@@ -259,6 +259,57 @@ export const engineTools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'list_calendar_events',
+    description:
+      'Read the calendar: list events in a date range (meetings, calls, demos booked with leads). ALWAYS check the calendar before booking anything to avoid double-booking.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        startIso: { type: 'string', description: 'Range start (ISO-8601). Defaults to now.' },
+        endIso: { type: 'string', description: 'Range end (ISO-8601). Defaults to 14 days from start.' },
+        leadId: { type: 'string', description: 'Only events for this lead' },
+      },
+    },
+  },
+  {
+    name: 'create_calendar_event',
+    description:
+      'Book an event on the calendar: a meeting, demo, or call with a lead. Use after a lead agrees to a time. Also logs the booking on the lead timeline.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        title: { type: 'string' },
+        startAtIso: { type: 'string', description: 'Start time (ISO-8601)' },
+        endAtIso: { type: 'string', description: 'End time (ISO-8601)' },
+        allDay: { type: 'boolean' },
+        type: { type: 'string', enum: ['MEETING', 'CALL', 'DEMO', 'FOLLOW_UP', 'OTHER'] },
+        description: { type: 'string' },
+        location: { type: 'string', description: 'Address, phone number, or meeting link' },
+        leadId: { type: 'string' },
+        contactId: { type: 'string' },
+      },
+      required: ['title', 'startAtIso'],
+    },
+  },
+  {
+    name: 'update_calendar_event',
+    description:
+      'Reschedule, complete, or cancel a calendar event (e.g. when a lead asks to move a demo).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        eventId: { type: 'string' },
+        title: { type: 'string' },
+        startAtIso: { type: 'string' },
+        endAtIso: { type: 'string' },
+        location: { type: 'string' },
+        description: { type: 'string' },
+        status: { type: 'string', enum: ['SCHEDULED', 'COMPLETED', 'CANCELLED'] },
+      },
+      required: ['eventId'],
+    },
+  },
+  {
     name: 'update_group_summary',
     description:
       'Update the rolling AI summary on a lead group — your long-term memory of progress, findings, and next steps for that group.',
@@ -654,6 +705,117 @@ const executors: Record<string, ToolExecutor> = {
       });
     }
     return { jobId: job.id, runAt: runAt.toISOString() };
+  },
+
+  list_calendar_events: async (input, ctx) => {
+    const start = input.startIso ? new Date(input.startIso) : new Date();
+    if (isNaN(start.getTime())) throw new Error(`Invalid startIso: ${input.startIso}`);
+    const end = input.endIso
+      ? new Date(input.endIso)
+      : new Date(start.getTime() + 14 * 24 * 3600 * 1000);
+    if (isNaN(end.getTime())) throw new Error(`Invalid endIso: ${input.endIso}`);
+
+    const events = await prisma.calendarEvent.findMany({
+      where: {
+        organizationId: ctx.organizationId,
+        startAt: { gte: start, lte: end },
+        ...(input.leadId ? { leadId: input.leadId } : {}),
+      },
+      include: {
+        lead: { select: { companyName: true } },
+        contact: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { startAt: 'asc' },
+      take: 100,
+    });
+    return {
+      range: { start: start.toISOString(), end: end.toISOString() },
+      events: events.map((e) => ({
+        id: e.id,
+        title: e.title,
+        type: e.type,
+        status: e.status,
+        startAt: e.startAt.toISOString(),
+        endAt: e.endAt?.toISOString() ?? null,
+        allDay: e.allDay,
+        location: e.location,
+        lead: e.lead?.companyName,
+        contact: e.contact ? `${e.contact.firstName} ${e.contact.lastName || ''}`.trim() : null,
+      })),
+    };
+  },
+
+  create_calendar_event: async (input, ctx) => {
+    const startAt = new Date(input.startAtIso);
+    if (isNaN(startAt.getTime())) throw new Error(`Invalid startAtIso: ${input.startAtIso}`);
+    const endAt = input.endAtIso ? new Date(input.endAtIso) : null;
+    if (endAt && isNaN(endAt.getTime())) throw new Error(`Invalid endAtIso: ${input.endAtIso}`);
+    if (input.leadId) await requireLead(input.leadId, ctx.organizationId);
+
+    const event = await prisma.calendarEvent.create({
+      data: {
+        organizationId: ctx.organizationId,
+        title: input.title,
+        description: input.description,
+        location: input.location,
+        type: input.type || 'MEETING',
+        startAt,
+        endAt,
+        allDay: !!input.allDay,
+        leadId: input.leadId,
+        contactId: input.contactId,
+        createdByRunId: ctx.runId,
+      },
+    });
+    if (input.leadId) {
+      await leadService.logActivity({
+        organizationId: ctx.organizationId,
+        leadId: input.leadId,
+        type: 'NOTE',
+        summary: `${event.type} booked: "${event.title}" at ${startAt.toISOString()}`,
+        payload: { calendarEventId: event.id },
+        agentRunId: ctx.runId,
+      });
+    }
+    return { eventId: event.id, startAt: startAt.toISOString(), title: event.title };
+  },
+
+  update_calendar_event: async (input, ctx) => {
+    const existing = await prisma.calendarEvent.findFirst({
+      where: { id: input.eventId, organizationId: ctx.organizationId },
+    });
+    if (!existing) throw new Error(`Calendar event ${input.eventId} not found`);
+
+    const data: Record<string, unknown> = {};
+    if (input.title) data.title = input.title;
+    if (input.location !== undefined) data.location = input.location;
+    if (input.description !== undefined) data.description = input.description;
+    if (input.status) data.status = input.status;
+    if (input.startAtIso) {
+      const startAt = new Date(input.startAtIso);
+      if (isNaN(startAt.getTime())) throw new Error(`Invalid startAtIso: ${input.startAtIso}`);
+      data.startAt = startAt;
+    }
+    if (input.endAtIso) {
+      const endAt = new Date(input.endAtIso);
+      if (isNaN(endAt.getTime())) throw new Error(`Invalid endAtIso: ${input.endAtIso}`);
+      data.endAt = endAt;
+    }
+    const event = await prisma.calendarEvent.update({ where: { id: existing.id }, data });
+    if (existing.leadId) {
+      await leadService.logActivity({
+        organizationId: ctx.organizationId,
+        leadId: existing.leadId,
+        type: 'NOTE',
+        summary:
+          input.status === 'CANCELLED'
+            ? `Event cancelled: "${existing.title}"`
+            : `Event updated: "${event.title}" now at ${event.startAt.toISOString()} (${event.status})`,
+        payload: { calendarEventId: event.id },
+        agentRunId: ctx.runId,
+      });
+    }
+    return { eventId: event.id, status: event.status, startAt: event.startAt.toISOString() };
   },
 
   update_group_summary: async (input, ctx) => {

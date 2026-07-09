@@ -17,7 +17,7 @@ import { CommonModule } from '@angular/common';
   styleUrl: './input.component.scss'
 })
 export class InputComponent implements ControlValueAccessor {
-  @Input() type: 'text' | 'email' | 'password' | 'number' | 'tel' | 'time' = 'text';
+  @Input() type: 'text' | 'email' | 'password' | 'number' | 'tel' | 'time' | 'date' = 'text';
   @Input() label?: string;
   @Input() placeholder: string = '';
   @Input() required: boolean = false;
