@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { JwtPayload, verifyAccessToken } from '../utils/jwt';
+import { isSuperAdmin } from '../services/settings.service';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -38,4 +39,12 @@ export function roleMiddleware(...roles: string[]) {
     }
     next();
   };
+}
+
+export function superAdminMiddleware(req: Request, res: Response, next: NextFunction): void {
+  if (!isSuperAdmin(req.user?.email)) {
+    res.status(403).json({ success: false, error: 'Super admin only' });
+    return;
+  }
+  next();
 }

@@ -12,7 +12,7 @@ async function main(): Promise<void> {
     console.log(`Social Engine API listening on :${config.port} (${config.nodeEnv})`);
   });
 
-  startEngineWorker();
+  await startEngineWorker();
 
   const shutdown = async (signal: string) => {
     console.log(`${signal} received, shutting down`);

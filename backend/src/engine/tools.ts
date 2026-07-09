@@ -21,6 +21,7 @@ import {
   PlatformKey,
   saveStorageState,
 } from '../services/social-account.service';
+import { getOrgConfig } from '../services/settings.service';
 import { runBrowserAgent } from './browser/browser-agent.service';
 import { AgentRole, defaultRoleForJobType } from './roles';
 import { buildCallSystemPrompt } from './prompts';
@@ -552,6 +553,7 @@ async function draftOnlyReason(
   campaignId: string | undefined,
   organizationId: string,
   blocked: string | null,
+  configured: boolean,
   kind: 'email' | 'sms' = 'email'
 ): Promise<string | null> {
   if (blocked) return blocked;
@@ -564,7 +566,6 @@ async function draftOnlyReason(
       return 'Campaign is in approval-required mode — message saved as a draft for human review.';
     }
   }
-  const configured = kind === 'email' ? channels.isEmailConfigured() : channels.isSmsConfigured();
   if (!configured) {
     return `${kind === 'email' ? 'Email channel (Mailgun)' : 'SMS channel (Twilio)'} is not configured — message saved as a draft.`;
   }
@@ -629,7 +630,10 @@ async function recordOutbound(opts: {
 }
 
 const executors: Record<string, ToolExecutor> = {
-  search_web: (input) => researchService.searchWeb(input.query, input.count),
+  search_web: async (input, ctx) => {
+    const orgConfig = await getOrgConfig(ctx.organizationId);
+    return researchService.searchWeb(input.query, input.count, orgConfig.search);
+  },
 
   fetch_page: (input) => researchService.fetchPage(input.url),
 
@@ -822,8 +826,14 @@ const executors: Record<string, ToolExecutor> = {
     }
     if (contact.optedOut) return { sent: false, reason: 'Contact has opted out — do not message them.' };
 
+    const orgConfig = await getOrgConfig(ctx.organizationId);
     const blocked = await outboundBlockReason(ctx.organizationId);
-    const draftReason = await draftOnlyReason(input.campaignId, ctx.organizationId, blocked);
+    const draftReason = await draftOnlyReason(
+      input.campaignId,
+      ctx.organizationId,
+      blocked,
+      channels.isEmailConfigured(orgConfig.mailgun)
+    );
 
     if (draftReason) {
       const result = await recordOutbound({
@@ -842,12 +852,15 @@ const executors: Record<string, ToolExecutor> = {
     }
 
     const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
-    const delivery = await channels.sendEmail({
-      to: contact.email,
-      subject: input.subject,
-      body: input.body,
-      fromName: org?.name,
-    });
+    const delivery = await channels.sendEmail(
+      {
+        to: contact.email,
+        subject: input.subject,
+        body: input.body,
+        fromName: org?.name,
+      },
+      orgConfig.mailgun
+    );
     if (!delivery.sent) {
       return { sent: false, reason: `Email delivery failed: ${delivery.error}` };
     }
@@ -880,8 +893,15 @@ const executors: Record<string, ToolExecutor> = {
     }
     if (contact.optedOut) return { sent: false, reason: 'Contact has opted out — do not message them.' };
 
+    const orgConfig = await getOrgConfig(ctx.organizationId);
     const blocked = await outboundBlockReason(ctx.organizationId);
-    const draftReason = await draftOnlyReason(input.campaignId, ctx.organizationId, blocked, 'sms');
+    const draftReason = await draftOnlyReason(
+      input.campaignId,
+      ctx.organizationId,
+      blocked,
+      channels.isSmsConfigured(orgConfig.twilio),
+      'sms'
+    );
 
     if (draftReason) {
       const result = await recordOutbound({
@@ -898,7 +918,7 @@ const executors: Record<string, ToolExecutor> = {
       return { sent: false, drafted: true, ...result, note: draftReason };
     }
 
-    const delivery = await channels.sendSms({ to: contact.phone, body: input.body });
+    const delivery = await channels.sendSms({ to: contact.phone, body: input.body }, orgConfig.twilio);
     if (!delivery.sent) {
       return { sent: false, reason: `SMS delivery failed: ${delivery.error}` };
     }
@@ -934,7 +954,8 @@ const executors: Record<string, ToolExecutor> = {
     const blocked = await outboundBlockReason(ctx.organizationId);
     if (blocked) return { called: false, reason: blocked };
 
-    if (!channels.isVoiceConfigured()) {
+    const orgConfig = await getOrgConfig(ctx.organizationId);
+    if (!channels.isVoiceConfigured(orgConfig.vapi)) {
       await leadService.logActivity({
         organizationId: ctx.organizationId,
         leadId: lead.id,
@@ -973,17 +994,20 @@ const executors: Record<string, ToolExecutor> = {
     });
     const firstMessage = `Hi${contactName ? ` ${contactName.split(' ')[0]}` : ''}, this is the assistant calling on behalf of ${org?.name || 'our team'} — do you have a quick minute?`;
 
-    const delivery = await channels.placeVapiCall({
-      toNumber,
-      systemPrompt,
-      firstMessage,
-      metadata: {
-        organizationId: ctx.organizationId,
-        leadId: lead.id,
-        agentRunId: ctx.runId,
-        ...(input.campaignId ? { campaignId: input.campaignId } : {}),
+    const delivery = await channels.placeVapiCall(
+      {
+        toNumber,
+        systemPrompt,
+        firstMessage,
+        metadata: {
+          organizationId: ctx.organizationId,
+          leadId: lead.id,
+          agentRunId: ctx.runId,
+          ...(input.campaignId ? { campaignId: input.campaignId } : {}),
+        },
       },
-    });
+      orgConfig.vapi
+    );
     if (!delivery.sent) {
       return { called: false, reason: `Call placement failed: ${delivery.error}` };
     }

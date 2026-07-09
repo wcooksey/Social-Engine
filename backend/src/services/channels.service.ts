@@ -1,8 +1,8 @@
-import { config } from '../config/environment';
-
 /**
- * Outbound channel delivery. Each channel reports whether it's configured;
- * the Engine's send tools fall back to drafts when a channel isn't ready.
+ * Outbound channel delivery. Credentials are resolved per-organization (from
+ * settings, falling back to env) and passed in, so each account uses its own
+ * Mailgun/Twilio/Vapi. Each channel reports whether it's configured; the
+ * Engine's send tools fall back to drafts when a channel isn't ready.
  */
 
 export interface SendResult {
@@ -11,43 +11,50 @@ export interface SendResult {
   error?: string;
 }
 
+export interface EmailCreds {
+  apiKey: string;
+  domain: string;
+}
+export interface SmsCreds {
+  accountSid: string;
+  authToken: string;
+  fromNumber: string;
+}
+export interface VoiceCreds {
+  apiKey: string;
+  phoneNumberId: string;
+  assistantModel: string;
+  voiceProvider: string;
+  voiceId: string;
+}
+
 // ---------------------------------------------------------------------------
 // Email — Mailgun
 // ---------------------------------------------------------------------------
 
-export function isEmailConfigured(): boolean {
-  return !!(config.mailgun.apiKey && config.mailgun.domain);
+export function isEmailConfigured(creds: EmailCreds): boolean {
+  return !!(creds.apiKey && creds.domain);
 }
 
-export async function sendEmail(opts: {
-  to: string;
-  subject: string;
-  body: string;
-  fromName?: string;
-}): Promise<SendResult> {
-  if (!isEmailConfigured()) return { sent: false, error: 'Email channel not configured' };
+export async function sendEmail(
+  opts: { to: string; subject: string; body: string; fromName?: string },
+  creds: EmailCreds
+): Promise<SendResult> {
+  if (!isEmailConfigured(creds)) return { sent: false, error: 'Email channel not configured' };
 
-  const from = `${opts.fromName || 'Social Engine'} <noreply@${config.mailgun.domain}>`;
-  const form = new URLSearchParams({
-    from,
-    to: opts.to,
-    subject: opts.subject,
-    text: opts.body,
-  });
+  const from = `${opts.fromName || 'Social Engine'} <noreply@${creds.domain}>`;
+  const form = new URLSearchParams({ from, to: opts.to, subject: opts.subject, text: opts.body });
 
   try {
-    const res = await fetch(
-      `https://api.mailgun.net/v3/${config.mailgun.domain}/messages`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${Buffer.from(`api:${config.mailgun.apiKey}`).toString('base64')}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: form.toString(),
-        signal: AbortSignal.timeout(15000),
-      }
-    );
+    const res = await fetch(`https://api.mailgun.net/v3/${creds.domain}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`api:${creds.apiKey}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+      signal: AbortSignal.timeout(15000),
+    });
     if (!res.ok) {
       const text = await res.text();
       return { sent: false, error: `Mailgun ${res.status}: ${text.slice(0, 200)}` };
@@ -63,28 +70,22 @@ export async function sendEmail(opts: {
 // SMS — Twilio
 // ---------------------------------------------------------------------------
 
-export function isSmsConfigured(): boolean {
-  return !!(config.twilio.accountSid && config.twilio.authToken && config.twilio.fromNumber);
+export function isSmsConfigured(creds: SmsCreds): boolean {
+  return !!(creds.accountSid && creds.authToken && creds.fromNumber);
 }
 
-export async function sendSms(opts: { to: string; body: string }): Promise<SendResult> {
-  if (!isSmsConfigured()) return { sent: false, error: 'SMS channel not configured' };
+export async function sendSms(opts: { to: string; body: string }, creds: SmsCreds): Promise<SendResult> {
+  if (!isSmsConfigured(creds)) return { sent: false, error: 'SMS channel not configured' };
 
-  const form = new URLSearchParams({
-    From: config.twilio.fromNumber,
-    To: opts.to,
-    Body: opts.body,
-  });
+  const form = new URLSearchParams({ From: creds.fromNumber, To: opts.to, Body: opts.body });
 
   try {
     const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${config.twilio.accountSid}/Messages.json`,
+      `https://api.twilio.com/2010-04-01/Accounts/${creds.accountSid}/Messages.json`,
       {
         method: 'POST',
         headers: {
-          Authorization: `Basic ${Buffer.from(
-            `${config.twilio.accountSid}:${config.twilio.authToken}`
-          ).toString('base64')}`,
+          Authorization: `Basic ${Buffer.from(`${creds.accountSid}:${creds.authToken}`).toString('base64')}`,
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: form.toString(),
@@ -106,38 +107,40 @@ export async function sendSms(opts: { to: string; body: string }): Promise<SendR
 // Voice — Vapi (AI phone calls)
 // ---------------------------------------------------------------------------
 
-export function isVoiceConfigured(): boolean {
-  return !!(config.vapi.apiKey && config.vapi.phoneNumberId);
+export function isVoiceConfigured(creds: VoiceCreds): boolean {
+  return !!(creds.apiKey && creds.phoneNumberId);
 }
 
-export async function placeVapiCall(opts: {
-  toNumber: string;
-  systemPrompt: string;
-  firstMessage: string;
-  /** Opaque metadata echoed back in webhooks (leadId etc.). */
-  metadata: Record<string, string>;
-}): Promise<SendResult> {
-  if (!isVoiceConfigured()) return { sent: false, error: 'Voice channel not configured' };
+export async function placeVapiCall(
+  opts: {
+    toNumber: string;
+    systemPrompt: string;
+    firstMessage: string;
+    metadata: Record<string, string>;
+  },
+  creds: VoiceCreds
+): Promise<SendResult> {
+  if (!isVoiceConfigured(creds)) return { sent: false, error: 'Voice channel not configured' };
 
   try {
     const res = await fetch('https://api.vapi.ai/call', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${config.vapi.apiKey}`,
+        Authorization: `Bearer ${creds.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        phoneNumberId: config.vapi.phoneNumberId,
+        phoneNumberId: creds.phoneNumberId,
         customer: { number: opts.toNumber },
         metadata: opts.metadata,
         assistant: {
           firstMessage: opts.firstMessage,
           model: {
             provider: 'openai',
-            model: config.vapi.assistantModel,
+            model: creds.assistantModel,
             messages: [{ role: 'system', content: opts.systemPrompt }],
           },
-          voice: { provider: config.vapi.voiceProvider, voiceId: config.vapi.voiceId },
+          voice: { provider: creds.voiceProvider, voiceId: creds.voiceId },
         },
       }),
       signal: AbortSignal.timeout(20000),

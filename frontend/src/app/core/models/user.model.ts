@@ -10,6 +10,7 @@ export interface User {
   firstName: string;
   lastName: string;
   role: string;
+  isSuperAdmin?: boolean;
   organization?: Organization;
 }
 

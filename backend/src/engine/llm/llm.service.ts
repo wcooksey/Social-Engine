@@ -1,6 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import { isProviderConfigured, PROVIDERS, Provider, failoverChain, resolveProvider } from './catalog';
+import {
+  failoverChain,
+  isProviderConfigured,
+  Provider,
+  ProviderKeys,
+  providerKey,
+  PROVIDERS,
+  resolveProvider,
+} from './catalog';
 
 // ---------------------------------------------------------------------------
 // Provider-agnostic chat types. The Engine loop speaks only this dialect;
@@ -52,8 +60,7 @@ export interface LlmChatResponse {
 const anthropicClients = new Map<string, Anthropic>();
 const openaiClients = new Map<string, OpenAI>();
 
-function getAnthropicClient(): Anthropic {
-  const apiKey = PROVIDERS.anthropic.apiKey();
+function getAnthropicClient(apiKey: string): Anthropic {
   if (!apiKey) throw new LlmNotConfiguredError('anthropic');
   let client = anthropicClients.get(apiKey);
   if (!client) {
@@ -63,9 +70,8 @@ function getAnthropicClient(): Anthropic {
   return client;
 }
 
-function getOpenAICompatibleClient(provider: Provider): OpenAI {
+function getOpenAICompatibleClient(provider: Provider, apiKey: string): OpenAI {
   const info = PROVIDERS[provider];
-  const apiKey = info.apiKey();
   if (!apiKey) throw new LlmNotConfiguredError(provider);
   const cacheKey = `${provider}:${apiKey}`;
   let client = openaiClients.get(cacheKey);
@@ -103,8 +109,8 @@ function isRetryableProviderError(err: unknown): boolean {
 // Adapters
 // ---------------------------------------------------------------------------
 
-async function chatAnthropic(request: LlmChatRequest): Promise<LlmChatResponse> {
-  const client = getAnthropicClient();
+async function chatAnthropic(request: LlmChatRequest, keys?: ProviderKeys): Promise<LlmChatResponse> {
+  const client = getAnthropicClient(providerKey('anthropic', keys));
 
   const messages: Anthropic.MessageParam[] = request.messages.map((m) => {
     if (m.role === 'tool') {
@@ -165,9 +171,10 @@ async function chatAnthropic(request: LlmChatRequest): Promise<LlmChatResponse> 
 
 async function chatOpenAICompatible(
   provider: Provider,
-  request: LlmChatRequest
+  request: LlmChatRequest,
+  keys?: ProviderKeys
 ): Promise<LlmChatResponse> {
-  const client = getOpenAICompatibleClient(provider);
+  const client = getOpenAICompatibleClient(provider, providerKey(provider, keys));
 
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     { role: 'system', content: request.system },
@@ -240,28 +247,30 @@ async function chatOpenAICompatible(
 // ---------------------------------------------------------------------------
 
 class LlmService {
-  async chat(request: LlmChatRequest): Promise<LlmChatResponse> {
+  async chat(request: LlmChatRequest, keys?: ProviderKeys): Promise<LlmChatResponse> {
     const provider = resolveProvider(request.model);
-    if (provider === 'anthropic') return chatAnthropic(request);
-    return chatOpenAICompatible(provider, request);
+    if (provider === 'anthropic') return chatAnthropic(request, keys);
+    return chatOpenAICompatible(provider, request, keys);
   }
 
   /**
    * Chat with automatic failover: if the requested model's provider is down
    * (5xx/429/timeout) or unconfigured, retry the same request on the next
    * configured provider. Keeps the Engine running through vendor outages.
+   * `keys` are the org's resolved provider keys (falling back to env).
    */
   async chatWithFailover(
     request: LlmChatRequest,
+    keys?: ProviderKeys,
     onFailover?: (fromModel: string, toModel: string, reason: string) => void
   ): Promise<LlmChatResponse> {
-    const candidates = [request.model, ...failoverChain(request.model)];
+    const candidates = [request.model, ...failoverChain(request.model, keys)];
     let lastError: unknown;
 
     for (let i = 0; i < candidates.length; i++) {
       const model = candidates[i];
       try {
-        return await this.chat({ ...request, model });
+        return await this.chat({ ...request, model }, keys);
       } catch (err) {
         lastError = err;
         if (!isRetryableProviderError(err)) throw err;
@@ -277,8 +286,8 @@ class LlmService {
       : new Error('All configured AI providers failed');
   }
 
-  isAnyProviderConfigured(): boolean {
-    return (Object.keys(PROVIDERS) as Provider[]).some(isProviderConfigured);
+  isAnyProviderConfigured(keys?: ProviderKeys): boolean {
+    return (Object.keys(PROVIDERS) as Provider[]).some((p) => isProviderConfigured(p, keys));
   }
 }
 

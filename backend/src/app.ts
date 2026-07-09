@@ -23,6 +23,7 @@ import leadsRoutes from './routes/leads.routes';
 import modelsRoutes from './routes/models.routes';
 import organizationsRoutes from './routes/organizations.routes';
 import playbooksRoutes from './routes/playbooks.routes';
+import settingsRoutes from './routes/settings.routes';
 import socialAccountsRoutes from './routes/social-accounts.routes';
 import vapiWebhookRoutes from './routes/webhooks.vapi.routes';
 
@@ -59,6 +60,7 @@ app.use('/api/engine', apiRateLimit, authMiddleware, engineRoutes);
 app.use('/api/organizations', apiRateLimit, authMiddleware, organizationsRoutes);
 app.use('/api/models', apiRateLimit, authMiddleware, modelsRoutes);
 app.use('/api/playbooks', apiRateLimit, authMiddleware, playbooksRoutes);
+app.use('/api/settings', apiRateLimit, authMiddleware, settingsRoutes);
 app.use('/api/social-accounts', apiRateLimit, authMiddleware, socialAccountsRoutes);
 app.use('/api/experiments', apiRateLimit, authMiddleware, experimentsRoutes);
 

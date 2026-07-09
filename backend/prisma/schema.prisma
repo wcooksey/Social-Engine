@@ -50,6 +50,7 @@ model Organization {
   playbooks    Playbook[]
   socialAccounts SocialAccount[]
   experiments  Experiment[]
+  orgSettings  OrgSetting[]
 }
 
 model User {
@@ -486,6 +487,32 @@ model AgentJob {
   @@index([status, runAt])
   @@index([organizationId, status])
   @@index([leadId])
+}
+
+// ============================================
+// SETTINGS (DB-backed config; overrides env)
+// ============================================
+
+// Per-organization integration config (API keys etc.). Secrets are stored
+// encrypted. Resolution precedence at read time: OrgSetting -> env -> default.
+model OrgSetting {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  key            String
+  value          String
+  isSecret       Boolean      @default(false)
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, key])
+}
+
+// Platform-wide config, editable only by the super admin.
+model PlatformSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
 }
 
 // ============================================

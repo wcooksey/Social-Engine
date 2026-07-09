@@ -50,6 +50,13 @@ const PREFIX_ROUTES: [string, Provider][] = [
   ['deepseek-', 'deepseek'],
 ];
 
+/** Per-org resolved provider keys (from settings). Falls back to env in PROVIDERS. */
+export type ProviderKeys = Partial<Record<Provider, string>>;
+
+export function providerKey(provider: Provider, keys?: ProviderKeys): string {
+  return (keys && keys[provider]) || PROVIDERS[provider].apiKey();
+}
+
 export function resolveProvider(model: string): Provider {
   const normalized = model.toLowerCase();
   let best: Provider | null = null;
@@ -64,8 +71,8 @@ export function resolveProvider(model: string): Provider {
   return best;
 }
 
-export function isProviderConfigured(provider: Provider): boolean {
-  return !!PROVIDERS[provider].apiKey();
+export function isProviderConfigured(provider: Provider, keys?: ProviderKeys): boolean {
+  return !!providerKey(provider, keys);
 }
 
 export interface CatalogModel {
@@ -97,7 +104,7 @@ export const MODEL_CATALOG: CatalogModel[] = [
  * Failover order when the active model's provider is erroring: the default
  * model first, then the first configured model of each remaining provider.
  */
-export function failoverChain(excludeModel: string): string[] {
+export function failoverChain(excludeModel: string, keys?: ProviderKeys): string[] {
   const excludeProvider = resolveProvider(excludeModel);
   const chain: string[] = [];
   const seenProviders = new Set<Provider>([excludeProvider]);
@@ -105,14 +112,14 @@ export function failoverChain(excludeModel: string): string[] {
   const defaultModel = config.engine.model;
   if (defaultModel !== excludeModel) {
     const p = resolveProvider(defaultModel);
-    if (!seenProviders.has(p) && isProviderConfigured(p)) {
+    if (!seenProviders.has(p) && isProviderConfigured(p, keys)) {
       chain.push(defaultModel);
       seenProviders.add(p);
     }
   }
   for (const entry of MODEL_CATALOG) {
     if (seenProviders.has(entry.provider)) continue;
-    if (!isProviderConfigured(entry.provider)) continue;
+    if (!isProviderConfigured(entry.provider, keys)) continue;
     chain.push(entry.id);
     seenProviders.add(entry.provider);
   }

@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { prisma } from '../config/database';
-import { config } from '../config/environment';
 import { asyncHandler } from '../middleware/error.middleware';
 import { leadService } from '../services/lead.service';
+import { getOrgConfig } from '../services/settings.service';
 
 const router = Router();
 
@@ -15,14 +15,6 @@ const router = Router();
 router.post(
   '/',
   asyncHandler(async (req, res) => {
-    if (config.vapi.webhookSecret) {
-      const provided = req.headers['x-vapi-secret'];
-      if (provided !== config.vapi.webhookSecret) {
-        res.status(401).json({ success: false, error: 'Invalid webhook secret' });
-        return;
-      }
-    }
-
     const message = req.body?.message;
     if (!message || message.type !== 'end-of-call-report') {
       res.json({ success: true, data: { ignored: true } });
@@ -34,6 +26,16 @@ router.post(
     if (!organizationId || !leadId) {
       res.json({ success: true, data: { ignored: 'missing metadata' } });
       return;
+    }
+
+    // Verify against the org's Vapi webhook secret (settings → env fallback).
+    const orgConfig = await getOrgConfig(organizationId);
+    if (orgConfig.vapi.webhookSecret) {
+      const provided = req.headers['x-vapi-secret'];
+      if (provided !== orgConfig.vapi.webhookSecret) {
+        res.status(401).json({ success: false, error: 'Invalid webhook secret' });
+        return;
+      }
     }
     const lead = await prisma.lead.findFirst({ where: { id: leadId, organizationId } });
     if (!lead) {

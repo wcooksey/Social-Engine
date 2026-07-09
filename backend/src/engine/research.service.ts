@@ -4,19 +4,30 @@ import { config } from '../config/environment';
  * Web research channel for the Engine. Phase 1 wires a real search provider;
  * fetch_page works today via plain HTTP + readable-text extraction.
  */
+export interface SearchCreds {
+  apiKey: string;
+  provider: string;
+}
+
 class ResearchService {
-  async searchWeb(query: string, count = 10): Promise<{ results: unknown[]; note?: string }> {
-    if (!config.search.apiKey) {
+  async searchWeb(
+    query: string,
+    count = 10,
+    creds?: SearchCreds
+  ): Promise<{ results: unknown[]; note?: string }> {
+    const apiKey = creds?.apiKey || config.search.apiKey;
+    const provider = creds?.provider || config.search.provider;
+    if (!apiKey) {
       return {
         results: [],
-        note: 'No search API key configured (SEARCH_API_KEY). Ask the user to configure a search provider in Settings > Integrations, or research via fetch_page on known URLs.',
+        note: 'No search API key configured. Ask the user to add a search provider key in Settings > Integrations, or research via fetch_page on known URLs.',
       };
     }
 
-    if (config.search.provider === 'brave') {
+    if (provider === 'brave') {
       const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${Math.min(count, 20)}`;
       const res = await fetch(url, {
-        headers: { 'X-Subscription-Token': config.search.apiKey, Accept: 'application/json' },
+        headers: { 'X-Subscription-Token': apiKey, Accept: 'application/json' },
       });
       if (!res.ok) {
         return { results: [], note: `Search API error: ${res.status} ${res.statusText}` };
@@ -33,7 +44,7 @@ class ResearchService {
       };
     }
 
-    return { results: [], note: `Unsupported search provider: ${config.search.provider}` };
+    return { results: [], note: `Unsupported search provider: ${provider}` };
   }
 
   async fetchPage(url: string): Promise<{ url: string; text?: string; error?: string }> {

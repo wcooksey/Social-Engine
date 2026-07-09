@@ -9,6 +9,8 @@ export const config = {
 
   databaseUrl: process.env.DATABASE_URL || '',
 
+  superAdminEmail: process.env.SUPER_ADMIN_EMAIL || '',
+
   jwt: {
     secret: process.env.JWT_SECRET || 'dev-secret',
     refreshSecret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret',

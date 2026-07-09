@@ -1,6 +1,6 @@
 import { prisma } from '../config/database';
-import { config } from '../config/environment';
 import { engineService } from './engine.service';
+import { getPlatformEngineConfig } from '../services/settings.service';
 import { AgentRole } from './roles';
 
 const MAX_ATTEMPTS = 3;
@@ -17,14 +17,16 @@ let draining = false;
  * without stepping on each other (jobs are claimed atomically, leads dedupe,
  * the timeline is append-only).
  */
-export function startEngineWorker(): void {
+export async function startEngineWorker(): Promise<void> {
   if (timer) return;
+  const platform = await getPlatformEngineConfig();
   timer = setInterval(() => {
     void drainDueJobs();
-  }, config.engine.workerIntervalMs);
+  }, platform.workerIntervalMs);
   console.log(
-    `Engine worker started (every ${config.engine.workerIntervalMs}ms, ` +
-      `${config.engine.workerConcurrency} concurrent, ${config.engine.orgConcurrency}/org)`
+    `Engine worker started (every ${platform.workerIntervalMs}ms, ` +
+      `${platform.workerConcurrency} concurrent, ${platform.orgConcurrency}/org). ` +
+      `Concurrency updates live; interval changes need a restart.`
   );
 }
 
@@ -45,8 +47,10 @@ interface ClaimedJob {
 }
 
 /** Atomically claim one due job for an org under its concurrency cap, or null. */
-async function claimNextJob(orgInFlight: Map<string, number>): Promise<ClaimedJob | null> {
-  const orgConcurrency = config.engine.orgConcurrency;
+async function claimNextJob(
+  orgInFlight: Map<string, number>,
+  orgConcurrency: number
+): Promise<ClaimedJob | null> {
   const candidates = await prisma.agentJob.findMany({
     where: {
       status: 'PENDING',
@@ -122,7 +126,9 @@ export async function drainDueJobs(): Promise<void> {
   if (draining) return; // one drain cycle at a time; each cycle runs a pool
   draining = true;
 
-  const maxConcurrency = config.engine.workerConcurrency;
+  const platform = await getPlatformEngineConfig();
+  const maxConcurrency = platform.workerConcurrency;
+  const orgConcurrency = platform.orgConcurrency;
   const orgInFlight = new Map<string, number>();
   const active = new Map<symbol, Promise<void>>();
 
@@ -140,7 +146,7 @@ export async function drainDueJobs(): Promise<void> {
     for (;;) {
       // Fill open slots with claimable jobs.
       while (active.size < maxConcurrency) {
-        const job = await claimNextJob(orgInFlight);
+        const job = await claimNextJob(orgInFlight, orgConcurrency);
         if (!job) break;
         launch(job);
       }

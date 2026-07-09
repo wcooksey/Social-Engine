@@ -25,7 +25,8 @@ and build phases.
 npm run install:all
 
 # configure
-cp backend/.env.example backend/.env   # set DATABASE_URL, JWT_SECRET, ANTHROPIC_API_KEY, ...
+cp backend/.env.example backend/.env   # set DATABASE_URL, JWT_SECRET, JWT_REFRESH_SECRET,
+                                        # APP_ENCRYPTION_KEY, SUPER_ADMIN_EMAIL
 
 # database
 cd backend && npx prisma migrate dev && cd ..
@@ -36,6 +37,13 @@ npm run dev
 
 - Frontend: http://localhost:4200
 - API: http://localhost:3000
+
+Integration keys (AI providers, Mailgun, Twilio, Vapi, web search) are
+configured **in-app** on the **Settings → Integrations & API keys** page — each
+organization sets its own, stored encrypted. Platform-wide knobs (engine
+iterations, worker concurrency, per-org caps) live behind a super-admin section
+on the same page, unlocked for the account whose email matches `SUPER_ADMIN_EMAIL`.
+Any of these also work as environment-variable fallbacks (see `.env.example`).
 
 ## Repository layout
 

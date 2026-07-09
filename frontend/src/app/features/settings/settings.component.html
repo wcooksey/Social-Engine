@@ -83,38 +83,106 @@
   </app-card>
 
   <app-card padding="lg" class="section-card">
-    <h3>Integrations</h3>
-    <div class="integrations-grid">
-      @for (integration of integrations; track integration.name) {
-        <div class="integration-card">
-          <div class="integration-icon"><i [class]="'bi ' + integration.icon"></i></div>
-          <div class="integration-body">
-            <div class="integration-header">
-              <span class="integration-name">{{ integration.name }}</span>
-              <app-badge variant="neutral" size="sm">Not configured</app-badge>
+    <h3>Integrations &amp; API keys</h3>
+    <p class="integrations-intro">
+      Each account configures its own keys here. Values are resolved from what you save first, then any server environment
+      variable as a fallback. Secrets are stored encrypted and never shown again once saved.
+    </p>
+
+    @if (loadingSettings) {
+      <p class="loading-hint">Loading integrations…</p>
+    } @else {
+      @for (grp of settingGroups(); track grp.group) {
+        <div class="settings-group">
+          <div class="settings-group-header">
+            <div class="settings-group-icon"><i [class]="'bi ' + grp.icon"></i></div>
+            <div>
+              <span class="settings-group-name">{{ grp.name }}</span>
+              <p class="settings-group-description">{{ grp.description }}</p>
             </div>
-            <p class="integration-description">{{ integration.description }}</p>
+          </div>
+
+          <div class="settings-fields">
+            @for (setting of grp.settings; track setting.key) {
+              <div class="setting-row">
+                <div class="setting-label-col">
+                  <span class="setting-label">{{ setting.label }}</span>
+                  <app-badge [variant]="settingStatusVariant(setting)" size="sm">{{ settingStatusLabel(setting) }}</app-badge>
+                </div>
+                <div class="setting-input-col">
+                  <app-input
+                    [type]="setting.secret ? 'password' : 'text'"
+                    [(ngModel)]="settingEdits[setting.key]"
+                    [ngModelOptions]="{ standalone: true }"
+                    [placeholder]="setting.secret ? (setting.configured ? 'Set — leave blank to keep' : (setting.placeholder || 'Enter value')) : (setting.placeholder || 'Enter value')">
+                  </app-input>
+                </div>
+                <div class="setting-actions">
+                  <app-button
+                    variant="primary"
+                    size="sm"
+                    [loading]="savingSettingKey === setting.key"
+                    (clicked)="saveSetting(setting)">
+                    Save
+                  </app-button>
+                  @if (setting.source === 'org') {
+                    <app-button
+                      variant="ghost"
+                      size="sm"
+                      [disabled]="savingSettingKey === setting.key"
+                      (clicked)="clearSetting(setting)">
+                      Clear
+                    </app-button>
+                  }
+                </div>
+              </div>
+            }
           </div>
         </div>
       }
-      @for (provider of modelProviders; track provider.provider) {
-        <div class="integration-card">
-          <div class="integration-icon"><i [class]="'bi ' + provider.icon"></i></div>
-          <div class="integration-body">
-            <div class="integration-header">
-              <span class="integration-name">{{ provider.name }}</span>
-              @if (isProviderConfigured(provider.provider)) {
-                <app-badge variant="success" size="sm">Configured</app-badge>
-              } @else {
-                <app-badge variant="neutral" size="sm">Not configured</app-badge>
-              }
-            </div>
-            <p class="integration-description">{{ provider.description }}</p>
-          </div>
-        </div>
-      }
-    </div>
+    }
   </app-card>
+
+  @if (isSuperAdmin()) {
+    <app-card padding="lg" class="section-card">
+      <h3>Platform (super admin)</h3>
+      <p class="integrations-intro">
+        These knobs apply across every organization on this deployment. Concurrency changes take effect within seconds;
+        the worker poll interval applies after the next restart.
+      </p>
+
+      @if (loadingPlatform) {
+        <p class="loading-hint">Loading platform settings…</p>
+      } @else {
+        <div class="settings-fields">
+          @for (setting of platformSettings(); track setting.key) {
+            <div class="setting-row">
+              <div class="setting-label-col">
+                <span class="setting-label">{{ setting.label }}</span>
+                <app-badge variant="neutral" size="sm">default {{ setting.default }}</app-badge>
+              </div>
+              <div class="setting-input-col">
+                <app-input
+                  type="number"
+                  [(ngModel)]="platformEdits[setting.key]"
+                  [ngModelOptions]="{ standalone: true }">
+                </app-input>
+              </div>
+              <div class="setting-actions">
+                <app-button
+                  variant="primary"
+                  size="sm"
+                  [loading]="savingPlatformKey === setting.key"
+                  (clicked)="savePlatformSetting(setting)">
+                  Save
+                </app-button>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </app-card>
+  }
 
   <app-card padding="lg" class="section-card">
     <h3>Connected social accounts</h3>

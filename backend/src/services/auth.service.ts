@@ -2,6 +2,7 @@ import bcrypt from 'bcrypt';
 import { prisma } from '../config/database';
 import { AppError } from '../middleware/error.middleware';
 import { JwtPayload, signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt';
+import { isSuperAdmin } from './settings.service';
 
 const SALT_ROUNDS = 10;
 
@@ -28,6 +29,7 @@ function serializeUser(user: {
     firstName: user.firstName,
     lastName: user.lastName,
     role: user.role,
+    isSuperAdmin: isSuperAdmin(user.email),
     organization: {
       id: user.organization.id,
       name: user.organization.name,

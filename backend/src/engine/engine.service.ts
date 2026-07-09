@@ -2,6 +2,8 @@ import { prisma } from '../config/database';
 import { config } from '../config/environment';
 import { isEmailConfigured, isSmsConfigured, isVoiceConfigured } from '../services/channels.service';
 import { formatPlaybooksForPrompt, getActivePlaybooks } from '../services/playbook.service';
+import { getOrgConfig, getPlatformEngineConfig } from '../services/settings.service';
+import { ProviderKeys } from './llm/catalog';
 import { buildEngineSystemPrompt } from './prompts';
 import { LlmMessage, LlmToolDefinition, llmService } from './llm/llm.service';
 import { AgentRole, roleAllowsTool, rolePersona } from './roles';
@@ -103,6 +105,9 @@ class EngineService {
       ),
       { role: 'user', content: options.objective },
     ];
+    const orgConfig = await getOrgConfig(options.organizationId);
+    const providerKeys: ProviderKeys = orgConfig.providerKeys;
+
     const playbooks = await getActivePlaybooks(options.organizationId);
     const system = buildEngineSystemPrompt({
       organizationName: organization.name,
@@ -111,9 +116,9 @@ class EngineService {
       rolePersona: rolePersona(role),
       playbooksText: formatPlaybooksForPrompt(playbooks),
       channels: {
-        email: isEmailConfigured(),
-        sms: isSmsConfigured(),
-        voice: isVoiceConfigured(),
+        email: isEmailConfigured(orgConfig.mailgun),
+        sms: isSmsConfigured(orgConfig.twilio),
+        voice: isVoiceConfigured(orgConfig.vapi),
       },
     });
 
@@ -123,15 +128,17 @@ class EngineService {
     let servedByModel = model;
 
     try {
-      if (!llmService.isAnyProviderConfigured()) {
+      if (!llmService.isAnyProviderConfigured(providerKeys)) {
         throw new Error(
-          'The Engine is not configured yet: set at least one AI provider API key (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, or DEEPSEEK_API_KEY).'
+          'The Engine is not configured yet: add at least one AI provider API key in Settings → Integrations (Anthropic, OpenAI, Gemini, xAI, or DeepSeek).'
         );
       }
 
-      for (let iteration = 0; iteration < config.engine.maxIterations; iteration++) {
+      const maxIterations = (await getPlatformEngineConfig()).maxIterations;
+      for (let iteration = 0; iteration < maxIterations; iteration++) {
         const response = await llmService.chatWithFailover(
           { model, system, messages, tools: roleTools, maxTokens: 8192 },
+          providerKeys,
           (fromModel, toModel, reason) => {
             emit({ type: 'model_failover', fromModel, toModel, reason });
             void recordStep('model_failover', {

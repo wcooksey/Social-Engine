@@ -71,8 +71,25 @@ OpenAI-compatible wire format with per-provider base URLs). The organization pic
 model (`Organization.engineModel`) and can switch it on the fly from the Engine console or
 Settings. If the active provider errors (outage, rate limit, timeout), the run **fails over
 automatically** to the next configured provider mid-loop — the failover is recorded as an
-AgentStep and the serving model is stored on the AgentRun. Set any subset of
-`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `XAI_API_KEY` / `DEEPSEEK_API_KEY`.
+AgentStep and the serving model is stored on the AgentRun. Configure any subset of the provider
+keys (Anthropic / OpenAI / Gemini / xAI / DeepSeek) per organization on the Settings page; each
+resolves from the saved in-app value first, then the matching environment variable as a fallback.
+
+### Settings & secrets
+
+Integration credentials are per-organization and configured in-app (**Settings → Integrations &
+API keys**): AI provider keys, web-search key, Mailgun, Twilio, and Vapi. Secret values are
+encrypted at rest with `APP_ENCRYPTION_KEY` (AES-256-GCM) and never returned by the API once
+saved — the masked list only reports whether each is set and where it resolves from (`org` DB
+value → `env` fallback → `unset`). Resolution precedence everywhere is **DB value → env var →
+default**, so existing env-based deployments keep working untouched.
+
+Platform-wide knobs that affect every organization — engine max iterations, global worker
+concurrency, per-org concurrency cap, and worker poll interval — are gated behind a super-admin
+section, unlocked only for the account whose email matches the `SUPER_ADMIN_EMAIL` environment
+variable. Concurrency changes apply within ~10s (the worker re-reads them each drain); the poll
+interval applies on the next restart. Only `DATABASE_URL`, the JWT secrets, `APP_ENCRYPTION_KEY`,
+and `SUPER_ADMIN_EMAIL` must live in the environment.
 
 ### Agent loop
 
