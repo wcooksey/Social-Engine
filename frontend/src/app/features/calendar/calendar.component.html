@@ -1,0 +1,253 @@
+<div class="calendar-page">
+  <div class="page-header">
+    <div>
+      <h1>Calendar</h1>
+      <p class="subtitle">Meetings, calls, and Engine-scheduled work in one place</p>
+    </div>
+    <app-button variant="primary" icon="bi-plus-lg" (clicked)="openCreateToday()">New event</app-button>
+  </div>
+
+  <app-card padding="lg" class="calendar-card">
+    <div class="calendar-toolbar">
+      <div class="toolbar-nav">
+        <app-button variant="ghost" size="sm" icon="bi-chevron-left" [iconOnly]="true" (clicked)="prevMonth()"></app-button>
+        <h2 class="month-title">{{ monthLabel() }}</h2>
+        <app-button variant="ghost" size="sm" icon="bi-chevron-right" [iconOnly]="true" (clicked)="nextMonth()"></app-button>
+      </div>
+      <app-button variant="ghost" size="sm" (clicked)="goToday()">Today</app-button>
+    </div>
+
+    @if (loading()) {
+      <div class="loading-state">
+        <span class="spinner"></span>
+        <p>Loading calendar...</p>
+      </div>
+    } @else {
+      <div class="calendar-grid-wrapper">
+        <div class="weekday-row">
+          @for (wd of weekdayLabels; track wd) {
+            <div class="weekday-cell">{{ wd }}</div>
+          }
+        </div>
+        <div class="calendar-grid">
+          @for (day of days(); track day.key) {
+            <div
+              class="day-cell"
+              [class.day-cell--dimmed]="!day.inCurrentMonth"
+              [class.day-cell--today]="day.isToday"
+              (click)="onDayCellClick(day)">
+              <div class="day-cell-header">
+                <span class="day-number">{{ day.dayNumber }}</span>
+              </div>
+              <div class="day-items">
+                @for (item of visibleItems(day); track trackItem(item)) {
+                  @if (item.kind === 'event' && item.event) {
+                    <button
+                      type="button"
+                      class="chip event-chip"
+                      [ngClass]="eventChipClass(item.event)"
+                      [title]="item.event.title"
+                      (click)="onEventChipClick(item.event, $event)">
+                      @if (item.event.status === 'COMPLETED') {
+                        <i class="bi bi-check-lg"></i>
+                      }
+                      <span class="chip-label">{{ item.event.title }}</span>
+                    </button>
+                  } @else if (item.kind === 'job' && item.job) {
+                    <button
+                      type="button"
+                      class="chip job-chip"
+                      [title]="item.job.objective"
+                      (click)="onJobChipClick(item.job, $event)">
+                      <i class="bi bi-stars"></i>
+                      <span class="chip-label">{{ jobLabel(item.job) }}</span>
+                    </button>
+                  }
+                }
+                @if (overflowCount(day) > 0) {
+                  <button type="button" class="chip more-chip" (click)="onMoreClick(day, $event)">
+                    +{{ overflowCount(day) }} more
+                  </button>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+
+      <div class="agenda-list">
+        @for (day of daysWithItems(); track day.key) {
+          <div class="agenda-day" [class.agenda-day--today]="day.isToday">
+            <div class="agenda-date">
+              <span class="agenda-weekday">{{ day.date | date: 'EEE' }}</span>
+              <span class="agenda-daynum">{{ day.date | date: 'MMM d' }}</span>
+            </div>
+            <div class="agenda-items">
+              @for (item of day.items; track trackItem(item)) {
+                @if (item.kind === 'event' && item.event) {
+                  <button
+                    type="button"
+                    class="chip event-chip agenda-chip"
+                    [ngClass]="eventChipClass(item.event)"
+                    (click)="onEventChipClick(item.event, $event)">
+                    @if (item.event.status === 'COMPLETED') {
+                      <i class="bi bi-check-lg"></i>
+                    }
+                    <span class="chip-label">{{ item.event.title }}</span>
+                    @if (!item.event.allDay) {
+                      <span class="chip-time">{{ item.event.startAt | date: 'h:mm a' }}</span>
+                    }
+                  </button>
+                } @else if (item.kind === 'job' && item.job) {
+                  <button type="button" class="chip job-chip agenda-chip" (click)="onJobChipClick(item.job, $event)">
+                    <i class="bi bi-stars"></i>
+                    <span class="chip-label">{{ jobLabel(item.job) }}</span>
+                  </button>
+                }
+              }
+            </div>
+          </div>
+        }
+        @if (!daysWithItems().length) {
+          <p class="empty-text">No events this month.</p>
+        }
+      </div>
+    }
+  </app-card>
+</div>
+
+<app-dialog [title]="eventDialogTitle()" [show]="showEventDialog()" size="md" (close)="closeEventDialog()">
+  <div class="event-form">
+    <app-input label="Title" [required]="true" [(ngModel)]="form.title" [ngModelOptions]="{ standalone: true }"></app-input>
+
+    <div class="form-row">
+      <app-select
+        label="Type"
+        [showPlaceholderOption]="false"
+        [options]="typeOptions"
+        [(ngModel)]="form.type"
+        [ngModelOptions]="{ standalone: true }">
+      </app-select>
+      @if (isEditing()) {
+        <app-select
+          label="Status"
+          [showPlaceholderOption]="false"
+          [options]="statusOptions"
+          [(ngModel)]="form.status"
+          [ngModelOptions]="{ standalone: true }">
+        </app-select>
+      }
+    </div>
+
+    <div class="field">
+      <app-switch label="All day" [(ngModel)]="form.allDay" [ngModelOptions]="{ standalone: true }"></app-switch>
+    </div>
+
+    <div class="form-row">
+      <app-input label="Date" type="date" [required]="true" [(ngModel)]="form.date" [ngModelOptions]="{ standalone: true }"></app-input>
+      @if (!form.allDay) {
+        <app-input label="Start time" type="time" [(ngModel)]="form.time" [ngModelOptions]="{ standalone: true }"></app-input>
+      }
+    </div>
+
+    @if (!form.allDay) {
+      <app-input label="End time" type="time" [(ngModel)]="form.endTime" [ngModelOptions]="{ standalone: true }"></app-input>
+    }
+
+    <app-input label="Location" [(ngModel)]="form.location" [ngModelOptions]="{ standalone: true }"></app-input>
+
+    <app-select
+      label="Related lead"
+      placeholder="None"
+      [options]="leadOptions()"
+      [(ngModel)]="form.leadId"
+      [ngModelOptions]="{ standalone: true }">
+    </app-select>
+
+    <div class="textarea-field">
+      <label>Description</label>
+      <textarea
+        rows="3"
+        [(ngModel)]="form.description"
+        [ngModelOptions]="{ standalone: true }"
+        placeholder="Notes for this event">
+      </textarea>
+    </div>
+  </div>
+
+  <div dialog-footer>
+    @if (isEditing()) {
+      <app-button variant="danger" [loading]="deleting()" (clicked)="deleteEvent()">Delete</app-button>
+    }
+    <app-button variant="ghost" (clicked)="closeEventDialog()">Cancel</app-button>
+    <app-button
+      variant="primary"
+      [loading]="saving()"
+      [disabled]="!form.title.trim() || !form.date"
+      (clicked)="saveEvent()">
+      {{ isEditing() ? 'Save changes' : 'Create event' }}
+    </app-button>
+  </div>
+</app-dialog>
+
+<app-dialog [title]="dayDialogTitle()" [show]="showDayDialog()" size="md" (close)="showDayDialog.set(false)">
+  <div class="day-dialog-list">
+    @for (item of selectedDay()?.items ?? []; track trackItem(item)) {
+      @if (item.kind === 'event' && item.event) {
+        <button
+          type="button"
+          class="day-dialog-item"
+          (click)="showDayDialog.set(false); onEventChipClick(item.event, $event)">
+          <span class="chip event-chip" [ngClass]="eventChipClass(item.event)">
+            @if (item.event.status === 'COMPLETED') {
+              <i class="bi bi-check-lg"></i>
+            }
+            {{ item.event.title }}
+          </span>
+          <span class="day-dialog-meta">
+            {{ item.event.allDay ? 'All day' : (item.event.startAt | date: 'h:mm a') }}
+            @if (item.event.location) { · {{ item.event.location }} }
+          </span>
+        </button>
+      } @else if (item.kind === 'job' && item.job) {
+        <button
+          type="button"
+          class="day-dialog-item"
+          (click)="showDayDialog.set(false); onJobChipClick(item.job, $event)">
+          <span class="chip job-chip"><i class="bi bi-stars"></i> {{ jobLabel(item.job) }}</span>
+          <span class="day-dialog-meta">{{ item.job.runAt | date: 'h:mm a' }}</span>
+        </button>
+      }
+    }
+  </div>
+  <div dialog-footer>
+    <app-button variant="ghost" (clicked)="showDayDialog.set(false)">Close</app-button>
+  </div>
+</app-dialog>
+
+<app-dialog title="Scheduled Engine Job" [show]="showJobDialog()" size="md" (close)="showJobDialog.set(false)">
+  @if (selectedJob(); as job) {
+    <div class="job-detail">
+      <p class="job-detail-objective">{{ job.objective }}</p>
+      <div class="job-detail-meta">
+        <div><strong>Type:</strong> {{ job.type }}</div>
+        <div><strong>Runs at:</strong> {{ job.runAt | date: 'medium' }}</div>
+        @if (job.lead) {
+          <div><strong>Lead:</strong> {{ job.lead.companyName }}</div>
+        }
+        @if (job.campaign) {
+          <div><strong>Campaign:</strong> {{ job.campaign.name }}</div>
+        }
+        <div><strong>Status:</strong> <app-badge variant="neutral" size="sm">{{ job.status }}</app-badge></div>
+      </div>
+      <p class="job-detail-hint">
+        <i class="bi bi-info-circle"></i>
+        This is scheduled by the Engine. You can cancel it from the
+        <a routerLink="/activity" (click)="showJobDialog.set(false)">Activity</a> page.
+      </p>
+    </div>
+  }
+  <div dialog-footer>
+    <app-button variant="ghost" (clicked)="showJobDialog.set(false)">Close</app-button>
+  </div>
+</app-dialog>

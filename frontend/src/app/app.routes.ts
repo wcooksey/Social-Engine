@@ -48,6 +48,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/campaigns/campaigns.component').then(m => m.CampaignsComponent)
       },
       {
+        path: 'calendar',
+        loadComponent: () => import('./features/calendar/calendar.component').then(m => m.CalendarComponent)
+      },
+      {
         path: 'activity',
         loadComponent: () => import('./features/activity/activity.component').then(m => m.ActivityComponent)
       },
