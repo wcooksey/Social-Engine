@@ -1,0 +1,110 @@
+// SCSS Mixins
+
+@mixin button-variant($bg-color, $text-color, $hover-bg) {
+  background-color: $bg-color;
+  color: $text-color;
+
+  &:hover:not(:disabled) {
+    background-color: $hover-bg;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+@mixin card-shadow($elevation: 1) {
+  @if $elevation == 1 {
+    box-shadow: $shadow-sm;
+  } @else if $elevation == 2 {
+    box-shadow: $shadow-md;
+  } @else if $elevation == 3 {
+    box-shadow: $shadow-lg;
+  } @else {
+    box-shadow: $shadow-xl;
+  }
+}
+
+@mixin responsive($breakpoint) {
+  @media (max-width: $breakpoint) {
+    @content;
+  }
+}
+
+@mixin fade-in($duration: $transition-normal) {
+  animation: fadeIn $duration ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@mixin slide-in($direction: 'right', $duration: $transition-normal) {
+  @if $direction == 'right' {
+    animation: slideInRight $duration ease-out;
+  } @else if $direction == 'left' {
+    animation: slideInLeft $duration ease-out;
+  } @else if $direction == 'up' {
+    animation: slideInUp $duration ease-out;
+  } @else {
+    animation: slideInDown $duration ease-out;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@mixin truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

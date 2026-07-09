@@ -1,0 +1,34 @@
+<div 
+  *ngIf="isOpen()" 
+  class="dialog-backdrop" 
+  #dialogBackdrop
+  (click)="onBackdropClick($event)"
+  [class.show]="isOpen()"
+  role="dialog"
+  [attr.aria-modal]="true"
+  [attr.aria-labelledby]="title ? 'dialog-title' : null">
+  <div 
+    class="dialog-container"
+    [class]="'size-' + size"
+    (click)="onDialogClick($event)"
+    #dialogContainer>
+    <div class="dialog-header" *ngIf="title || closable">
+      <h3 class="dialog-title" *ngIf="title" id="dialog-title">{{ title }}</h3>
+      <button 
+        *ngIf="closable"
+        class="dialog-close-btn" 
+        (click)="closeDialog()"
+        [attr.aria-label]="'Close dialog'"
+        title="Close">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+    <div class="dialog-content">
+      <ng-content></ng-content>
+    </div>
+    <div class="dialog-footer">
+      <ng-content select="[dialog-footer]"></ng-content>
+    </div>
+  </div>
+</div>
+

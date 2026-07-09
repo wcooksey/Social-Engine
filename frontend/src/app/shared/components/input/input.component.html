@@ -1,0 +1,45 @@
+<div class="input-wrapper">
+  @if (label) {
+    <label class="input-label">
+      {{ label }}
+      @if (required) {
+        <span class="input-label__required">*</span>
+      }
+    </label>
+  }
+  <div class="input-container" [class.input-container--error]="error">
+    @if (icon && iconPosition === 'left') {
+      <span class="input-icon input-icon--left"><i [class]="icon"></i></span>
+    }
+    <input
+      [type]="getInputType()"
+      [placeholder]="placeholder"
+      [required]="required"
+      [disabled]="disabled"
+      [value]="value"
+      (input)="onInput($event)"
+      (blur)="onBlur()"
+      class="input"
+      [class.input--with-icon-left]="icon && iconPosition === 'left'"
+      [class.input--with-icon-right]="icon && iconPosition === 'right' || type === 'password'">
+    @if (type === 'password') {
+      <button
+        type="button"
+        class="input-password-toggle"
+        (click)="togglePasswordVisibility()"
+        tabindex="-1">
+        <i [class]="showPassword ? 'bi bi-eye-slash' : 'bi bi-eye'"></i>
+      </button>
+    }
+    @if (icon && iconPosition === 'right' && type !== 'password') {
+      <span class="input-icon input-icon--right"><i [class]="icon"></i></span>
+    }
+  </div>
+  @if (error) {
+    <span class="input-error">{{ error }}</span>
+  }
+  @if (helperText && !error) {
+    <span class="input-helper">{{ helperText }}</span>
+  }
+</div>
+

@@ -1,0 +1,27 @@
+<button
+  [type]="type"
+  [disabled]="disabled || loading"
+  [class]="getButtonClasses()"
+  (click)="onClick()">
+  @if (loading) {
+    <span class="button__spinner"></span>
+  }
+  @if ((icon || customIcon) && iconPosition === 'left' && !loading) {
+    @if (customIcon) {
+      <span class="button__icon button__icon--left" [innerHTML]="safeCustomIcon"></span>
+    } @else if (icon) {
+      <i [class]="'bi ' + icon" class="button__icon button__icon--left"></i>
+    }
+  }
+  <span class="button__content">
+    <ng-content></ng-content>
+  </span>
+  @if ((icon || customIcon) && iconPosition === 'right' && !loading) {
+    @if (customIcon) {
+      <span class="button__icon button__icon--right" [innerHTML]="safeCustomIcon"></span>
+    } @else if (icon) {
+      <i [class]="'bi ' + icon" class="button__icon button__icon--right"></i>
+    }
+  }
+</button>
+

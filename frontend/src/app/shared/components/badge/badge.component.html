@@ -1,0 +1,5 @@
+<span [class]="getBadgeClasses()">
+  <i *ngIf="icon" [class]="icon.startsWith('bi-') ? 'bi ' + icon : icon" class="badge-icon"></i>
+  <ng-content></ng-content>
+</span>
+

@@ -1,0 +1,102 @@
+@import '../../../../assets/styles/variables';
+@import '../../../../assets/styles/mixins';
+
+.switch-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-sm;
+  cursor: pointer;
+  user-select: none;
+
+  &--disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  background: var(--bg-tertiary, #424242);
+  border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.1));
+  border-radius: 20px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  flex-shrink: 0;
+
+  &:hover:not(.switch--disabled) {
+    border-color: var(--primary-color, #6366F1);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  }
+
+  &--checked {
+    background: var(--primary-color, #6366F1);
+    border-color: var(--primary-color, #6366F1);
+  }
+
+  &--disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  &--sm {
+    width: 36px;
+    height: 20px;
+  }
+
+  &--md {
+    width: 44px;
+    height: 24px;
+  }
+
+  &--lg {
+    width: 52px;
+    height: 28px;
+  }
+}
+
+.switch__slider {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  background: #FFFFFF;
+  border-radius: 50%;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transform: translateY(-50%);
+
+  .switch--sm & {
+    width: 16px;
+    height: 16px;
+  }
+
+  .switch--md & {
+    width: 20px;
+    height: 20px;
+  }
+
+  .switch--lg & {
+    width: 24px;
+    height: 24px;
+  }
+
+  .switch--sm.switch--checked & {
+    transform: translate(14px, -50%); // 36px width - 16px slider - 4px padding (2px each side) - 2px left
+  }
+
+  .switch--md.switch--checked & {
+    transform: translate(20px, -50%); // 44px width - 20px slider - 4px padding - 2px left
+  }
+
+  .switch--lg.switch--checked & {
+    transform: translate(24px, -50%); // 52px width - 24px slider - 4px padding - 2px left
+  }
+}
+
+.switch__label {
+  color: var(--text-primary, #FFFFFF);
+  font-size: $font-size-base;
+  font-weight: $font-weight-medium;
+  line-height: 1.5;
+}
+

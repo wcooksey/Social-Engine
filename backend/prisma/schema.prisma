@@ -1,0 +1,440 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// AUTHENTICATION & TENANCY
+// ============================================
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Autonomy guardrails
+  dailySendCap Int     @default(200)
+  quietHoursStart Int  @default(20) // 24h local hour — no outbound after
+  quietHoursEnd   Int  @default(8)
+  paused          Boolean @default(false) // kill switch: Engine takes no outbound actions
+
+  users        User[]
+  leadGroups   LeadGroup[]
+  leads        Lead[]
+  contacts     Contact[]
+  campaigns    Campaign[]
+  activities   Activity[]
+  conversations Conversation[]
+  agentRuns    AgentRun[]
+  agentJobs    AgentJob[]
+  engineChats  EngineChat[]
+}
+
+model User {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String       @unique
+  passwordHash   String
+  firstName      String
+  lastName       String
+  role           Role         @default(MEMBER)
+  isActive       Boolean      @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  engineChats EngineChat[]
+  agentRuns   AgentRun[]
+
+  @@index([organizationId])
+}
+
+// ============================================
+// CRM CORE
+// ============================================
+
+enum LeadStatus {
+  NEW
+  RESEARCHING
+  CONTACTED
+  ENGAGED
+  INTERESTED
+  NOT_INTERESTED
+  CUSTOMER
+  ARCHIVED
+}
+
+model LeadGroup {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  goal           String?      // what the Engine is trying to accomplish with this group
+  aiSummary      String?      // rolling summary maintained by the Engine
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  leads Lead[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model Lead {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  groupId        String?
+  group          LeadGroup?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  companyName String
+  website     String?
+  domain      String? // normalized dedup key (e.g. "sunshinetoyota.com")
+  phone       String?
+  address     String?
+  city        String?
+  state       String?
+  postalCode  String?
+  country     String?      @default("US")
+  industry    String?
+  status      LeadStatus   @default(NEW)
+  source      String?      // how it was found: "web_research", "manual", "import"
+  aiSummary   String?      // Engine's rolling notes on this lead
+  socials     Json?        // { linkedin, facebook, instagram, x, ... }
+  metadata    Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contacts      Contact[]
+  activities    Activity[]
+  conversations Conversation[]
+  campaignLeads CampaignLead[]
+  agentJobs     AgentJob[]
+
+  @@unique([organizationId, domain])
+  @@index([organizationId, status])
+  @@index([organizationId, state])
+  @@index([groupId])
+}
+
+model Contact {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leadId         String
+  lead           Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  firstName String
+  lastName  String?
+  title     String? // "General Manager", "Owner", ...
+  email     String?
+  phone     String?
+  socials   Json?
+  source    String?
+  isPrimary Boolean @default(false)
+  optedOut  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  conversations Conversation[]
+
+  @@unique([leadId, email])
+  @@index([organizationId])
+  @@index([leadId])
+}
+
+// ============================================
+// CAMPAIGNS & OUTREACH
+// ============================================
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+enum CampaignMode {
+  AUTONOMOUS        // Engine sends without approval
+  APPROVAL_REQUIRED // Engine drafts; a human approves each send
+}
+
+enum Channel {
+  EMAIL
+  SMS
+  VOICE
+  SOCIAL
+}
+
+model Campaign {
+  id             String         @id @default(uuid())
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  offer          String?        // the pitch/offer the Engine works from
+  channels       Channel[]
+  mode           CampaignMode   @default(APPROVAL_REQUIRED)
+  status         CampaignStatus @default(DRAFT)
+  aiSummary      String?
+  followUpCadenceDays Int       @default(3)
+  maxTouches          Int       @default(6)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campaignLeads CampaignLead[]
+  activities    Activity[]
+  agentJobs     AgentJob[]
+
+  @@index([organizationId, status])
+}
+
+enum CampaignLeadStatus {
+  PENDING
+  IN_SEQUENCE
+  REPLIED
+  INTERESTED
+  NOT_INTERESTED
+  COMPLETED
+  REMOVED
+}
+
+model CampaignLead {
+  id         String             @id @default(uuid())
+  campaignId String
+  campaign   Campaign           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  leadId     String
+  lead       Lead               @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  status     CampaignLeadStatus @default(PENDING)
+  touchCount Int                @default(0)
+  lastTouchAt DateTime?
+  nextTouchAt DateTime?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  @@unique([campaignId, leadId])
+  @@index([leadId])
+  @@index([campaignId, status])
+}
+
+// ============================================
+// TIMELINE & CONVERSATIONS
+// ============================================
+
+enum ActivityType {
+  NOTE
+  RESEARCH
+  STATUS_CHANGE
+  EMAIL_SENT
+  EMAIL_REPLY
+  SMS_SENT
+  SMS_REPLY
+  CALL_PLACED
+  CALL_COMPLETED
+  SOCIAL_TOUCH
+  FOLLOW_UP_SCHEDULED
+}
+
+model Activity {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leadId         String
+  lead           Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId     String?
+  campaign       Campaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  agentRunId     String?
+  agentRun       AgentRun?    @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+
+  type    ActivityType
+  summary String
+  payload Json? // channel-specific detail (message body, call transcript ref, urls)
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([campaignId])
+}
+
+enum MessageDirection {
+  OUTBOUND
+  INBOUND
+}
+
+model Conversation {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leadId         String
+  lead           Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  contactId      String?
+  contact        Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  channel        Channel
+  subject        String?
+  lastMessageAt  DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  messages Message[]
+
+  @@index([organizationId, lastMessageAt])
+  @@index([leadId])
+}
+
+model Message {
+  id             String           @id @default(uuid())
+  conversationId String
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction      MessageDirection
+  body           String
+  status         String?          // queued | sent | delivered | failed | draft_pending_approval
+  externalId     String?          // provider message id (Mailgun/Twilio)
+  sentAt         DateTime?
+  createdAt      DateTime         @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// ============================================
+// ENGINE (AI AGENT LAYER)
+// ============================================
+
+enum AgentRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum AgentRunTrigger {
+  USER_CHAT
+  SCHEDULED_JOB
+  WEBHOOK
+}
+
+model AgentRun {
+  id             String          @id @default(uuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  trigger        AgentRunTrigger
+  objective      String          // what this run was asked to do
+  status         AgentRunStatus  @default(RUNNING)
+  summary        String?         // written by the Engine at the end (rolling memory)
+  error          String?
+  inputTokens    Int             @default(0)
+  outputTokens   Int             @default(0)
+  startedAt      DateTime        @default(now())
+  finishedAt     DateTime?
+
+  steps      AgentStep[]
+  activities Activity[]
+  chatMessages EngineChatMessage[]
+
+  @@index([organizationId, startedAt])
+}
+
+model AgentStep {
+  id         String   @id @default(uuid())
+  runId      String
+  run        AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  index      Int
+  type       String   // "thinking" | "tool_call" | "tool_result" | "message"
+  toolName   String?
+  input      Json?
+  output     Json?
+  createdAt  DateTime @default(now())
+
+  @@index([runId, index])
+}
+
+enum AgentJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum AgentJobType {
+  FOLLOW_UP
+  RESEARCH
+  CAMPAIGN_STEP
+  CUSTOM
+}
+
+model AgentJob {
+  id             String         @id @default(uuid())
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leadId         String?
+  lead           Lead?          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId     String?
+  campaign       Campaign?      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  type      AgentJobType
+  objective String       // instruction the Engine executes when the job fires
+  payload   Json?
+  runAt     DateTime
+  status    AgentJobStatus @default(PENDING)
+  attempts  Int            @default(0)
+  lastError String?
+  createdByRunId String?   // AgentRun that scheduled this (self-scheduling audit)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, runAt])
+  @@index([organizationId, status])
+  @@index([leadId])
+}
+
+// ============================================
+// ENGINE CONSOLE (user <-> AI chat)
+// ============================================
+
+model EngineChat {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String       @default("New conversation")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  messages EngineChatMessage[]
+
+  @@index([organizationId, updatedAt])
+  @@index([userId])
+}
+
+model EngineChatMessage {
+  id        String     @id @default(uuid())
+  chatId    String
+  chat      EngineChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  role      String     // "user" | "assistant"
+  content   String
+  agentRunId String?
+  agentRun   AgentRun? @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+  createdAt DateTime   @default(now())
+
+  @@index([chatId, createdAt])
+}

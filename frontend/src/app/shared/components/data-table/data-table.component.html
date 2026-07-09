@@ -1,0 +1,83 @@
+<!-- Bulk actions toolbar: shown only while there is a selection -->
+<div class="data-table__bulk" *ngIf="showBulkBar && selectable && selectedIds.size > 0">
+  <span class="data-table__bulk-count">{{ selectedIds.size }} selected</span>
+  <ng-content select="[dataTableBulkActions]"></ng-content>
+</div>
+
+<div class="data-table-wrapper">
+  <table class="data-table" [style.min-width]="minWidth">
+    <thead>
+      <tr>
+        <th *ngIf="selectable" class="data-table__select-col">
+          <input
+            type="checkbox"
+            [checked]="allSelected"
+            [indeterminate]="someSelected"
+            (change)="toggleAll($any($event.target).checked)"
+            aria-label="Select all rows" />
+        </th>
+        <th
+          *ngFor="let col of visibleColumns"
+          [class]="col.headerClass || ''"
+          [class.is-sortable]="col.sortable"
+          [style.text-align]="col.align || 'left'"
+          [style.width]="col.width || null"
+          (click)="onSort(col)">
+          <span class="data-table__th-label">
+            {{ col.header }}
+            <i *ngIf="col.sortable" class="bi" [ngClass]="sortIcon(col)"></i>
+          </span>
+        </th>
+      </tr>
+    </thead>
+
+    <tbody>
+      <tr *ngIf="loading" class="data-table__state-row">
+        <td [attr.colspan]="colspan">
+          <div class="data-table__state">
+            <span class="data-table__spinner"></span>
+            Loading…
+          </div>
+        </td>
+      </tr>
+
+      <tr *ngIf="!loading && displayRows.length === 0" class="data-table__state-row">
+        <td [attr.colspan]="colspan">
+          <div class="data-table__state data-table__state--empty">{{ emptyText }}</div>
+        </td>
+      </tr>
+
+      <ng-container *ngIf="!loading">
+        <tr
+          *ngFor="let row of displayRows; let i = index; trackBy: trackBy"
+          [class.is-selected]="selectable && isSelected(row)"
+          [class.is-clickable]="clickableRows"
+          [ngClass]="rowClass(row, i)"
+          (click)="onRowClick(row)">
+          <td *ngIf="selectable" class="data-table__select-col" (click)="$event.stopPropagation()">
+            <input
+              type="checkbox"
+              [checked]="isSelected(row)"
+              (change)="toggleRow(row, $any($event.target).checked)"
+              [attr.aria-label]="'Select row'" />
+          </td>
+          <td
+            *ngFor="let col of visibleColumns"
+            [class]="col.cellClass || ''"
+            [style.text-align]="col.align || 'left'">
+            <ng-container *ngIf="templateFor(col.key) as tpl; else defaultCell">
+              <ng-container
+                *ngTemplateOutlet="tpl; context: { $implicit: cellValue(row, col.key), row: row, index: i }">
+              </ng-container>
+            </ng-container>
+            <ng-template #defaultCell>{{ cellValue(row, col.key) }}</ng-template>
+          </td>
+        </tr>
+      </ng-container>
+    </tbody>
+
+    <tfoot>
+      <ng-content select="[dataTableFooter]"></ng-content>
+    </tfoot>
+  </table>
+</div>

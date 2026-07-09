@@ -1,0 +1,39 @@
+@import '../../../assets/styles/variables';
+@import '../../../assets/styles/mixins';
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-md;
+  margin-bottom: $spacing-lg;
+  flex-wrap: wrap;
+
+  .subtitle {
+    color: var(--text-secondary);
+    margin-top: $spacing-xs;
+  }
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: $spacing-md;
+  margin-bottom: $spacing-lg;
+
+  @include responsive($breakpoint-md) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.add-lead-form {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: $spacing-md;
+}

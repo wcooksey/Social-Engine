@@ -1,0 +1,7 @@
+<label class="switch-wrapper" [class.switch-wrapper--disabled]="disabled">
+  <div [class]="getSwitchClasses()" (click)="toggle()">
+    <span class="switch__slider"></span>
+  </div>
+  <span class="switch__label" *ngIf="label">{{ label }}</span>
+</label>
+

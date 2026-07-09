@@ -1,0 +1,29 @@
+<div class="app-layout">
+  <div
+    class="mobile-overlay"
+    *ngIf="mobileMenuService.isOpen()"
+    (click)="mobileMenuService.close()"></div>
+
+  <app-sidebar></app-sidebar>
+
+  <main class="main-content">
+    <div class="desktop-top-bar">
+      <div class="desktop-top-spacer"></div>
+    </div>
+
+    <div class="mobile-top-bar">
+      <button class="mobile-menu-toggle" (click)="mobileMenuService.toggle()" title="Toggle menu">
+        <i class="bi bi-list"></i>
+      </button>
+      <div class="mobile-top-title">
+        <i class="bi bi-lightning-charge-fill"></i>
+        <span>Social Engine</span>
+      </div>
+      <div class="mobile-top-spacer-icon"></div>
+    </div>
+
+    <div class="main-content-inner">
+      <router-outlet></router-outlet>
+    </div>
+  </main>
+</div>

@@ -1,0 +1,157 @@
+@import '../../../../assets/styles/variables';
+@import '../../../../assets/styles/mixins';
+
+:host {
+  display: block;
+}
+
+.data-table-wrapper {
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--bg-primary);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.65rem;
+    font-weight: $font-weight-semibold;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: $spacing-sm $spacing-md;
+    text-align: left;
+    border-bottom: 2px solid var(--border-primary);
+    white-space: nowrap;
+    user-select: none;
+
+    &.is-sortable {
+      cursor: pointer;
+
+      &:hover {
+        color: var(--text-primary);
+      }
+    }
+
+    .data-table__th-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+
+      i {
+        font-size: 0.7rem;
+        opacity: 0.55;
+      }
+    }
+  }
+
+  tbody td {
+    padding: $spacing-sm $spacing-md;
+    font-size: $font-size-sm;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-primary);
+    vertical-align: middle;
+    // Columns size to their longest value; the wrapper scrolls horizontally
+    // instead of wrapping cell content onto a second line.
+    white-space: nowrap;
+  }
+
+  tbody tr {
+    transition: background-color 0.15s ease;
+
+    &:last-child td {
+      border-bottom: none;
+    }
+
+    &:hover {
+      background: var(--bg-secondary);
+    }
+
+    &.is-selected {
+      background: rgba(66, 93, 185, 0.10);
+    }
+
+    &.is-clickable {
+      cursor: pointer;
+    }
+  }
+
+  tfoot td {
+    // Footer cells are projected through [dataTableFooter], so their styling
+    // lives in the global stylesheet (.data-table tfoot td) instead of here —
+    // emulated encapsulation would not reach projected content.
+  }
+}
+
+// Selection column
+.data-table__select-col {
+  width: 40px;
+  text-align: center;
+  white-space: nowrap;
+
+  input[type='checkbox'] {
+    cursor: pointer;
+    accent-color: $primary-blue;
+    width: 15px;
+    height: 15px;
+  }
+}
+
+// Loading / empty states
+.data-table__state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-sm;
+  padding: $spacing-lg;
+  color: var(--text-secondary);
+  font-size: $font-size-sm;
+
+  &--empty {
+    font-style: italic;
+  }
+}
+
+.data-table__state-row:hover {
+  background: transparent;
+}
+
+.data-table__spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-primary);
+  border-top-color: $primary-blue;
+  border-radius: 50%;
+  animation: data-table-spin 0.6s linear infinite;
+}
+
+@keyframes data-table-spin {
+  to { transform: rotate(360deg); }
+}
+
+// Bulk actions bar
+.data-table__bulk {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-md;
+  margin-bottom: $spacing-sm;
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+  background: var(--bg-secondary);
+}
+
+.data-table__bulk-count {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: var(--text-secondary);
+}

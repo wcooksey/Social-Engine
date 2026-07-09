@@ -1,0 +1,190 @@
+@import '../../../../assets/styles/variables';
+@import '../../../../assets/styles/mixins';
+
+.dialog-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 2000; // Must sit above mobile top bar (z-index: 1000)
+  @include flex-center;
+  padding: $spacing-lg;
+  opacity: 0;
+  transition: opacity $transition-normal;
+  overscroll-behavior: contain;
+  overflow: hidden; // Prevent any scrolling on backdrop
+  
+  &.show {
+    opacity: 1;
+  }
+  
+  @include responsive($breakpoint-md) {
+    padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+}
+
+.dialog-container {
+  background: var(--bg-card, #424242);
+  border-radius: $border-radius-lg;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+  max-height: 90vh;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  transform: scale(0.95);
+  transition: transform $transition-normal;
+  border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.1));
+  overflow: hidden; // Prevent container itself from scrolling
+  position: relative; // Establish positioning context
+
+  @include responsive($breakpoint-md) {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    transform: none;
+    // Ensure the dialog fills viewport and doesn't allow background scrolling
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+  }
+  
+  .show & {
+    transform: scale(1);
+  }
+  
+  &.size-sm {
+    width: 100%;
+    max-width: 400px;
+  }
+  
+  &.size-md {
+    width: 100%;
+    max-width: 600px;
+  }
+  
+  &.size-lg {
+    width: 100%;
+    max-width: 800px;
+  }
+  
+  &.size-xl {
+    width: 100%;
+    max-width: 1200px;
+  }
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: $spacing-lg;
+  border-bottom: 1px solid var(--border-primary, rgba(255, 255, 255, 0.1));
+  flex-shrink: 0; // Prevent header from shrinking
+  background: var(--bg-card, #424242); // Ensure header has background
+  position: relative; // Establish stacking context
+  z-index: 1;
+  
+  @include responsive($breakpoint-md) {
+    padding: calc($spacing-md + env(safe-area-inset-top)) $spacing-md $spacing-md;
+  }
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: $font-size-xl;
+  font-weight: $font-weight-semibold;
+  color: var(--text-primary, #FFFFFF);
+}
+
+.dialog-close-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.1));
+  color: var(--text-primary, #FFFFFF);
+  cursor: pointer;
+  @include flex-center;
+  font-size: $font-size-lg;
+  transition: all $transition-fast;
+  
+  &:hover {
+    background: var(--border-secondary, rgba(255, 255, 255, 0.1));
+    border-color: var(--border-secondary, rgba(255, 255, 255, 0.2));
+  }
+}
+
+.dialog-content {
+  padding: $spacing-lg;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y; // Allow vertical scrolling only within content
+  position: relative; // Establish scrolling context
+  
+  @include responsive($breakpoint-md) {
+    padding: $spacing-md;
+    // Ensure proper scrolling on mobile - content should scroll, not background
+    overscroll-behavior: contain;
+    // Prevent any pull-to-refresh or bounce effects
+    overscroll-behavior-y: contain;
+  }
+  
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    
+    &:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+  }
+}
+
+.dialog-footer {
+  padding: $spacing-lg;
+  border-top: 1px solid var(--border-primary, rgba(255, 255, 255, 0.1));
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-md;
+  flex-shrink: 0; // Prevent footer from shrinking
+  background: var(--bg-card, #424242); // Ensure footer has background
+  position: relative; // Ensure it's above content when scrolling
+  z-index: 1;
+
+  &:empty {
+    display: none;
+  }
+  
+  @include responsive($breakpoint-md) {
+    padding: $spacing-md $spacing-md calc($spacing-md + env(safe-area-inset-bottom));
+    flex-direction: column;
+    align-items: stretch;
+    gap: $spacing-sm;
+    
+    button {
+      width: 100%;
+    }
+  }
+}
+
