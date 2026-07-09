@@ -17,6 +17,7 @@ import dashboardRoutes from './routes/dashboard.routes';
 import engineRoutes from './routes/engine.routes';
 import leadGroupsRoutes from './routes/lead-groups.routes';
 import leadsRoutes from './routes/leads.routes';
+import modelsRoutes from './routes/models.routes';
 import organizationsRoutes from './routes/organizations.routes';
 
 const app = express();
@@ -47,6 +48,7 @@ app.use('/api/calendar', apiRateLimit, authMiddleware, calendarRoutes);
 app.use('/api/agent', apiRateLimit, authMiddleware, agentRoutes);
 app.use('/api/engine', apiRateLimit, authMiddleware, engineRoutes);
 app.use('/api/organizations', apiRateLimit, authMiddleware, organizationsRoutes);
+app.use('/api/models', apiRateLimit, authMiddleware, modelsRoutes);
 
 // Serve the built Angular frontend (single-service deployment, Railway-style)
 const frontendDistPath = path.join(__dirname, '../../frontend/dist/social-engine-frontend/browser');

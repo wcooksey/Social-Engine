@@ -1,13 +1,14 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '../config/database';
 import { config } from '../config/environment';
 import { buildEngineSystemPrompt } from './prompts';
+import { LlmMessage, LlmToolDefinition, llmService } from './llm/llm.service';
 import { engineTools, executeTool, ToolContext } from './tools';
 
 export type EngineEvent =
   | { type: 'text'; delta: string }
   | { type: 'tool_call'; toolName: string; input: unknown }
   | { type: 'tool_result'; toolName: string; summary: string }
+  | { type: 'model_failover'; fromModel: string; toModel: string; reason: string }
   | { type: 'done'; runId: string; messageId?: string }
   | { type: 'error'; message: string };
 
@@ -28,29 +29,23 @@ export interface RunEngineResult {
   error?: string;
 }
 
+const llmTools: LlmToolDefinition[] = engineTools.map((t) => ({
+  name: t.name,
+  description: t.description ?? '',
+  inputSchema: t.input_schema as Record<string, unknown>,
+}));
+
 function summarizeToolResult(result: unknown): string {
   const json = JSON.stringify(result);
   return json.length > 300 ? `${json.slice(0, 300)}…` : json;
 }
 
 class EngineService {
-  private client: Anthropic | null = null;
-
-  private getClient(): Anthropic {
-    if (!config.engine.anthropicApiKey) {
-      throw new Error(
-        'The Engine is not configured yet: set ANTHROPIC_API_KEY in the backend environment.'
-      );
-    }
-    if (!this.client) {
-      this.client = new Anthropic({ apiKey: config.engine.anthropicApiKey });
-    }
-    return this.client;
-  }
-
   /**
-   * Execute one Engine run: an agent loop (think -> tools -> observe) that is
-   * fully persisted as AgentRun + AgentStep rows and streamed via onEvent.
+   * Execute one Engine run: a provider-agnostic agent loop (think -> tools ->
+   * observe) persisted as AgentRun + AgentStep rows and streamed via onEvent.
+   * The model comes from the organization's engineModel setting; provider
+   * outages fail over automatically to the next configured provider.
    */
   async run(options: RunEngineOptions): Promise<RunEngineResult> {
     const organization = await prisma.organization.findUnique({
@@ -62,12 +57,15 @@ class EngineService {
       ? await prisma.user.findUnique({ where: { id: options.userId } })
       : null;
 
+    const model = organization.engineModel || config.engine.model;
+
     const run = await prisma.agentRun.create({
       data: {
         organizationId: options.organizationId,
         userId: options.userId,
         trigger: options.trigger,
         objective: options.objective.slice(0, 2000),
+        model,
       },
     });
     const ctx: ToolContext = { organizationId: options.organizationId, runId: run.id };
@@ -90,9 +88,11 @@ class EngineService {
       });
     };
 
-    const messages: Anthropic.MessageParam[] = [
-      ...(options.history ?? []).map((m) => ({ role: m.role, content: m.content })),
-      { role: 'user' as const, content: options.objective },
+    const messages: LlmMessage[] = [
+      ...(options.history ?? []).map(
+        (m): LlmMessage => ({ role: m.role, content: m.content })
+      ),
+      { role: 'user', content: options.objective },
     ];
     const system = buildEngineSystemPrompt({
       organizationName: organization.name,
@@ -103,64 +103,69 @@ class EngineService {
     let finalText = '';
     let inputTokens = 0;
     let outputTokens = 0;
+    let servedByModel = model;
 
     try {
-      const client = this.getClient();
+      if (!llmService.isAnyProviderConfigured()) {
+        throw new Error(
+          'The Engine is not configured yet: set at least one AI provider API key (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, or DEEPSEEK_API_KEY).'
+        );
+      }
 
       for (let iteration = 0; iteration < config.engine.maxIterations; iteration++) {
-        const response = await client.messages.create({
-          model: config.engine.model,
-          max_tokens: 4096,
-          system,
-          tools: engineTools,
-          messages,
-        });
-        inputTokens += response.usage.input_tokens;
-        outputTokens += response.usage.output_tokens;
-
-        const toolUses = response.content.filter(
-          (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
+        const response = await llmService.chatWithFailover(
+          { model, system, messages, tools: llmTools, maxTokens: 8192 },
+          (fromModel, toModel, reason) => {
+            emit({ type: 'model_failover', fromModel, toModel, reason });
+            void recordStep('model_failover', {
+              output: { fromModel, toModel, reason },
+            });
+          }
         );
-        const textBlocks = response.content.filter(
-          (b): b is Anthropic.TextBlock => b.type === 'text'
-        );
+        inputTokens += response.usage.inputTokens;
+        outputTokens += response.usage.outputTokens;
+        servedByModel = response.model;
 
-        for (const block of textBlocks) {
-          if (!block.text) continue;
-          finalText += (finalText ? '\n\n' : '') + block.text;
-          emit({ type: 'text', delta: block.text });
-          await recordStep('message', { output: block.text });
+        if (response.text) {
+          finalText += (finalText ? '\n\n' : '') + response.text;
+          emit({ type: 'text', delta: response.text });
+          await recordStep('message', { output: response.text });
         }
 
-        if (toolUses.length === 0 || response.stop_reason !== 'tool_use') break;
+        if (response.toolCalls.length === 0) break;
 
-        messages.push({ role: 'assistant', content: response.content });
-        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+        messages.push({
+          role: 'assistant',
+          content: response.text,
+          toolCalls: response.toolCalls,
+        });
+        const results: { toolCallId: string; name: string; content: string; isError?: boolean }[] =
+          [];
 
-        for (const toolUse of toolUses) {
-          emit({ type: 'tool_call', toolName: toolUse.name, input: toolUse.input });
-          await recordStep('tool_call', { toolName: toolUse.name, input: toolUse.input });
+        for (const call of response.toolCalls) {
+          emit({ type: 'tool_call', toolName: call.name, input: call.input });
+          await recordStep('tool_call', { toolName: call.name, input: call.input });
 
           let result: unknown;
           let isError = false;
           try {
-            result = await executeTool(toolUse.name, toolUse.input as Record<string, never>, ctx);
+            result = await executeTool(call.name, call.input as Record<string, never>, ctx);
           } catch (err) {
             isError = true;
             result = { error: err instanceof Error ? err.message : 'Tool execution failed' };
           }
 
-          await recordStep('tool_result', { toolName: toolUse.name, output: result });
-          emit({ type: 'tool_result', toolName: toolUse.name, summary: summarizeToolResult(result) });
+          await recordStep('tool_result', { toolName: call.name, output: result });
+          emit({ type: 'tool_result', toolName: call.name, summary: summarizeToolResult(result) });
 
-          toolResults.push({
-            type: 'tool_result',
-            tool_use_id: toolUse.id,
+          results.push({
+            toolCallId: call.id,
+            name: call.name,
             content: JSON.stringify(result ?? null),
-            is_error: isError,
+            isError,
           });
         }
-        messages.push({ role: 'user', content: toolResults });
+        messages.push({ role: 'tool', results });
       }
 
       await prisma.agentRun.update({
@@ -168,6 +173,7 @@ class EngineService {
         data: {
           status: 'COMPLETED',
           summary: finalText.slice(0, 4000) || options.objective,
+          model: servedByModel,
           inputTokens,
           outputTokens,
           finishedAt: new Date(),
@@ -181,6 +187,7 @@ class EngineService {
         data: {
           status: 'FAILED',
           error: message.slice(0, 2000),
+          model: servedByModel,
           inputTokens,
           outputTokens,
           finishedAt: new Date(),

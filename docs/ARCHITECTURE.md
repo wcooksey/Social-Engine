@@ -63,10 +63,21 @@ Built for internal use across our companies first, but designed multi-tenant fro
 
 ## The Engine (AI agent layer)
 
+### Multi-provider model layer
+
+The Engine is provider-agnostic. A model catalog routes any model id to its provider by prefix
+(`claude-*` → Anthropic native SDK; `gpt-*`, `gemini-*`, `grok-*`, `deepseek-*` → the
+OpenAI-compatible wire format with per-provider base URLs). The organization picks its active
+model (`Organization.engineModel`) and can switch it on the fly from the Engine console or
+Settings. If the active provider errors (outage, rate limit, timeout), the run **fails over
+automatically** to the next configured provider mid-loop — the failover is recorded as an
+AgentStep and the serving model is stored on the AgentRun. Set any subset of
+`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `XAI_API_KEY` / `DEEPSEEK_API_KEY`.
+
 ### Agent loop
 
-The Engine is an LLM agent loop with tool calling (Anthropic Messages API or OpenAI-compatible).
-A run works like this:
+The Engine is an LLM agent loop with tool calling, speaking a normalized chat dialect that the
+provider adapters translate. A run works like this:
 
 1. A run starts from either a **user message** in the console or a **scheduled job** firing
    (e.g. "follow up with the Florida dealership group").

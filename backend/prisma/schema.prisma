@@ -24,6 +24,9 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // AI model powering the Engine (null = server default)
+  engineModel String?
+
   // Autonomy guardrails
   dailySendCap Int     @default(200)
   quietHoursStart Int  @default(20) // 24h local hour — no outbound after
@@ -339,6 +342,7 @@ model AgentRun {
   user           User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
   trigger        AgentRunTrigger
   objective      String          // what this run was asked to do
+  model          String?         // model that actually served the run (after any failover)
   status         AgentRunStatus  @default(RUNNING)
   summary        String?         // written by the Engine at the end (rolling memory)
   error          String?
