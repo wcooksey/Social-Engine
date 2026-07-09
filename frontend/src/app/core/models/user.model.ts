@@ -11,6 +11,7 @@ export interface User {
   lastName: string;
   role: string;
   isSuperAdmin?: boolean;
+  notifyByEmail?: boolean;
   organization?: Organization;
 }
 

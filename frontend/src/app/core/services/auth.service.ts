@@ -67,6 +67,15 @@ export class AuthService {
     );
   }
 
+  updateNotifications(notifyByEmail: boolean): Observable<User> {
+    return this.api.patch<User>('/api/auth/me/notifications', { notifyByEmail }).pipe(
+      tap(user => {
+        localStorage.setItem('user', JSON.stringify(user));
+        this.currentUserSignal.set(user);
+      })
+    );
+  }
+
   refreshAccessToken(): Observable<{ token: string; refreshToken: string }> {
     return this.api
       .post<{ token: string; refreshToken: string }>('/api/auth/refresh', {

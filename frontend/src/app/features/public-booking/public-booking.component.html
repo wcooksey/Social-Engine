@@ -1,0 +1,145 @@
+<div class="booking-page">
+  <div class="booking-shell">
+    <div class="booking-brand">
+      <i class="bi bi-calendar2-check brand-icon"></i>
+      <span class="brand-text">Social Engine</span>
+    </div>
+
+    @if (loading()) {
+      <div class="booking-card state-card">
+        <div class="spinner"></div>
+        <p class="muted">Loading available times…</p>
+      </div>
+    } @else if (notFound()) {
+      <div class="booking-card state-card">
+        <i class="bi bi-link-45deg state-icon"></i>
+        <h2>Link not found</h2>
+        <p class="muted">This booking link is no longer active or the address is incorrect.</p>
+      </div>
+    } @else if (loadError()) {
+      <div class="booking-card state-card">
+        <i class="bi bi-exclamation-triangle state-icon"></i>
+        <h2>Something went wrong</h2>
+        <p class="muted">{{ loadError() }}</p>
+      </div>
+    } @else if (confirmed()) {
+      <div class="booking-card state-card">
+        <i class="bi bi-check-circle-fill state-icon success"></i>
+        <h2>You're booked!</h2>
+        <p class="muted">A calendar invite is on its way to {{ confirmedEmail() }}.</p>
+        @if (selectedSlot()) {
+          <div class="confirmed-slot">
+            <i class="bi bi-calendar-event"></i>
+            <span>{{ selectedDayLabel() }} · {{ selectedTimeLabel() }}</span>
+          </div>
+        }
+      </div>
+    } @else if (booking()) {
+      @if (booking(); as b) {
+      <div class="booking-card">
+        <div class="booking-header">
+          <span class="org-name">{{ b.organizationName }}</span>
+          <h1 class="booking-title">{{ b.title }}</h1>
+          <div class="booking-meta">
+            <span class="meta-chip"><i class="bi bi-clock"></i> {{ b.durationMinutes }} min</span>
+            @if (b.timezone) {
+              <span class="meta-chip"><i class="bi bi-globe"></i> {{ b.timezone }}</span>
+            }
+          </div>
+          @if (b.description) {
+            <p class="booking-description">{{ b.description }}</p>
+          }
+        </div>
+
+        @if (selectedSlot(); as slot) {
+          <!-- Step 2: details form -->
+          <div class="booking-body">
+            <button type="button" class="back-link" (click)="clearSlot()">
+              <i class="bi bi-arrow-left"></i> Back to times
+            </button>
+
+            <div class="selected-slot">
+              <i class="bi bi-calendar-event"></i>
+              <span>{{ selectedDayLabel() }} · {{ selectedTimeLabel() }}</span>
+            </div>
+
+            <form class="booking-form" (ngSubmit)="submit()">
+              <app-input
+                label="Name"
+                [required]="true"
+                placeholder="Your full name"
+                [(ngModel)]="name"
+                [ngModelOptions]="{ standalone: true }">
+              </app-input>
+              <app-input
+                label="Email"
+                type="email"
+                [required]="true"
+                placeholder="you@company.com"
+                [(ngModel)]="email"
+                [ngModelOptions]="{ standalone: true }">
+              </app-input>
+              <app-input
+                label="Phone (optional)"
+                type="tel"
+                placeholder="Optional"
+                [(ngModel)]="phone"
+                [ngModelOptions]="{ standalone: true }">
+              </app-input>
+
+              <div class="textarea-field">
+                <label>Notes (optional)</label>
+                <textarea
+                  rows="3"
+                  placeholder="Anything you'd like us to know?"
+                  [(ngModel)]="notes"
+                  [ngModelOptions]="{ standalone: true }"></textarea>
+              </div>
+
+              @if (submitError()) {
+                <div class="form-error">
+                  <i class="bi bi-exclamation-circle"></i>
+                  <span>{{ submitError() }}</span>
+                </div>
+              }
+
+              <app-button
+                type="submit"
+                variant="primary"
+                [fullWidth]="true"
+                [loading]="submitting()"
+                [disabled]="!canSubmit">
+                Confirm booking
+              </app-button>
+            </form>
+          </div>
+        } @else if (hasSlots()) {
+          <!-- Step 1: pick a time -->
+          <div class="booking-body">
+            <p class="pick-prompt">Select a time that works for you.</p>
+            @for (day of dayGroups(); track day.key) {
+              <div class="day-group">
+                <h3 class="day-label">{{ day.label }}</h3>
+                <div class="slot-grid">
+                  @for (slot of day.slots; track slot.startIso) {
+                    <button type="button" class="slot-btn" (click)="selectSlot(slot)">
+                      {{ slot.timeLabel }}
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="booking-body empty-slots">
+            <i class="bi bi-calendar-x state-icon"></i>
+            <p class="muted">No times available right now. Please check back later.</p>
+          </div>
+        }
+      </div>
+      }
+    }
+
+    <p class="booking-footer">Powered by Social Engine</p>
+  </div>
+</div>

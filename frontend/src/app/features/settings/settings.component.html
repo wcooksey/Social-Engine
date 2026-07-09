@@ -12,6 +12,14 @@
         <app-input label="Last name" [ngModel]="user.lastName" [ngModelOptions]="{ standalone: true }" [disabled]="true"></app-input>
       </div>
       <app-input label="Email" [ngModel]="user.email" [ngModelOptions]="{ standalone: true }" [disabled]="true"></app-input>
+
+      <div class="kill-switch-row notify-row">
+        <div class="kill-switch-label">
+          <span class="label-title">Email me alerts &amp; daily digest</span>
+          <span class="label-sub">Get email notifications for important activity plus a once-a-day summary of what the Engine did.</span>
+        </div>
+        <app-switch [ngModel]="notifyByEmail" (valueChange)="toggleNotifyByEmail()" [disabled]="savingNotifyByEmail" [ngModelOptions]="{ standalone: true }"></app-switch>
+      </div>
     </app-card>
 
     @if (user.organization) {
@@ -79,6 +87,139 @@
       <div class="theme-toggle-wrapper">
         <app-theme-toggle></app-theme-toggle>
       </div>
+    </div>
+  </app-card>
+
+  <app-card padding="lg" class="section-card">
+    <div class="card-header-row">
+      <h3>Booking links</h3>
+      <app-button variant="secondary" size="sm" icon="bi-plus-lg" (clicked)="openCreateBookingLink()">New link</app-button>
+    </div>
+    <p class="integrations-intro">
+      Share a public link and let prospects self-book a time on your calendar. Each link has its own availability, duration,
+      and buffer. Creating or editing links requires an owner or admin role.
+    </p>
+
+    @if (loadingBookingLinks) {
+      <p class="loading-hint">Loading booking links…</p>
+    } @else if (bookingLinks.length === 0) {
+      <p class="loading-hint">No booking links yet. Create one to start taking self-serve bookings.</p>
+    } @else {
+      <div class="booking-links-list">
+        @for (link of bookingLinks; track link.id) {
+          <div class="booking-link-row">
+            <div class="booking-link-info">
+              <div class="booking-link-title-row">
+                <span class="booking-link-title">{{ link.title }}</span>
+                <app-badge [variant]="link.active ? 'success' : 'neutral'" size="sm">{{ link.active ? 'Active' : 'Paused' }}</app-badge>
+              </div>
+              <div class="booking-link-meta">
+                <span><i class="bi bi-clock"></i> {{ link.durationMinutes }} min</span>
+                <span><i class="bi bi-calendar-week"></i> {{ availabilitySummary(link) }}</span>
+                <span><i class="bi bi-globe"></i> {{ link.timezone }}</span>
+              </div>
+              <div class="booking-link-url">
+                <a [href]="link.url" target="_blank" rel="noopener">{{ link.url }}</a>
+                <button type="button" class="copy-btn" (click)="copyBookingLink(link)" title="Copy link">
+                  <i [class]="copiedBookingLinkId === link.id ? 'bi bi-check2' : 'bi bi-clipboard'"></i>
+                  {{ copiedBookingLinkId === link.id ? 'Copied' : 'Copy' }}
+                </button>
+              </div>
+            </div>
+            <div class="booking-link-actions">
+              <app-switch
+                [ngModel]="link.active"
+                (valueChange)="toggleBookingLinkActive(link)"
+                [disabled]="togglingBookingLinkId === link.id"
+                [ngModelOptions]="{ standalone: true }">
+              </app-switch>
+              <app-button variant="ghost" size="sm" (clicked)="openEditBookingLink(link)">Edit</app-button>
+              <app-button
+                variant="danger"
+                size="sm"
+                [loading]="deletingBookingLinkId === link.id"
+                (clicked)="deleteBookingLink(link)">
+                Delete
+              </app-button>
+            </div>
+          </div>
+        }
+      </div>
+    }
+  </app-card>
+
+  <app-card padding="lg" class="section-card">
+    <h3>Import leads (CSV)</h3>
+    <p class="integrations-intro">
+      Paste CSV text or choose a <code>.csv</code> file to bulk-create leads and contacts. Optionally drop them into a group.
+    </p>
+
+    <div class="csv-import">
+      <div class="textarea-field">
+        <label>CSV data</label>
+        <textarea
+          rows="8"
+          class="csv-textarea"
+          [(ngModel)]="csvText"
+          [ngModelOptions]="{ standalone: true }"
+          placeholder="company,website,email,firstName,lastName,phone,title,city,state,industry&#10;Acme Inc,acme.com,jane@acme.com,Jane,Doe,555-0100,CEO,Austin,TX,Software"></textarea>
+        <p class="field-hint">
+          Supported columns: company/companyName, website, email, firstName, lastName, phone, title, city, state, industry.
+        </p>
+      </div>
+
+      <div class="csv-controls">
+        <label class="file-picker">
+          <input type="file" accept=".csv,text/csv" (change)="onCsvFileSelected($event)" />
+          <span class="file-picker-btn"><i class="bi bi-upload"></i> Choose .csv file</span>
+          @if (csvFileName) {
+            <span class="file-name">{{ csvFileName }}</span>
+          }
+        </label>
+        <div class="group-name-field">
+          <app-input
+            label="Group name (optional)"
+            placeholder="e.g. Q3 Prospects"
+            [(ngModel)]="csvGroupName"
+            [ngModelOptions]="{ standalone: true }">
+          </app-input>
+        </div>
+      </div>
+
+      <div class="csv-actions">
+        <app-button
+          variant="primary"
+          [loading]="importingCsv"
+          [disabled]="!csvText.trim()"
+          (clicked)="importCsv()">
+          Import leads
+        </app-button>
+      </div>
+
+      @if (importResult) {
+        <div class="import-result">
+          <div class="import-summary">
+            <span class="import-stat"><strong>{{ importResult.total }}</strong> rows</span>
+            <span class="import-stat"><strong>{{ importResult.created }}</strong> created</span>
+            <span class="import-stat"><strong>{{ importResult.updated }}</strong> updated</span>
+            <span class="import-stat"><strong>{{ importResult.contactsCreated }}</strong> contacts</span>
+            <span class="import-stat"><strong>{{ importResult.skipped }}</strong> skipped</span>
+          </div>
+          @if (importResult.errors.length > 0) {
+            <div class="import-errors">
+              <span class="import-errors-title">{{ importResult.errors.length }} error(s):</span>
+              <ul>
+                @for (err of importResult.errors.slice(0, 5); track $index) {
+                  <li>Row {{ err.row }}: {{ err.error }}</li>
+                }
+              </ul>
+              @if (importResult.errors.length > 5) {
+                <span class="import-errors-more">…and {{ importResult.errors.length - 5 }} more.</span>
+              }
+            </div>
+          }
+        </div>
+      }
     </div>
   </app-card>
 
@@ -286,6 +427,81 @@
       [disabled]="!connectStorageState.trim()"
       (clicked)="submitConnect()">
       Save
+    </app-button>
+  </div>
+</app-dialog>
+
+<app-dialog
+  [title]="editingBookingLink ? 'Edit booking link' : 'New booking link'"
+  [show]="showBookingDialog"
+  size="lg"
+  (close)="closeBookingDialog()">
+  <div class="booking-link-form">
+    <app-input
+      label="Title"
+      [required]="true"
+      placeholder="e.g. 30-minute intro call"
+      [(ngModel)]="bookingForm.title"
+      [ngModelOptions]="{ standalone: true }">
+    </app-input>
+
+    <div class="textarea-field">
+      <label>Description</label>
+      <textarea
+        rows="3"
+        placeholder="What this meeting is about (shown to the prospect)."
+        [(ngModel)]="bookingForm.description"
+        [ngModelOptions]="{ standalone: true }"></textarea>
+    </div>
+
+    <div class="form-row">
+      <app-input
+        label="Duration (minutes)"
+        type="number"
+        [(ngModel)]="bookingForm.durationMinutes"
+        [ngModelOptions]="{ standalone: true }">
+      </app-input>
+      <app-input
+        label="Buffer (minutes)"
+        type="number"
+        [(ngModel)]="bookingForm.bufferMinutes"
+        [ngModelOptions]="{ standalone: true }">
+      </app-input>
+    </div>
+
+    <app-input
+      label="Timezone"
+      placeholder="e.g. America/Chicago"
+      [(ngModel)]="bookingForm.timezone"
+      [ngModelOptions]="{ standalone: true }">
+    </app-input>
+
+    <div class="availability-editor">
+      <span class="availability-title">Weekly availability</span>
+      @for (day of bookingAvailability; track day.weekday) {
+        <div class="availability-row" [class.availability-row--off]="!day.enabled">
+          <div class="availability-day">
+            <app-switch [(ngModel)]="day.enabled" [ngModelOptions]="{ standalone: true }"></app-switch>
+            <span class="availability-day-label">{{ day.label }}</span>
+          </div>
+          <div class="availability-times">
+            <input type="time" [(ngModel)]="day.start" [ngModelOptions]="{ standalone: true }" [disabled]="!day.enabled" />
+            <span class="availability-dash">–</span>
+            <input type="time" [(ngModel)]="day.end" [ngModelOptions]="{ standalone: true }" [disabled]="!day.enabled" />
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+
+  <div dialog-footer>
+    <app-button variant="ghost" (clicked)="closeBookingDialog()">Cancel</app-button>
+    <app-button
+      variant="primary"
+      [loading]="savingBookingLink"
+      [disabled]="!bookingForm.title.trim()"
+      (clicked)="saveBookingLink()">
+      {{ editingBookingLink ? 'Save changes' : 'Create link' }}
     </app-button>
   </div>
 </app-dialog>

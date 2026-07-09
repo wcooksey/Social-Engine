@@ -21,6 +21,15 @@ export interface ContactInput {
   phone?: string;
 }
 
+export interface ImportResult {
+  total: number;
+  created: number;
+  updated: number;
+  contactsCreated: number;
+  skipped: number;
+  errors: { row: number; error: string }[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class LeadsService {
   private api = inject(ApiService);
@@ -55,5 +64,9 @@ export class LeadsService {
 
   deleteContact(contactId: string): Observable<void> {
     return this.api.delete<void>(`/api/contacts/${contactId}`);
+  }
+
+  importLeads(csv: string, groupName?: string): Observable<ImportResult> {
+    return this.api.post<ImportResult>('/api/leads/import', { csv, groupName });
   }
 }

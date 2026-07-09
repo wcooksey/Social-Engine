@@ -10,6 +10,9 @@ import { SettingsService } from '../../core/services/settings.service';
 import { OrgSetting, OrgSettingGroup, PlatformSetting } from '../../core/models/settings.model';
 import { SocialAccountsService } from '../../core/services/social-accounts.service';
 import { SocialAccount, SocialPlatform, SocialPlatformParam } from '../../core/models/social-account.model';
+import { BookingLinksService } from '../../core/services/booking-links.service';
+import { Availability, BookingLink, BookingLinkInput } from '../../core/models/booking-link.model';
+import { LeadsService, ImportResult } from '../../core/services/leads.service';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { InputComponent } from '../../shared/components/input/input.component';
 import { ButtonComponent } from '../../shared/components/button/button.component';
@@ -51,6 +54,67 @@ function hourToTime(hour: number): string {
 function timeToHour(time: string): number {
   const hour = parseInt(time.split(':')[0], 10);
   return isNaN(hour) ? 0 : Math.min(23, Math.max(0, hour));
+}
+
+// Booking-link availability editor: one editable window per ISO weekday (1=Mon..7=Sun).
+interface DayAvailabilityRow {
+  weekday: string;
+  label: string;
+  enabled: boolean;
+  start: string;
+  end: string;
+}
+
+interface BookingLinkForm {
+  title: string;
+  description: string;
+  durationMinutes: number;
+  bufferMinutes: number;
+  timezone: string;
+}
+
+const WEEKDAYS: { weekday: string; label: string }[] = [
+  { weekday: '1', label: 'Mon' },
+  { weekday: '2', label: 'Tue' },
+  { weekday: '3', label: 'Wed' },
+  { weekday: '4', label: 'Thu' },
+  { weekday: '5', label: 'Fri' },
+  { weekday: '6', label: 'Sat' },
+  { weekday: '7', label: 'Sun' }
+];
+
+function defaultAvailabilityRows(): DayAvailabilityRow[] {
+  return WEEKDAYS.map(d => ({
+    weekday: d.weekday,
+    label: d.label,
+    enabled: d.weekday !== '6' && d.weekday !== '7',
+    start: '09:00',
+    end: '17:00'
+  }));
+}
+
+function rowsFromAvailability(availability: Availability): DayAvailabilityRow[] {
+  return WEEKDAYS.map(d => {
+    const windows = availability?.[d.weekday];
+    const first = windows && windows.length ? windows[0] : null;
+    return {
+      weekday: d.weekday,
+      label: d.label,
+      enabled: !!first,
+      start: first ? first[0] : '09:00',
+      end: first ? first[1] : '17:00'
+    };
+  });
+}
+
+function availabilityFromRows(rows: DayAvailabilityRow[]): Availability {
+  const availability: Availability = {};
+  for (const row of rows) {
+    if (row.enabled) {
+      availability[row.weekday] = [[row.start, row.end]];
+    }
+  }
+  return availability;
 }
 
 @Component({
@@ -137,6 +201,29 @@ export class SettingsComponent implements OnInit {
   testingAccountId: string | null = null;
   disconnectingAccountId: string | null = null;
 
+  // Email notifications
+  notifyByEmail = true;
+  savingNotifyByEmail = false;
+
+  // Booking links
+  bookingLinks: BookingLink[] = [];
+  loadingBookingLinks = true;
+  showBookingDialog = false;
+  editingBookingLink: BookingLink | null = null;
+  savingBookingLink = false;
+  togglingBookingLinkId: string | null = null;
+  deletingBookingLinkId: string | null = null;
+  copiedBookingLinkId: string | null = null;
+  bookingForm: BookingLinkForm = { title: '', description: '', durationMinutes: 30, bufferMinutes: 0, timezone: '' };
+  bookingAvailability: DayAvailabilityRow[] = defaultAvailabilityRows();
+
+  // CSV lead import
+  csvText = '';
+  csvGroupName = '';
+  csvFileName = '';
+  importingCsv = false;
+  importResult: ImportResult | null = null;
+
   constructor(
     private authService: AuthService,
     private organizationService: OrganizationService,
@@ -144,7 +231,9 @@ export class SettingsComponent implements OnInit {
     private toast: ToastService,
     private modelsService: ModelsService,
     private settingsService: SettingsService,
-    private socialAccountsService: SocialAccountsService
+    private socialAccountsService: SocialAccountsService,
+    private bookingLinksService: BookingLinksService,
+    private leadsService: LeadsService
   ) {}
 
   ngOnInit(): void {
@@ -176,6 +265,14 @@ export class SettingsComponent implements OnInit {
 
     this.loadSocialAccounts();
     this.loadOrgSettings();
+    this.loadBookingLinks();
+
+    // Seed the notifications toggle from the cached user, then refresh from /me.
+    this.notifyByEmail = this.authService.currentUser()?.notifyByEmail ?? true;
+    this.authService.me().subscribe({
+      next: user => { this.notifyByEmail = user.notifyByEmail ?? true; },
+      error: () => {}
+    });
 
     if (this.isSuperAdmin()) {
       this.loadPlatformSettings();
@@ -464,6 +561,203 @@ export class SettingsComponent implements OnInit {
         this.toast.info(next ? 'Autonomous social DMs enabled' : 'Social DMs will now be saved as drafts');
       },
       error: () => this.toast.error('Failed to update social autonomy')
+    });
+  }
+
+  // --- Email notifications ---
+
+  toggleNotifyByEmail(): void {
+    const next = !this.notifyByEmail;
+    this.savingNotifyByEmail = true;
+    this.authService.updateNotifications(next).subscribe({
+      next: user => {
+        this.savingNotifyByEmail = false;
+        this.notifyByEmail = user.notifyByEmail ?? next;
+        this.toast.success(next ? 'Email alerts enabled' : 'Email alerts disabled');
+      },
+      error: () => {
+        this.savingNotifyByEmail = false;
+        this.toast.error('Failed to update notification preference');
+      }
+    });
+  }
+
+  // --- Booking links ---
+
+  private defaultTimezone(): string {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch {
+      return 'UTC';
+    }
+  }
+
+  loadBookingLinks(): void {
+    this.loadingBookingLinks = true;
+    this.bookingLinksService.list().subscribe({
+      next: links => {
+        this.bookingLinks = links;
+        this.loadingBookingLinks = false;
+      },
+      error: () => {
+        this.loadingBookingLinks = false;
+        this.toast.error('Failed to load booking links');
+      }
+    });
+  }
+
+  availabilitySummary(link: BookingLink): string {
+    const days = WEEKDAYS.filter(d => (link.availability?.[d.weekday]?.length ?? 0) > 0).map(d => d.label);
+    return days.length ? days.join(', ') : 'No availability set';
+  }
+
+  openCreateBookingLink(): void {
+    this.editingBookingLink = null;
+    this.bookingForm = { title: '', description: '', durationMinutes: 30, bufferMinutes: 0, timezone: this.defaultTimezone() };
+    this.bookingAvailability = defaultAvailabilityRows();
+    this.showBookingDialog = true;
+  }
+
+  openEditBookingLink(link: BookingLink): void {
+    this.editingBookingLink = link;
+    this.bookingForm = {
+      title: link.title,
+      description: link.description ?? '',
+      durationMinutes: link.durationMinutes,
+      bufferMinutes: link.bufferMinutes,
+      timezone: link.timezone
+    };
+    this.bookingAvailability = rowsFromAvailability(link.availability || {});
+    this.showBookingDialog = true;
+  }
+
+  closeBookingDialog(): void {
+    this.showBookingDialog = false;
+    this.editingBookingLink = null;
+  }
+
+  saveBookingLink(): void {
+    const title = this.bookingForm.title.trim();
+    if (!title) {
+      this.toast.error('Title is required');
+      return;
+    }
+
+    const payload: BookingLinkInput = {
+      title,
+      description: this.bookingForm.description.trim(),
+      durationMinutes: Number(this.bookingForm.durationMinutes) || 30,
+      bufferMinutes: Number(this.bookingForm.bufferMinutes) || 0,
+      timezone: this.bookingForm.timezone.trim() || this.defaultTimezone(),
+      availability: availabilityFromRows(this.bookingAvailability)
+    };
+
+    this.savingBookingLink = true;
+    const editing = this.editingBookingLink;
+    const request = editing
+      ? this.bookingLinksService.update(editing.id, payload)
+      : this.bookingLinksService.create(payload);
+
+    request.subscribe({
+      next: () => {
+        this.savingBookingLink = false;
+        this.showBookingDialog = false;
+        this.editingBookingLink = null;
+        this.toast.success(editing ? 'Booking link updated' : 'Booking link created');
+        this.loadBookingLinks();
+      },
+      error: (err) => {
+        this.savingBookingLink = false;
+        const message = err?.error?.error?.message || err?.error?.message || 'Failed to save booking link';
+        this.toast.error(message);
+      }
+    });
+  }
+
+  toggleBookingLinkActive(link: BookingLink): void {
+    const next = !link.active;
+    this.togglingBookingLinkId = link.id;
+    this.bookingLinksService.update(link.id, { active: next }).subscribe({
+      next: updated => {
+        this.togglingBookingLinkId = null;
+        link.active = updated.active;
+        this.toast.info(next ? 'Booking link activated' : 'Booking link paused');
+      },
+      error: (err) => {
+        this.togglingBookingLinkId = null;
+        const message = err?.error?.error?.message || err?.error?.message || 'Failed to update booking link';
+        this.toast.error(message);
+      }
+    });
+  }
+
+  copyBookingLink(link: BookingLink): void {
+    if (!navigator.clipboard) {
+      this.toast.error('Clipboard is not available in this browser');
+      return;
+    }
+    navigator.clipboard.writeText(link.url).then(
+      () => {
+        this.copiedBookingLinkId = link.id;
+        this.toast.success('Link copied to clipboard');
+        setTimeout(() => {
+          if (this.copiedBookingLinkId === link.id) this.copiedBookingLinkId = null;
+        }, 2000);
+      },
+      () => this.toast.error('Failed to copy link')
+    );
+  }
+
+  deleteBookingLink(link: BookingLink): void {
+    if (!confirm(`Delete "${link.title}"? The public link will stop working immediately.`)) return;
+
+    this.deletingBookingLinkId = link.id;
+    this.bookingLinksService.delete(link.id).subscribe({
+      next: () => {
+        this.deletingBookingLinkId = null;
+        this.bookingLinks = this.bookingLinks.filter(l => l.id !== link.id);
+        this.toast.success('Booking link deleted');
+      },
+      error: (err) => {
+        this.deletingBookingLinkId = null;
+        const message = err?.error?.error?.message || err?.error?.message || 'Failed to delete booking link';
+        this.toast.error(message);
+      }
+    });
+  }
+
+  // --- CSV lead import ---
+
+  onCsvFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files && input.files[0];
+    if (!file) return;
+    this.csvFileName = file.name;
+    const reader = new FileReader();
+    reader.onload = () => { this.csvText = String(reader.result ?? ''); };
+    reader.onerror = () => this.toast.error('Failed to read the file');
+    reader.readAsText(file);
+  }
+
+  importCsv(): void {
+    const csv = this.csvText.trim();
+    if (!csv) {
+      this.toast.error('Paste CSV text or choose a .csv file first');
+      return;
+    }
+    this.importingCsv = true;
+    this.importResult = null;
+    this.leadsService.importLeads(csv, this.csvGroupName.trim() || undefined).subscribe({
+      next: res => {
+        this.importingCsv = false;
+        this.importResult = res;
+        this.toast.success(`Imported ${res.created} new, ${res.updated} updated`);
+      },
+      error: (err) => {
+        this.importingCsv = false;
+        const message = err?.error?.error?.message || err?.error?.message || 'Failed to import leads';
+        this.toast.error(message);
+      }
     });
   }
 }

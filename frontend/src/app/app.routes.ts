@@ -14,6 +14,11 @@ export const routes: Routes = [
     loadComponent: () => import('./features/auth/register/register.component').then(m => m.RegisterComponent)
   },
   {
+    // Public, unauthenticated self-serve booking page — no auth guard, no app shell.
+    path: 'book/:slug',
+    loadComponent: () => import('./features/public-booking/public-booking.component').then(m => m.PublicBookingComponent)
+  },
+  {
     path: '',
     component: LayoutComponent,
     canActivate: [authGuard],

@@ -379,3 +379,350 @@
     margin-top: $spacing-xs;
   }
 }
+
+.notify-row {
+  margin-top: $spacing-md;
+}
+
+.card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  margin-bottom: $spacing-md;
+
+  h3 {
+    margin-bottom: 0;
+  }
+}
+
+// Reusable textarea field used by the booking + CSV forms.
+.textarea-field {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+
+  label {
+    font-size: $font-size-sm;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  textarea {
+    width: 100%;
+    padding: $spacing-sm $spacing-md;
+    font-family: $font-family-primary;
+    font-size: $font-size-sm;
+    color: var(--text-primary);
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-secondary);
+    border-radius: $border-radius-md;
+    resize: vertical;
+
+    &:focus {
+      outline: none;
+      border-color: $primary-blue;
+      box-shadow: 0 0 0 3px rgba(66, 93, 185, 0.1);
+    }
+  }
+}
+
+.field-hint {
+  color: var(--text-secondary);
+  font-size: $font-size-xs;
+  margin-top: $spacing-xs;
+}
+
+// --- Booking links ---
+
+.booking-links-list {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.booking-link-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-md;
+  padding: $spacing-md;
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+
+  @include responsive($breakpoint-md) {
+    flex-direction: column;
+  }
+}
+
+.booking-link-info {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.booking-link-title-row {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.booking-link-title {
+  font-weight: 600;
+  font-size: $font-size-sm;
+}
+
+.booking-link-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-md;
+  color: var(--text-secondary);
+  font-size: $font-size-xs;
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: $spacing-xs;
+  }
+}
+
+.booking-link-url {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  flex-wrap: wrap;
+  margin-top: 2px;
+
+  a {
+    color: $primary-blue;
+    font-size: $font-size-xs;
+    text-decoration: none;
+    word-break: break-all;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-sm;
+  color: var(--text-secondary);
+  font-size: $font-size-xs;
+  padding: 2px $spacing-sm;
+  cursor: pointer;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: var(--text-primary);
+    border-color: var(--border-secondary);
+  }
+}
+
+.booking-link-actions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  flex-shrink: 0;
+
+  @include responsive($breakpoint-md) {
+    flex-wrap: wrap;
+  }
+}
+
+// --- Booking link dialog ---
+
+.booking-link-form {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.availability-editor {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  padding-top: $spacing-sm;
+  border-top: 1px solid var(--border-primary);
+}
+
+.availability-title {
+  font-size: $font-size-sm;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.availability-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+
+  &--off {
+    opacity: 0.6;
+  }
+}
+
+.availability-day {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.availability-day-label {
+  font-size: $font-size-sm;
+  font-weight: 500;
+  min-width: 32px;
+}
+
+.availability-times {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+
+  input[type='time'] {
+    padding: $spacing-xs $spacing-sm;
+    font-size: $font-size-sm;
+    color: var(--text-primary);
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-secondary);
+    border-radius: $border-radius-sm;
+
+    &:focus {
+      outline: none;
+      border-color: $primary-blue;
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.availability-dash {
+  color: var(--text-secondary);
+}
+
+// --- CSV import ---
+
+.csv-import {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.csv-textarea {
+  font-family: $font-family-mono, monospace !important;
+  font-size: $font-size-xs !important;
+}
+
+.csv-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: $spacing-lg;
+  flex-wrap: wrap;
+}
+
+.file-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-sm;
+  cursor: pointer;
+
+  input[type='file'] {
+    display: none;
+  }
+}
+
+.file-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+  padding: $spacing-sm $spacing-md;
+  font-size: $font-size-sm;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+
+  &:hover {
+    border-color: var(--border-secondary);
+  }
+}
+
+.file-name {
+  font-size: $font-size-xs;
+  color: var(--text-secondary);
+  @include truncate;
+  max-width: 200px;
+}
+
+.group-name-field {
+  min-width: 220px;
+  flex: 1;
+}
+
+.csv-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.import-result {
+  padding: $spacing-md;
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+  background: var(--bg-tertiary);
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.import-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-md;
+}
+
+.import-stat {
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+
+  strong {
+    color: var(--text-primary);
+    font-size: $font-size-base;
+  }
+}
+
+.import-errors {
+  border-top: 1px solid var(--border-primary);
+  padding-top: $spacing-sm;
+  font-size: $font-size-xs;
+  color: var(--text-secondary);
+
+  ul {
+    margin: $spacing-xs 0 0;
+    padding-left: $spacing-lg;
+  }
+
+  li {
+    color: $error-red;
+  }
+}
+
+.import-errors-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.import-errors-more {
+  display: inline-block;
+  margin-top: $spacing-xs;
+}
