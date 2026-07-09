@@ -1,14 +1,15 @@
-import { Component, ElementRef, OnInit, ViewChild, signal } from '@angular/core';
+import { Component, ElementRef, OnInit, ViewChild, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { EngineService } from '../../core/services/engine.service';
 import { EngineChatSummary, EngineMessage, EngineToolEvent } from '../../core/models/engine.model';
 import { ToastService } from '../../core/services/toast.service';
+import { ModelPickerComponent } from './model-picker/model-picker.component';
 
 @Component({
   selector: 'app-engine',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ModelPickerComponent],
   templateUrl: './engine.component.html',
   styleUrl: './engine.component.scss'
 })
@@ -31,6 +32,12 @@ export class EngineComponent implements OnInit {
 
   @ViewChild('threadEnd') threadEnd?: ElementRef<HTMLDivElement>;
   @ViewChild('textarea') textareaRef?: ElementRef<HTMLTextAreaElement>;
+
+  activeChatTitle = computed(() => {
+    const id = this.activeChatId();
+    if (!id) return 'Engine';
+    return this.chats().find(c => c.id === id)?.title || 'New conversation';
+  });
 
   constructor(private engineService: EngineService, private toast: ToastService) {}
 

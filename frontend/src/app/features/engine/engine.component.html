@@ -24,6 +24,14 @@
   </aside>
 
   <main class="engine-main">
+    <div class="engine-topbar">
+      <span class="engine-topbar-title">
+        <i class="bi bi-stars"></i>
+        {{ activeChatTitle() }}
+      </span>
+      <app-model-picker></app-model-picker>
+    </div>
+
     @if (!activeChatId() && messages().length === 0) {
       <div class="hero">
         <div class="hero-glow"></div>

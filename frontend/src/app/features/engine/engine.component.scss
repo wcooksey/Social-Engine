@@ -122,6 +122,34 @@
   position: relative;
 }
 
+// ---- Top bar ----
+.engine-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  padding-bottom: $spacing-sm;
+  margin-bottom: $spacing-xs;
+  border-bottom: 1px solid var(--border-primary);
+  flex-shrink: 0;
+}
+
+.engine-topbar-title {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  font-size: $font-size-sm;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 0;
+  @include truncate;
+
+  i {
+    color: $primary-blue;
+    flex-shrink: 0;
+  }
+}
+
 // ---- Hero (empty state) ----
 .hero {
   flex: 1;
