@@ -1,0 +1,136 @@
+@if (loading()) {
+  <div class="loading-state">
+    <span class="spinner"></span>
+    <p>Loading lead...</p>
+  </div>
+} @else if (lead(); as lead) {
+  <div class="lead-detail-page">
+    <a routerLink="/leads" class="back-link"><i class="bi bi-arrow-left"></i> Back to Leads</a>
+
+    <app-card class="header-card" padding="lg">
+      <div class="header-top">
+        <div>
+          <h1>{{ lead.companyName }}</h1>
+          <div class="meta-row">
+            @if (lead.website) {
+              <a [href]="lead.website" target="_blank" rel="noopener noreferrer" class="meta-link">
+                <i class="bi bi-globe"></i> {{ lead.website }}
+              </a>
+            }
+            @if (lead.phone) {
+              <span class="meta-item"><i class="bi bi-telephone"></i> {{ lead.phone }}</span>
+            }
+            @if (lead.city || lead.state) {
+              <span class="meta-item"><i class="bi bi-geo-alt"></i> {{ lead.city }}{{ lead.city && lead.state ? ', ' : '' }}{{ lead.state }}</span>
+            }
+            @if (lead.industry) {
+              <span class="meta-item"><i class="bi bi-building"></i> {{ lead.industry }}</span>
+            }
+          </div>
+        </div>
+        <div class="status-control">
+          <app-select
+            size="sm"
+            [showPlaceholderOption]="false"
+            [options]="statusOptions"
+            [ngModel]="lead.status"
+            [ngModelOptions]="{ standalone: true }"
+            (selectionChange)="changeStatus($event)">
+          </app-select>
+          <app-badge [variant]="statusBadgeVariant(lead.status)">{{ lead.status }}</app-badge>
+        </div>
+      </div>
+
+      @if (lead.aiSummary) {
+        <div class="ai-notes">
+          <div class="ai-notes-header"><i class="bi bi-stars"></i> Engine notes</div>
+          <p>{{ lead.aiSummary }}</p>
+        </div>
+      }
+    </app-card>
+
+    <div class="content-grid">
+      <app-card padding="lg">
+        <div class="section-header">
+          <h3>Contacts</h3>
+          <app-button variant="ghost" size="sm" icon="bi-plus-lg" (clicked)="openAddContact()">Add Contact</app-button>
+        </div>
+
+        @if (lead.contacts && lead.contacts.length) {
+          <ul class="contact-list">
+            @for (contact of lead.contacts; track contact.id) {
+              <li class="contact-item">
+                <div class="contact-main">
+                  <span class="contact-name">{{ contact.firstName }} {{ contact.lastName }}</span>
+                  @if (contact.title) {
+                    <span class="contact-title">{{ contact.title }}</span>
+                  }
+                  <div class="contact-meta">
+                    @if (contact.email) { <span><i class="bi bi-envelope"></i> {{ contact.email }}</span> }
+                    @if (contact.phone) { <span><i class="bi bi-telephone"></i> {{ contact.phone }}</span> }
+                  </div>
+                </div>
+                <div class="contact-actions">
+                  <button class="icon-btn" (click)="openEditContact(contact)" title="Edit"><i class="bi bi-pencil"></i></button>
+                  <button class="icon-btn icon-btn--danger" (click)="deleteContact(contact)" title="Remove"><i class="bi bi-trash"></i></button>
+                </div>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="empty-text">No contacts yet.</p>
+        }
+      </app-card>
+
+      <app-card padding="lg">
+        <h3>Activity</h3>
+        @if (lead.activities && lead.activities.length) {
+          <ul class="timeline">
+            @for (activity of lead.activities; track activity.id) {
+              <li class="timeline-item">
+                <div class="timeline-icon"><i [class]="'bi ' + activityIcon(activity.type)"></i></div>
+                <div class="timeline-content">
+                  <span class="timeline-summary">{{ activity.summary }}</span>
+                  <span class="timeline-time">{{ relativeTime(activity.createdAt) }}</span>
+                </div>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="empty-text">No activity recorded yet.</p>
+        }
+      </app-card>
+    </div>
+  </div>
+} @else {
+  <div class="empty-state">
+    <p>Lead not found.</p>
+  </div>
+}
+
+<app-dialog
+  [title]="editingContact ? 'Edit Contact' : 'Add Contact'"
+  [show]="showContactDialog()"
+  size="md"
+  (close)="showContactDialog.set(false)">
+  <div class="contact-form">
+    <div class="form-row">
+      <app-input label="First name" required [(ngModel)]="contactForm.firstName" [ngModelOptions]="{ standalone: true }"></app-input>
+      <app-input label="Last name" required [(ngModel)]="contactForm.lastName" [ngModelOptions]="{ standalone: true }"></app-input>
+    </div>
+    <app-input label="Title" [(ngModel)]="contactForm.title" [ngModelOptions]="{ standalone: true }"></app-input>
+    <app-input label="Email" type="email" [(ngModel)]="contactForm.email" [ngModelOptions]="{ standalone: true }"></app-input>
+    <app-input label="Phone" [(ngModel)]="contactForm.phone" [ngModelOptions]="{ standalone: true }"></app-input>
+  </div>
+
+  <div dialog-footer>
+    <app-button variant="ghost" (clicked)="showContactDialog.set(false)">Cancel</app-button>
+    <app-button
+      variant="primary"
+      [loading]="savingContact()"
+      [disabled]="!contactForm.firstName.trim() || !contactForm.lastName.trim()"
+      (clicked)="submitContact()">
+      {{ editingContact ? 'Save Changes' : 'Add Contact' }}
+    </app-button>
+  </div>
+</app-dialog>
