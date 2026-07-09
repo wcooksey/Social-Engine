@@ -1,9 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
+import { config } from '../config/environment';
 import * as channels from '../services/channels.service';
 import { leadService } from '../services/lead.service';
 import { getVoicePlaybookText } from '../services/playbook.service';
+import { runBrowserAgent } from './browser/browser-agent.service';
 import { buildCallSystemPrompt } from './prompts';
 import { researchService } from './research.service';
 
@@ -242,6 +244,42 @@ export const engineTools: Anthropic.Tool[] = [
         campaignId: { type: 'string' },
       },
       required: ['leadId', 'objective'],
+    },
+  },
+  {
+    name: 'browse_web',
+    description:
+      'Drive a real web browser to research on the open internet or social platforms (LinkedIn, Facebook, Instagram, X). Use for tasks search_web/fetch_page can\'t do: navigating multi-step sites, finding a decision maker\'s social profile, reading a company page, gathering contact details. Research only — it cannot send messages. Give a specific objective and optionally a starting URL.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        objective: {
+          type: 'string',
+          description: 'What to find or accomplish, e.g. "Find the LinkedIn profile and title of the General Manager of Sunshine Toyota in Tampa FL"',
+        },
+        startUrl: { type: 'string', description: 'Optional starting URL' },
+        leadId: { type: 'string', description: 'Lead to attach findings to (logs a research activity)' },
+      },
+      required: ['objective'],
+    },
+  },
+  {
+    name: 'send_social_dm',
+    description:
+      'Use the browser to find a lead contact on a social platform and send them a direct message / connection request. Requires the org to have social autonomy enabled; otherwise the message is recorded as a draft for human approval. Records a social touch on the lead timeline.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        leadId: { type: 'string' },
+        platform: {
+          type: 'string',
+          enum: ['linkedin', 'facebook', 'instagram', 'x'],
+        },
+        profileUrl: { type: 'string', description: 'Direct profile URL if known (skips searching)' },
+        personName: { type: 'string', description: 'Who to reach if no profileUrl' },
+        message: { type: 'string', description: 'The DM text to send' },
+      },
+      required: ['leadId', 'platform', 'message'],
     },
   },
   {
@@ -811,6 +849,117 @@ const executors: Record<string, ToolExecutor> = {
       to: toNumber,
       vapiCallId: delivery.externalId,
       note: 'Call in progress — the transcript and outcome will appear on the lead timeline when the call ends.',
+    };
+  },
+
+  browse_web: async (input, ctx) => {
+    const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
+    const model = org?.engineModel || config.engine.model;
+    const result = await runBrowserAgent({
+      objective: input.objective,
+      startUrl: input.startUrl,
+      model,
+      allowSend: false,
+    });
+    if (input.leadId) {
+      await prisma.lead
+        .findFirst({ where: { id: input.leadId, organizationId: ctx.organizationId } })
+        .then((lead) => {
+          if (!lead) return;
+          return leadService.logActivity({
+            organizationId: ctx.organizationId,
+            leadId: lead.id,
+            type: 'RESEARCH',
+            summary: `Browser research: ${result.summary}`.slice(0, 500),
+            payload: { objective: input.objective, data: result.data, finalUrl: result.finalUrl },
+            agentRunId: ctx.runId,
+          });
+        });
+    }
+    return {
+      status: result.status,
+      summary: result.summary,
+      data: result.data,
+      steps: result.steps,
+      ...(result.error ? { error: result.error } : {}),
+    };
+  },
+
+  send_social_dm: async (input, ctx) => {
+    const lead = await requireLead(input.leadId, ctx.organizationId);
+    const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
+
+    const blocked = await outboundBlockReason(ctx.organizationId);
+    const model = org?.engineModel || config.engine.model;
+
+    const recordTouch = async (status: string, summary: string, extra?: Record<string, unknown>) => {
+      const conversation =
+        (await prisma.conversation.findFirst({
+          where: { leadId: lead.id, channel: 'SOCIAL' },
+        })) ??
+        (await prisma.conversation.create({
+          data: {
+            organizationId: ctx.organizationId,
+            leadId: lead.id,
+            channel: 'SOCIAL',
+            subject: `${input.platform} DM`,
+          },
+        }));
+      await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          direction: 'OUTBOUND',
+          body: input.message,
+          status,
+        },
+      });
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { lastMessageAt: new Date() },
+      });
+      await leadService.logActivity({
+        organizationId: ctx.organizationId,
+        leadId: lead.id,
+        type: 'SOCIAL_TOUCH',
+        summary,
+        payload: { platform: input.platform, status, message: input.message, ...extra },
+        agentRunId: ctx.runId,
+      });
+      return conversation.id;
+    };
+
+    // Draft-first unless the org has explicitly enabled autonomous social.
+    if (blocked || !org?.socialAutonomy) {
+      const reason = blocked
+        ? blocked
+        : 'Autonomous social messaging is off (platform ToS risk). DM saved as a draft for approval — enable social autonomy in Settings to send.';
+      await recordTouch('draft_pending_approval', `${input.platform} DM drafted for approval`);
+      return { sent: false, drafted: true, note: reason };
+    }
+
+    const target = input.profileUrl
+      ? `their profile at ${input.profileUrl}`
+      : `${input.personName || 'the decision maker'} at ${lead.companyName}`;
+    const objective = `On ${input.platform}, find ${target} and send them this direct message, personalized naturally: "${input.message}". Confirm the message was sent.`;
+
+    const result = await runBrowserAgent({
+      objective,
+      startUrl: input.profileUrl,
+      model,
+      allowSend: true,
+    });
+
+    const success = result.status === 'completed';
+    await recordTouch(
+      success ? 'sent' : 'failed',
+      `${input.platform} DM ${success ? 'sent' : 'attempt failed'}: ${result.summary}`.slice(0, 500),
+      { browserResult: result.summary, finalUrl: result.finalUrl }
+    );
+    return {
+      sent: success,
+      summary: result.summary,
+      steps: result.steps,
+      ...(result.error ? { error: result.error } : {}),
     };
   },
 

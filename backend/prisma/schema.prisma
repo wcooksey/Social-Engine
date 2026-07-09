@@ -32,6 +32,9 @@ model Organization {
   quietHoursStart Int  @default(20) // 24h local hour — no outbound after
   quietHoursEnd   Int  @default(8)
   paused          Boolean @default(false) // kill switch: Engine takes no outbound actions
+  // Autonomous social DMs are off by default (platform ToS risk): the browser
+  // agent researches freely but drafts DMs for approval unless this is on.
+  socialAutonomy  Boolean @default(false)
 
   users        User[]
   leadGroups   LeadGroup[]

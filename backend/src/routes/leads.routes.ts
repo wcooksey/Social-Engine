@@ -47,6 +47,25 @@ router.get(
   })
 );
 
+router.get(
+  '/:id/conversations',
+  asyncHandler(async (req, res) => {
+    const lead = await prisma.lead.findFirst({
+      where: { id: req.params.id, organizationId: req.user!.organizationId },
+    });
+    if (!lead) throw new AppError('Lead not found', 404);
+    const conversations = await prisma.conversation.findMany({
+      where: { leadId: lead.id },
+      include: {
+        contact: { select: { id: true, firstName: true, lastName: true } },
+        messages: { orderBy: { createdAt: 'asc' } },
+      },
+      orderBy: { lastMessageAt: 'desc' },
+    });
+    res.json({ success: true, data: conversations });
+  })
+);
+
 router.patch(
   '/:id',
   asyncHandler(async (req, res) => {

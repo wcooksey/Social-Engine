@@ -39,6 +39,12 @@ export const config = {
     fromNumber: process.env.TWILIO_FROM_NUMBER || '',
   },
 
+  browser: {
+    // Path to a Playwright storageState JSON for pre-authenticated social sessions
+    storageStatePath: process.env.BROWSER_STORAGE_STATE || '',
+    maxSteps: parseInt(process.env.BROWSER_AGENT_MAX_STEPS || '18', 10),
+  },
+
   vapi: {
     apiKey: process.env.VAPI_API_KEY || '',
     phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID || '',

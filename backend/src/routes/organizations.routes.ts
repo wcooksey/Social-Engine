@@ -19,6 +19,7 @@ router.get(
         quietHoursStart: true,
         quietHoursEnd: true,
         paused: true,
+        socialAutonomy: true,
         createdAt: true,
       },
     });
@@ -31,7 +32,7 @@ router.patch(
   '/mine',
   roleMiddleware('OWNER', 'ADMIN'),
   asyncHandler(async (req, res) => {
-    const allowed = ['name', 'engineModel', 'dailySendCap', 'quietHoursStart', 'quietHoursEnd', 'paused'] as const;
+    const allowed = ['name', 'engineModel', 'dailySendCap', 'quietHoursStart', 'quietHoursEnd', 'paused', 'socialAutonomy'] as const;
     const data: Record<string, unknown> = {};
     for (const key of allowed) {
       if (key in req.body) data[key] = req.body[key];
