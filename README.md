@@ -26,7 +26,8 @@ npm run install:all
 
 # configure
 cp backend/.env.example backend/.env   # set DATABASE_URL, JWT_SECRET, JWT_REFRESH_SECRET,
-                                        # APP_ENCRYPTION_KEY, SUPER_ADMIN_EMAIL
+                                        # APP_ENCRYPTION_KEY, SUPER_ADMIN_EMAIL,
+                                        # INBOUND_WEBHOOK_SECRET, APP_PUBLIC_URL
 
 # database
 cd backend && npx prisma migrate dev && cd ..

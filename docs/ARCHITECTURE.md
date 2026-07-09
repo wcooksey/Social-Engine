@@ -110,6 +110,46 @@ interval applies on the next restart. Only `DATABASE_URL`, the JWT secrets, `APP
   cross-org foreign keys (groups, campaigns, contacts on events) are validated on write; social
   session upload/delete is OWNER/ADMIN-only.
 
+### Getting meetings booked (autopilot outcome)
+
+- **Calendar invites.** When a meeting is booked, the lead gets an emailed `.ics`
+  invite (`METHOD:REQUEST`) that adds to Gmail/Outlook/Apple natively — no OAuth
+  integration required. (Two-way Google Calendar API sync is a future add.)
+- **Self-serve booking links.** Public, unauthenticated pages at
+  `/book/:slug` show slots computed from a link's weekly availability (in the
+  link's timezone) minus already-booked events and a configurable buffer.
+  Booking creates the lead/contact if new (status `INTERESTED`), drops the event
+  on the shared calendar, emails the `.ics`, and alerts the org. The Engine can
+  pull active links via the `get_booking_links` tool and drop them into outreach
+  so leads self-schedule instead of negotiating a time.
+- **Reminders.** A worker sweep sends the lead a 24h and 1h reminder before each
+  meeting (respecting opt-out/suppression) and notifies the team — cutting
+  no-shows on autopiloted bookings.
+
+### Notifications
+
+In-app notifications plus opt-in email alerts fire on the events a human cares
+about: a meeting booked, a hot reply, a lead going `INTERESTED`. A once-a-day
+digest summarizes what the autopilot did (meetings, replies, sends, calls). Per
+user, `notifyByEmail` controls email; the in-app bell is always available.
+
+### Deliverability & compliance
+
+Outbound email carries a `List-Unsubscribe` header with a signed one-click
+unsubscribe link (public route, no login). Mailgun bounce/complaint webhooks
+suppress the offending address (`Contact.emailStatus`), and the send tools skip
+suppressed or opted-out contacts. Combined with per-lead timezone quiet hours
+and the deterministic STOP handling, this keeps volume from wrecking sender
+reputation. Sessions are revocable: `User.tokenVersion` (bumped on logout /
+password change) invalidates previously issued JWTs at refresh time.
+
+### Bulk import
+
+CSV import maps common header aliases (company, website, email, first/last name,
+phone, title, city, state, industry) and upserts each row through the same dedup
+path the Engine uses, so imports never create duplicates. State fills in the
+lead timezone when present.
+
 ### Human in the loop
 
 Approval-mode drafts are actionable from the inbox: approve (optionally after editing) to send
