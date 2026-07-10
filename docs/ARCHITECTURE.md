@@ -190,6 +190,20 @@ max-touches marks it `COMPLETED`, opt-outs are excluded, and a requeue guard
 prevents duplicate jobs. Voicemail: AI calls detect machines and leave a
 configurable message instead of hanging up.
 
+### Cost tracking
+
+Every LLM call's token usage is captured from the provider response and priced
+against the model that actually served it (failover-aware) using list prices in
+the model catalog (`pricingForModel` / `estimateCostUsd` — update prices there
+when vendors change them). Totals accumulate on the `AgentRun`
+(`inputTokens`/`outputTokens`/`costUsd`), including the browser sub-agent's
+calls, which are attributed back to the parent run. `GET /api/agent/usage`
+aggregates totals, per-model, and per-day for the dashboard's AI-spend card;
+the runs list shows per-run model + cost. Costs are estimates at list prices
+(no cache/batch discounts) — provider invoices are authoritative. Vapi call
+minutes and search/enrichment API fees are billed by those vendors and are not
+included.
+
 ### Conversational setup
 
 The Coordinator can configure the workspace from a chat instruction
