@@ -31,6 +31,7 @@ import {
 } from '../services/enrichment.service';
 import { llmService } from './llm/llm.service';
 import { GUIDE_TOPICS, PLATFORM_GUIDE } from './platform-guide';
+import { recordBrowserAction, recordBrowserFrame } from './live-view.registry';
 import { notify } from '../services/notification.service';
 import { signToken } from '../utils/signing';
 import { resolveLeadTimezone, localHourIn, isWithinQuietHours } from '../utils/timezone';
@@ -1497,6 +1498,8 @@ const executors: Record<string, ToolExecutor> = {
       providerKeys: orgConfig.providerKeys,
       allowSend: false,
       storageState,
+      onStep: (n) => recordBrowserAction(ctx.runId, ctx.organizationId, n),
+      onFrame: (f) => recordBrowserFrame(ctx.runId, ctx.organizationId, f),
       ...(platform && storageState
         ? { persistState: (state) => saveStorageState(ctx.organizationId, platform, state) }
         : {}),
@@ -1627,6 +1630,8 @@ const executors: Record<string, ToolExecutor> = {
       allowSend: true,
       storageState,
       persistState: (state) => saveStorageState(ctx.organizationId, platform, state),
+      onStep: (n) => recordBrowserAction(ctx.runId, ctx.organizationId, n),
+      onFrame: (f) => recordBrowserFrame(ctx.runId, ctx.organizationId, f),
     });
     await attributeBrowserUsage(ctx.runId, result.usage);
 

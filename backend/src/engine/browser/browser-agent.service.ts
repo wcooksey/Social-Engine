@@ -29,6 +29,8 @@ export interface BrowserAgentOptions {
   /** Called with the refreshed session after the run, to keep the login alive. */
   persistState?: (state: Record<string, unknown>) => Promise<void>;
   onStep?: (note: string) => void;
+  /** Live-view hook: called with a fresh screenshot after each browser action. */
+  onFrame?: (frame: { imageBase64: string; url: string; action: string }) => void;
 }
 
 const BROWSER_TOOLS: LlmToolDefinition[] = [
@@ -217,6 +219,21 @@ Objective: ${opts.objective}
           }
         } catch (err) {
           error = err instanceof Error ? err.message : 'Action failed';
+        }
+
+        // Live view: push what the browser looks like right now (best-effort;
+        // never let a screenshot failure disturb the run).
+        if (opts.onFrame && obs) {
+          try {
+            const imageBase64 = await session.screenshotBase64();
+            opts.onFrame({
+              imageBase64,
+              url: obs.url,
+              action: `${call.name}(${JSON.stringify(call.input).slice(0, 60)})`,
+            });
+          } catch {
+            /* frame skipped */
+          }
         }
 
         results.push({

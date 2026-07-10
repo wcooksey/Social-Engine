@@ -1,8 +1,96 @@
 import { Router } from 'express';
 import { prisma } from '../config/database';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
+import { browserActiveRunIds, getFrameImage, getLiveEntry } from '../engine/live-view.registry';
 
 const router = Router();
+
+/**
+ * Mission control: everything currently running, with each run's latest steps
+ * and whether it has a live browser to watch. The UI polls this every few
+ * seconds — steps persist as they happen, so polling IS the live feed.
+ */
+router.get(
+  '/live',
+  asyncHandler(async (req, res) => {
+    const organizationId = req.user!.organizationId;
+    const runs = await prisma.agentRun.findMany({
+      where: { organizationId, status: 'RUNNING' },
+      orderBy: { startedAt: 'desc' },
+      take: 25,
+      include: {
+        steps: { orderBy: { index: 'desc' }, take: 8 },
+      },
+    });
+    const withBrowser = new Set(
+      browserActiveRunIds(
+        runs.map((r) => r.id),
+        organizationId
+      )
+    );
+    const [pendingJobs, recentFinished] = await Promise.all([
+      prisma.agentJob.count({ where: { organizationId, status: 'PENDING', runAt: { lte: new Date() } } }),
+      prisma.agentRun.findMany({
+        where: { organizationId, status: { in: ['COMPLETED', 'FAILED'] } },
+        orderBy: { finishedAt: 'desc' },
+        take: 5,
+        select: { id: true, role: true, objective: true, status: true, summary: true, finishedAt: true, costUsd: true },
+      }),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        running: runs.map((r) => {
+          const live = withBrowser.has(r.id) ? getLiveEntry(r.id, organizationId) : null;
+          return {
+            id: r.id,
+            role: r.role,
+            trigger: r.trigger,
+            objective: r.objective,
+            model: r.model,
+            startedAt: r.startedAt,
+            costUsd: r.costUsd,
+            // steps come newest-first from the query; show oldest-first
+            steps: [...r.steps].reverse().map((s) => ({
+              index: s.index,
+              type: s.type,
+              toolName: s.toolName,
+              // trim payloads — the live feed needs gist, not full dumps
+              input: s.input ? JSON.stringify(s.input).slice(0, 200) : null,
+              output: s.output ? JSON.stringify(s.output).slice(0, 200) : null,
+              createdAt: s.createdAt,
+            })),
+            browser: live
+              ? {
+                  hasFrame: live.hasFrame,
+                  frameAt: live.frameAt,
+                  frameUrl: live.frameUrl,
+                  frameAction: live.frameAction,
+                  actions: live.actions.slice(-8),
+                }
+              : null,
+          };
+        }),
+        queuedJobs: pendingJobs,
+        recentFinished,
+      },
+    });
+  })
+);
+
+/** Latest browser frame for a running run (JPEG base64 + metadata). */
+router.get(
+  '/live/:runId/frame',
+  asyncHandler(async (req, res) => {
+    const frame = getFrameImage(req.params.runId, req.user!.organizationId);
+    if (!frame) throw new AppError('No live browser frame for this run', 404);
+    res.json({
+      success: true,
+      data: { imageBase64: frame.imageBase64, url: frame.url, action: frame.action, at: frame.at },
+    });
+  })
+);
 
 router.get(
   '/runs',

@@ -121,7 +121,8 @@ export class BrowserSession {
 
   async screenshotBase64(): Promise<string> {
     const page = this.requirePage();
-    const buf = await page.screenshot({ type: 'png', fullPage: false });
+    // JPEG at modest quality: ~10x smaller than PNG, plenty for a live view.
+    const buf = await page.screenshot({ type: 'jpeg', quality: 50, fullPage: false });
     return buf.toString('base64');
   }
 
