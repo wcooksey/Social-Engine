@@ -1,6 +1,12 @@
 @import '../../../../assets/styles/variables';
 @import '../../../../assets/styles/mixins';
 
+// Custom elements default to inline, which swallows vertical margins and
+// breaks block layout. A card is always a block-level box.
+:host {
+  display: block;
+}
+
 .card {
   background-color: var(--bg-card, white);
   color: var(--text-primary, $gray-900);
