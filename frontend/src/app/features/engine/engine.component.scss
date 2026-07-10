@@ -278,6 +278,59 @@
   color: var(--text-primary);
 }
 
+// Rendered-markdown variant: the pipe supplies real <p>/<ul>/<pre> structure,
+// so normal whitespace handling applies (pre-wrap would double the spacing).
+.message-content--rich {
+  white-space: normal;
+
+  ::ng-deep {
+    p {
+      margin: 0 0 $spacing-sm;
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+    ul,
+    ol {
+      margin: 0 0 $spacing-sm;
+      padding-left: 1.4em;
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+    li {
+      margin-bottom: 2px;
+    }
+    code {
+      font-family: $font-family-mono, monospace;
+      font-size: 0.85em;
+      background: var(--bg-tertiary);
+      padding: 1px 5px;
+      border-radius: $border-radius-sm;
+    }
+    pre {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-primary);
+      border-radius: $border-radius-md;
+      padding: $spacing-sm $spacing-md;
+      overflow-x: auto;
+      margin: 0 0 $spacing-sm;
+
+      code {
+        background: none;
+        padding: 0;
+      }
+    }
+    a {
+      color: $primary-blue;
+      text-decoration: underline;
+    }
+    strong {
+      font-weight: 600;
+    }
+  }
+}
+
 .cursor-blink {
   display: inline-block;
   width: 2px;

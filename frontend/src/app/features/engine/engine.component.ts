@@ -6,11 +6,12 @@ import { EngineChatSummary, EngineMessage, EngineToolEvent } from '../../core/mo
 import { ToastService } from '../../core/services/toast.service';
 import { VoiceService } from '../../core/services/voice.service';
 import { ModelPickerComponent } from './model-picker/model-picker.component';
+import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 
 @Component({
   selector: 'app-engine',
   standalone: true,
-  imports: [CommonModule, FormsModule, ModelPickerComponent],
+  imports: [CommonModule, FormsModule, ModelPickerComponent, MarkdownPipe],
   templateUrl: './engine.component.html',
   styleUrl: './engine.component.scss'
 })

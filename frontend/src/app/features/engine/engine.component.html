@@ -63,7 +63,12 @@
                   }
                 </div>
               }
-              <p class="message-content">{{ message.content }}@if (message.streaming) {<span class="cursor-blink"></span>}</p>
+              @if (message.role === 'user') {
+                <p class="message-content">{{ message.content }}</p>
+              } @else {
+                <div class="message-content message-content--rich" [innerHTML]="message.content | markdown"></div>
+                @if (message.streaming) {<span class="cursor-blink"></span>}
+              }
             </div>
           </div>
         }
