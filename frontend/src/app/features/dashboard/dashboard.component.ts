@@ -1,16 +1,18 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { DashboardService } from '../../core/services/dashboard.service';
-import { DashboardStats } from '../../core/models/dashboard.model';
+import { CampaignsService } from '../../core/services/campaigns.service';
+import { DashboardStats, FunnelStage } from '../../core/models/dashboard.model';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { BadgeComponent } from '../../shared/components/badge/badge.component';
 import { ChartComponent } from '../../shared/components/chart/chart.component';
+import { SelectComponent, SelectOption } from '../../shared/components/select/select.component';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, CardComponent, BadgeComponent, ChartComponent],
+  imports: [CommonModule, RouterLink, CardComponent, BadgeComponent, ChartComponent, SelectComponent],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss'
 })
@@ -18,6 +20,11 @@ export class DashboardComponent implements OnInit {
   isLoading = signal(true);
   stats = signal<DashboardStats | null>(null);
   chartData: any = null;
+
+  isFunnelLoading = signal(true);
+  funnel = signal<FunnelStage[]>([]);
+  campaignOptions = signal<SelectOption[]>([]);
+  funnelEmpty = computed(() => this.funnel().every(stage => stage.count === 0));
 
   private statusColors: Record<string, string> = {
     NEW: '#3B82F6',
@@ -30,7 +37,10 @@ export class DashboardComponent implements OnInit {
     ARCHIVED: '#6B7280'
   };
 
-  constructor(private dashboardService: DashboardService) {}
+  constructor(
+    private dashboardService: DashboardService,
+    private campaignsService: CampaignsService
+  ) {}
 
   ngOnInit(): void {
     this.dashboardService.getStats().subscribe({
@@ -43,6 +53,49 @@ export class DashboardComponent implements OnInit {
         this.isLoading.set(false);
       }
     });
+
+    this.loadFunnel();
+
+    this.campaignsService.list().subscribe({
+      next: (campaigns) => {
+        this.campaignOptions.set(campaigns.map(c => ({ label: c.name, value: c.id })));
+      },
+      error: () => {
+        this.campaignOptions.set([]);
+      }
+    });
+  }
+
+  loadFunnel(campaignId?: string): void {
+    this.isFunnelLoading.set(true);
+    this.dashboardService.getFunnel(campaignId).subscribe({
+      next: (data) => {
+        this.funnel.set(data.funnel || []);
+        this.isFunnelLoading.set(false);
+      },
+      error: () => {
+        this.funnel.set([]);
+        this.isFunnelLoading.set(false);
+      }
+    });
+  }
+
+  onFunnelCampaignChange(campaignId: string | null): void {
+    this.loadFunnel(campaignId || undefined);
+  }
+
+  funnelBarWidth(count: number): number {
+    if (count <= 0) return 0;
+    const first = this.funnel()[0]?.count ?? 0;
+    if (first <= 0) return 2;
+    return Math.max((count / first) * 100, 2);
+  }
+
+  funnelConversion(index: number): string | null {
+    if (index === 0) return null;
+    const prev = this.funnel()[index - 1]?.count ?? 0;
+    if (prev <= 0) return null;
+    return `${Math.round((this.funnel()[index].count / prev) * 100)}%`;
   }
 
   private buildChart(stats: DashboardStats): void {

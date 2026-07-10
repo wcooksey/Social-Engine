@@ -69,6 +69,41 @@
         }
       </app-card>
 
+      <app-card class="funnel-card" padding="lg">
+        <div class="funnel-header">
+          <h3 class="card-title">Pipeline Funnel</h3>
+          @if (campaignOptions().length) {
+            <app-select
+              class="funnel-filter"
+              size="sm"
+              placeholder="All campaigns"
+              [options]="campaignOptions()"
+              (selectionChange)="onFunnelCampaignChange($event)">
+            </app-select>
+          }
+        </div>
+        @if (isFunnelLoading()) {
+          <div class="funnel-loading">
+            <span class="spinner"></span>
+          </div>
+        } @else if (funnelEmpty()) {
+          <p class="empty-text">No leads yet — source some leads to see the funnel.</p>
+        } @else {
+          <ul class="funnel-list">
+            @for (stage of funnel(); track stage.stage; let i = $index) {
+              <li class="funnel-row">
+                <span class="funnel-stage">{{ stage.stage }}</span>
+                <div class="funnel-track">
+                  <div class="funnel-bar" [style.width.%]="funnelBarWidth(stage.count)"></div>
+                </div>
+                <span class="funnel-count">{{ stage.count }}</span>
+                <span class="funnel-conversion">{{ funnelConversion(i) }}</span>
+              </li>
+            }
+          </ul>
+        }
+      </app-card>
+
       <app-card class="list-card" padding="lg">
         <h3 class="card-title">Recent Engine Runs</h3>
         @if (s.recentRuns.length) {

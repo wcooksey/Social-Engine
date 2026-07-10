@@ -113,6 +113,87 @@
   margin-bottom: $spacing-md;
 }
 
+.funnel-card {
+  grid-column: span 2;
+
+  @include responsive($breakpoint-lg) {
+    grid-column: span 1;
+  }
+}
+
+.funnel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  margin-bottom: $spacing-md;
+
+  .card-title {
+    margin-bottom: 0;
+  }
+}
+
+.funnel-filter {
+  width: 200px;
+  flex-shrink: 0;
+}
+
+.funnel-loading {
+  @include flex-center;
+  padding: $spacing-xl;
+}
+
+.funnel-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.funnel-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 48px 40px;
+  align-items: center;
+  gap: $spacing-md;
+
+  @include responsive($breakpoint-sm) {
+    grid-template-columns: 110px 1fr 40px 34px;
+    gap: $spacing-sm;
+  }
+}
+
+.funnel-stage {
+  font-size: $font-size-sm;
+  color: var(--text-primary);
+  @include truncate;
+}
+
+.funnel-track {
+  height: 20px;
+  background: var(--bg-tertiary);
+  border-radius: $border-radius-sm;
+  overflow: hidden;
+}
+
+.funnel-bar {
+  height: 100%;
+  background: $primary-blue;
+  border-radius: $border-radius-sm;
+  transition: width $transition-fast;
+}
+
+.funnel-count {
+  font-size: $font-size-sm;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.funnel-conversion {
+  font-size: $font-size-xs;
+  color: var(--text-secondary);
+}
+
 .chart-container {
   height: 260px;
   position: relative;
