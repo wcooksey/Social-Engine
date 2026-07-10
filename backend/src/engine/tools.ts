@@ -30,6 +30,7 @@ import {
   verifyEmail as verifyEmailAddress,
 } from '../services/enrichment.service';
 import { llmService } from './llm/llm.service';
+import { GUIDE_TOPICS, PLATFORM_GUIDE } from './platform-guide';
 import { notify } from '../services/notification.service';
 import { signToken } from '../utils/signing';
 import { resolveLeadTimezone, localHourIn, isWithinQuietHours } from '../utils/timezone';
@@ -635,6 +636,21 @@ export const engineTools: Anthropic.Tool[] = [
         winnerVariantId: { type: 'string' },
       },
       required: ['experimentId'],
+    },
+  },
+  {
+    name: 'explain_platform',
+    description:
+      "Consult the platform operator's manual to accurately explain how Social Engine works or walk the user through setup — settings, channel/webhook wiring, outreach & cadence mechanics, sourcing & enrichment, booking, monitoring, safety rails. Use whenever the user asks how something works, how to set something up, or what the platform can do; answer from it faithfully rather than guessing.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        topic: {
+          type: 'string',
+          enum: ['overview', 'settings', 'channels_setup', 'outreach_flow', 'sourcing_enrichment', 'booking_meetings', 'monitoring', 'safety'],
+          description: 'Omit to get the full guide',
+        },
+      },
     },
   },
   {
@@ -1951,6 +1967,14 @@ const executors: Record<string, ToolExecutor> = {
     });
     const results = await getExperimentResults(experiment.id, ctx.organizationId);
     return { ok: true, results };
+  },
+
+  explain_platform: async (input) => {
+    const topic = input.topic as string | undefined;
+    if (topic && PLATFORM_GUIDE[topic]) {
+      return { topic, guide: PLATFORM_GUIDE[topic] };
+    }
+    return { topics: GUIDE_TOPICS, guide: PLATFORM_GUIDE };
   },
 
   get_setup_status: async (_input, ctx) => {

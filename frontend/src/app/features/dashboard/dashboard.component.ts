@@ -3,7 +3,9 @@ import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { DashboardService } from '../../core/services/dashboard.service';
 import { CampaignsService } from '../../core/services/campaigns.service';
+import { AgentService } from '../../core/services/agent.service';
 import { DashboardStats, FunnelStage } from '../../core/models/dashboard.model';
+import { AgentUsage } from '../../core/models/agent.model';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { BadgeComponent } from '../../shared/components/badge/badge.component';
 import { ChartComponent } from '../../shared/components/chart/chart.component';
@@ -26,6 +28,15 @@ export class DashboardComponent implements OnInit {
   campaignOptions = signal<SelectOption[]>([]);
   funnelEmpty = computed(() => this.funnel().every(stage => stage.count === 0));
 
+  isUsageLoading = signal(true);
+  usage = signal<AgentUsage | null>(null);
+  usageDays = signal(30);
+  usageRanges = [7, 30, 90];
+  usageEmpty = computed(() => (this.usage()?.totals.runs ?? 0) === 0);
+  usageMaxModelCost = computed(() =>
+    Math.max(...(this.usage()?.byModel ?? []).map(m => m.costUsd), 0)
+  );
+
   private statusColors: Record<string, string> = {
     NEW: '#3B82F6',
     RESEARCHING: '#8B5CF6',
@@ -39,7 +50,8 @@ export class DashboardComponent implements OnInit {
 
   constructor(
     private dashboardService: DashboardService,
-    private campaignsService: CampaignsService
+    private campaignsService: CampaignsService,
+    private agentService: AgentService
   ) {}
 
   ngOnInit(): void {
@@ -55,6 +67,7 @@ export class DashboardComponent implements OnInit {
     });
 
     this.loadFunnel();
+    this.loadUsage();
 
     this.campaignsService.list().subscribe({
       next: (campaigns) => {
@@ -82,6 +95,43 @@ export class DashboardComponent implements OnInit {
 
   onFunnelCampaignChange(campaignId: string | null): void {
     this.loadFunnel(campaignId || undefined);
+  }
+
+  loadUsage(): void {
+    this.isUsageLoading.set(true);
+    this.agentService.getUsage(this.usageDays()).subscribe({
+      next: (usage) => {
+        this.usage.set(usage);
+        this.isUsageLoading.set(false);
+      },
+      error: () => {
+        this.usage.set(null);
+        this.isUsageLoading.set(false);
+      }
+    });
+  }
+
+  onUsageRangeChange(days: number): void {
+    if (days === this.usageDays()) return;
+    this.usageDays.set(days);
+    this.loadUsage();
+  }
+
+  usageBarWidth(costUsd: number): number {
+    const max = this.usageMaxModelCost();
+    if (max <= 0 || costUsd <= 0) return 0;
+    return Math.max((costUsd / max) * 100, 2);
+  }
+
+  formatCost(costUsd: number): string {
+    if (costUsd > 0 && costUsd < 0.01) return `$${costUsd.toFixed(4)}`;
+    return `$${costUsd.toFixed(2)}`;
+  }
+
+  formatTokens(tokens: number): string {
+    if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+    if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`;
+    return `${tokens}`;
   }
 
   funnelBarWidth(count: number): number {

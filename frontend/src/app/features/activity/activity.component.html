@@ -22,6 +22,19 @@
         <app-badge [variant]="roleBadgeVariant(value)" size="sm">{{ roleLabel(value) }}</app-badge>
       </ng-template>
 
+      <ng-template appDataCell="model" let-row="row">
+        @if (row.model) {
+          <div class="run-model">
+            <span class="run-model-name">{{ row.model }}</span>
+            @if (runCostBadge(row); as badge) {
+              <span class="run-cost-badge">{{ badge }}</span>
+            }
+          </div>
+        } @else {
+          <span class="run-model-empty">—</span>
+        }
+      </ng-template>
+
       <ng-template appDataCell="status" let-value>
         <app-badge [variant]="statusBadgeVariant(value)" size="sm">{{ value }}</app-badge>
       </ng-template>

@@ -194,6 +194,145 @@
   color: var(--text-secondary);
 }
 
+.usage-card {
+  grid-column: span 2;
+
+  @include responsive($breakpoint-lg) {
+    grid-column: span 1;
+  }
+}
+
+.usage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  margin-bottom: $spacing-md;
+
+  .card-title {
+    margin-bottom: 0;
+  }
+}
+
+.usage-range {
+  display: flex;
+  gap: $spacing-xs;
+  flex-shrink: 0;
+}
+
+.usage-range-btn {
+  padding: 4px 10px;
+  font-size: $font-size-xs;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-sm;
+  cursor: pointer;
+  transition: background $transition-fast, color $transition-fast;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+
+  &.active {
+    background: $primary-blue;
+    border-color: $primary-blue;
+    color: #fff;
+  }
+}
+
+.usage-loading {
+  @include flex-center;
+  padding: $spacing-xl;
+}
+
+.usage-stats {
+  display: flex;
+  gap: $spacing-2xl;
+  margin-bottom: $spacing-lg;
+
+  @include responsive($breakpoint-sm) {
+    gap: $spacing-lg;
+  }
+}
+
+.usage-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.usage-stat-value {
+  font-size: $font-size-xl;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-stat-label {
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+}
+
+.usage-model-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.usage-model-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 140px;
+  align-items: center;
+  gap: $spacing-md;
+
+  @include responsive($breakpoint-sm) {
+    grid-template-columns: 110px 1fr 110px;
+    gap: $spacing-sm;
+  }
+}
+
+.usage-model-name {
+  font-size: $font-size-sm;
+  color: var(--text-primary);
+  @include truncate;
+}
+
+.usage-track {
+  height: 20px;
+  background: var(--bg-tertiary);
+  border-radius: $border-radius-sm;
+  overflow: hidden;
+}
+
+.usage-bar {
+  height: 100%;
+  background: $primary-blue;
+  border-radius: $border-radius-sm;
+  transition: width $transition-fast;
+}
+
+.usage-model-cost {
+  font-size: $font-size-sm;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.usage-model-tokens {
+  font-size: $font-size-xs;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.usage-footnote {
+  margin-top: $spacing-md;
+  font-size: $font-size-xs;
+  color: var(--text-secondary);
+}
+
 .chart-container {
   height: 260px;
   position: relative;

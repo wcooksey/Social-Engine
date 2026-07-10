@@ -29,6 +29,7 @@ export class ActivityComponent implements OnInit {
     { key: 'objective', header: 'Objective' },
     { key: 'role', header: 'Role' },
     { key: 'trigger', header: 'Trigger' },
+    { key: 'model', header: 'Model' },
     { key: 'status', header: 'Status' },
     { key: 'startedAt', header: 'Started' },
     { key: 'duration', header: 'Duration' },
@@ -114,5 +115,22 @@ export class ActivityComponent implements OnInit {
     if (seconds < 60) return `${seconds}s`;
     const minutes = Math.floor(seconds / 60);
     return `${minutes}m ${seconds % 60}s`;
+  }
+
+  formatCost(costUsd: number): string {
+    if (costUsd > 0 && costUsd < 0.01) return `$${costUsd.toFixed(4)}`;
+    return `$${costUsd.toFixed(2)}`;
+  }
+
+  formatTokens(tokens: number): string {
+    if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+    if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`;
+    return `${tokens}`;
+  }
+
+  runCostBadge(run: AgentRun): string | null {
+    if (run.costUsd == null) return null;
+    const tokens = (run.inputTokens ?? 0) + (run.outputTokens ?? 0);
+    return `${this.formatCost(run.costUsd)} · ${this.formatTokens(tokens)} tok`;
   }
 }

@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
-import { AgentJob, AgentRun } from '../models/agent.model';
+import { AgentJob, AgentRun, AgentUsage } from '../models/agent.model';
 
 export interface AgentRunsPage {
   runs: AgentRun[];
@@ -22,5 +22,9 @@ export class AgentService {
 
   listJobs(params: { status?: string } = {}): Observable<AgentJob[]> {
     return this.api.get<AgentJob[]>('/api/agent/jobs', params);
+  }
+
+  getUsage(days: number): Observable<AgentUsage> {
+    return this.api.get<AgentUsage>('/api/agent/usage', { days });
   }
 }

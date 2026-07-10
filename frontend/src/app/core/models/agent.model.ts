@@ -23,6 +23,41 @@ export interface AgentRun {
   finishedAt?: string | null;
   stepCount: number;
   steps?: AgentRunStep[];
+  model?: string | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  costUsd?: number | null;
+}
+
+export interface AgentUsageTotals {
+  runs: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+export interface AgentUsageByModel {
+  model: string;
+  runs: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+export interface AgentUsageByDay {
+  day: string;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  runs: number;
+}
+
+export interface AgentUsage {
+  days: number;
+  totals: AgentUsageTotals;
+  byModel: AgentUsageByModel[];
+  byDay: AgentUsageByDay[];
+  note?: string;
 }
 
 export interface AgentJob {

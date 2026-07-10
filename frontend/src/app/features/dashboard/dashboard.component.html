@@ -104,6 +104,62 @@
         }
       </app-card>
 
+      <app-card class="usage-card" padding="lg">
+        <div class="usage-header">
+          <h3 class="card-title">AI usage &amp; cost</h3>
+          <div class="usage-range" role="group" aria-label="Usage range">
+            @for (range of usageRanges; track range) {
+              <button
+                type="button"
+                class="usage-range-btn"
+                [class.active]="usageDays() === range"
+                (click)="onUsageRangeChange(range)">
+                {{ range }}d
+              </button>
+            }
+          </div>
+        </div>
+        @if (isUsageLoading()) {
+          <div class="usage-loading">
+            <span class="spinner"></span>
+          </div>
+        } @else if (usageEmpty()) {
+          <p class="empty-text">No AI usage in this period yet.</p>
+        } @else {
+          @if (usage(); as u) {
+            <div class="usage-stats">
+              <div class="usage-stat">
+                <span class="usage-stat-value">{{ formatCost(u.totals.costUsd) }}</span>
+                <span class="usage-stat-label">Estimated cost</span>
+              </div>
+              <div class="usage-stat">
+                <span class="usage-stat-value">{{ formatTokens(u.totals.inputTokens + u.totals.outputTokens) }}</span>
+                <span class="usage-stat-label">Tokens</span>
+              </div>
+              <div class="usage-stat">
+                <span class="usage-stat-value">{{ u.totals.runs }}</span>
+                <span class="usage-stat-label">Runs</span>
+              </div>
+            </div>
+            <ul class="usage-model-list">
+              @for (m of u.byModel; track m.model) {
+                <li class="usage-model-row">
+                  <span class="usage-model-name">{{ m.model }}</span>
+                  <div class="usage-track">
+                    <div class="usage-bar" [style.width.%]="usageBarWidth(m.costUsd)"></div>
+                  </div>
+                  <span class="usage-model-cost">
+                    {{ formatCost(m.costUsd) }}
+                    <span class="usage-model-tokens">· {{ formatTokens(m.inputTokens + m.outputTokens) }} tok</span>
+                  </span>
+                </li>
+              }
+            </ul>
+            <p class="usage-footnote">Estimated at list prices — provider invoices are authoritative.</p>
+          }
+        }
+      </app-card>
+
       <app-card class="list-card" padding="lg">
         <h3 class="card-title">Recent Engine Runs</h3>
         @if (s.recentRuns.length) {
