@@ -143,6 +143,22 @@ and the deterministic STOP handling, this keeps volume from wrecking sender
 reputation. Sessions are revocable: `User.tokenVersion` (bumped on logout /
 password change) invalidates previously issued JWTs at refresh time.
 
+### Systematic lead sourcing (coverage)
+
+Broad objectives ("all dealerships in Florida") don't work as one search — search
+APIs return the best ~20 answers, not an enumeration. Instead the Coordinator
+plans a **coverage grid**: granular cells (city × brand/category) stored as
+`CoverageCell` rows on the target lead group. Researchers **claim cells
+atomically** (parallel-agent safe, with stale-claim recovery), run each cell's
+query through `source_local_businesses` — the **Google Places API**, which
+enumerates up to 60 businesses per query with name/website/phone/address — and
+mark cells done with a lead count. Every hit flows through the standard upsert
+dedup, so no duplicates across cells or sessions. `list_coverage` makes progress
+a database fact: any later session knows exactly what's pending vs. done and
+continues where the last one stopped, never re-searching covered ground.
+Without a Places key the agent falls back to search_web/browse_web per cell
+(less complete). Requires `GOOGLE_PLACES_API_KEY` (org setting or env).
+
 ### Bulk import
 
 CSV import maps common header aliases (company, website, email, first/last name,

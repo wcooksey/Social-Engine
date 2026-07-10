@@ -53,6 +53,7 @@ model Organization {
   orgSettings  OrgSetting[]
   bookingLinks BookingLink[]
   notifications Notification[]
+  coverageCells CoverageCell[]
 }
 
 model User {
@@ -108,9 +109,48 @@ model LeadGroup {
 
   leads     Lead[]
   playbooks Playbook[]
+  coverageCells CoverageCell[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
+}
+
+// ============================================
+// COVERAGE TRACKING (systematic enumeration)
+// ============================================
+
+enum CoverageCellStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+  EMPTY // searched, nothing there
+}
+
+/// One cell of a bird's-eye sourcing objective ("dealerships in Florida"),
+/// e.g. "Toyota dealerships — Tampa, FL". The Coordinator plans the grid;
+/// Researchers claim cells atomically, source leads into the group, and mark
+/// them done — so across any number of sessions/agents the system knows
+/// exactly what has and hasn't been covered, with no repeated searches.
+model CoverageCell {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  groupId        String
+  group          LeadGroup    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  label      String // human-readable, e.g. "Toyota dealerships — Tampa, FL"
+  query      String // the search to run, e.g. "Toyota dealership in Tampa, FL"
+  status     CoverageCellStatus @default(PENDING)
+  leadsFound Int      @default(0)
+  notes      String?
+  lastRunAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([groupId, query])
+  @@index([organizationId, status])
+  @@index([groupId, status])
 }
 
 model Lead {

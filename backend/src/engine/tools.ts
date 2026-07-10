@@ -22,6 +22,8 @@ import {
   saveStorageState,
 } from '../services/social-account.service';
 import { getOrgConfig } from '../services/settings.service';
+import { sourceBusinesses } from '../services/places.service';
+import * as coverage from '../services/coverage.service';
 import { notify } from '../services/notification.service';
 import { signToken } from '../utils/signing';
 import { resolveLeadTimezone, localHourIn, isWithinQuietHours } from '../utils/timezone';
@@ -65,6 +67,81 @@ export const engineTools: Anthropic.Tool[] = [
       type: 'object' as const,
       properties: { url: { type: 'string', description: 'Absolute http(s) URL' } },
       required: ['url'],
+    },
+  },
+  {
+    name: 'source_local_businesses',
+    description:
+      'Enumerate local businesses via the Google Places API and add them as leads (deduplicated automatically). Far more complete than search_web for "find all X in Y" — one query returns up to 60 businesses with name, website, phone, and address. For broad objectives, run many granular queries via coverage cells (e.g. per city × brand) rather than one huge query.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'e.g. "Toyota dealership in Tampa, FL"' },
+        groupName: { type: 'string', description: 'Lead group to add results to (created if missing)' },
+        industry: { type: 'string', description: 'Industry label to stamp on created leads' },
+        maxResults: { type: 'number', description: 'Cap results (default 60, the API max per query)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'plan_coverage',
+    description:
+      'Plan a systematic coverage grid for a broad sourcing objective ("all dealerships in Florida"): break it into granular cells (e.g. one per city × brand, or city × category) and register them on a lead group. Idempotent — re-planning skips cells that already exist, so it is safe across sessions. After planning, work cells with claim_coverage_cells.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        groupName: { type: 'string', description: 'Lead group that owns this objective (created if missing)' },
+        cells: {
+          type: 'array',
+          description: 'The grid: each cell is one small search',
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string', description: 'e.g. "Toyota — Tampa, FL"' },
+              query: { type: 'string', description: 'e.g. "Toyota dealership in Tampa, FL"' },
+            },
+            required: ['query'],
+          },
+        },
+      },
+      required: ['groupName', 'cells'],
+    },
+  },
+  {
+    name: 'list_coverage',
+    description:
+      'Check coverage progress for a group: totals (pending/in-progress/done/empty, leads found) plus a sample of remaining cells. Use this to know exactly what has and has not been covered before searching — never repeat covered ground.',
+    input_schema: {
+      type: 'object' as const,
+      properties: { groupName: { type: 'string' } },
+      required: ['groupName'],
+    },
+  },
+  {
+    name: 'claim_coverage_cells',
+    description:
+      'Atomically claim the next batch of uncovered cells to work on (safe when multiple agents work in parallel — no two agents get the same cell). For each claimed cell: run source_local_businesses (or search_web/browse_web as fallback) with its query, then call complete_coverage_cell.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        groupName: { type: 'string' },
+        count: { type: 'number', description: 'How many cells to claim (default 3, max 10)' },
+      },
+      required: ['groupName'],
+    },
+  },
+  {
+    name: 'complete_coverage_cell',
+    description: 'Mark a claimed coverage cell finished, recording how many leads it produced (0 marks it EMPTY).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        cellId: { type: 'string' },
+        leadsFound: { type: 'number' },
+        notes: { type: 'string', description: 'Anything worth remembering about this cell' },
+      },
+      required: ['cellId', 'leadsFound'],
     },
   },
   {
@@ -676,6 +753,93 @@ const executors: Record<string, ToolExecutor> = {
       update: { ...(input.goal ? { goal: input.goal } : {}) },
     });
     return { id: group.id, name: group.name, goal: group.goal };
+  },
+
+  source_local_businesses: async (input, ctx) => {
+    const orgConfig = await getOrgConfig(ctx.organizationId);
+    const apiKey = orgConfig.search.googlePlacesApiKey;
+    if (!apiKey) {
+      return {
+        found: 0,
+        note: 'Google Places API key not configured (Settings → Integrations → Google Places API key). Fall back to search_web/browse_web for this cell, or ask the user to add the key for far more complete sourcing.',
+      };
+    }
+    let groupId: string | undefined;
+    if (input.groupName) {
+      const group = await prisma.leadGroup.upsert({
+        where: { organizationId_name: { organizationId: ctx.organizationId, name: String(input.groupName).trim() } },
+        create: { organizationId: ctx.organizationId, name: String(input.groupName).trim() },
+        update: {},
+      });
+      groupId = group.id;
+    }
+    const outcome = await sourceBusinesses(ctx.organizationId, input.query, apiKey, {
+      groupId,
+      industry: input.industry,
+      maxResults: Math.min(Number(input.maxResults) || 60, 60),
+    });
+    return outcome;
+  },
+
+  plan_coverage: async (input, ctx) => {
+    const group = await prisma.leadGroup.upsert({
+      where: { organizationId_name: { organizationId: ctx.organizationId, name: String(input.groupName).trim() } },
+      create: { organizationId: ctx.organizationId, name: String(input.groupName).trim() },
+      update: {},
+    });
+    const cells = (Array.isArray(input.cells) ? input.cells : []) as { label?: string; query: string }[];
+    if (cells.length === 0) return { created: 0, existing: 0, note: 'No cells provided' };
+    if (cells.length > 500) return { created: 0, existing: 0, note: 'Too many cells in one call (max 500) — plan in batches.' };
+    const result = await coverage.planCells(
+      ctx.organizationId,
+      group.id,
+      cells.map((c) => ({ label: c.label || c.query, query: c.query }))
+    );
+    const summary = await coverage.summarize(group.id);
+    return { ...result, coverage: summary };
+  },
+
+  list_coverage: async (input, ctx) => {
+    const group = await prisma.leadGroup.findUnique({
+      where: { organizationId_name: { organizationId: ctx.organizationId, name: String(input.groupName).trim() } },
+    });
+    if (!group) return { note: `No group named "${input.groupName}"` };
+    const summary = await coverage.summarize(group.id);
+    const remaining = await prisma.coverageCell.findMany({
+      where: { groupId: group.id, status: { in: ['PENDING', 'IN_PROGRESS'] } },
+      orderBy: { createdAt: 'asc' },
+      take: 15,
+      select: { id: true, label: true, status: true },
+    });
+    return { coverage: summary, remainingSample: remaining };
+  },
+
+  claim_coverage_cells: async (input, ctx) => {
+    const group = await prisma.leadGroup.findUnique({
+      where: { organizationId_name: { organizationId: ctx.organizationId, name: String(input.groupName).trim() } },
+    });
+    if (!group) return { claimed: [], note: `No group named "${input.groupName}"` };
+    const count = Math.min(Math.max(Number(input.count) || 3, 1), 10);
+    const claimed = await coverage.claimNextCells(ctx.organizationId, group.id, count);
+    const summary = await coverage.summarize(group.id);
+    return {
+      claimed,
+      coverage: summary,
+      note:
+        claimed.length === 0
+          ? summary.pending + summary.inProgress === 0
+            ? 'Coverage complete — every cell is done. Move to the next phase (enrichment/outreach).'
+            : 'No cells claimable right now (others may be in progress).'
+          : `Work each cell with source_local_businesses (query as given), then complete_coverage_cell with the lead count.`,
+    };
+  },
+
+  complete_coverage_cell: async (input, ctx) => {
+    await coverage.completeCell(ctx.organizationId, input.cellId, {
+      leadsFound: Math.max(0, Number(input.leadsFound) || 0),
+      notes: input.notes,
+    });
+    return { ok: true };
   },
 
   search_leads: async (input, ctx) => {

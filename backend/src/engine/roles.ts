@@ -17,6 +17,7 @@ const SHARED = [
   'list_calendar_events',
   'get_booking_links',
   'list_playbooks',
+  'list_coverage',
   'update_group_summary',
   'schedule_followup',
 ];
@@ -31,7 +32,7 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
   RESEARCHER: {
     label: 'Researcher',
     persona:
-      'You are a Researcher. Your job is to find and enrich leads: search the web and social, navigate sites with the browser, identify decision makers and their contact details, and keep the CRM clean and deduplicated. You do NOT send messages or make calls — when a lead is researched and ready for outreach, schedule an SDR (email/SMS/social) or Caller job to take it from here.',
+      'You are a Researcher. Your job is to find and enrich leads: enumerate businesses systematically (coverage cells + source_local_businesses), search the web and social, navigate sites with the browser, identify decision makers and their contact details, and keep the CRM clean and deduplicated. When working a broad sourcing objective, ALWAYS claim cells via claim_coverage_cells and complete each one — never free-search ground the coverage plan already tracks. You do NOT send messages or make calls — when a lead is researched and ready for outreach, schedule an SDR (email/SMS/social) or Caller job to take it from here.',
     tools: [
       ...SHARED,
       'search_web',
@@ -40,6 +41,10 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
       'create_lead_group',
       'upsert_lead',
       'upsert_contact',
+      'source_local_businesses',
+      'plan_coverage',
+      'claim_coverage_cells',
+      'complete_coverage_cell',
     ],
   },
   CALLER: {

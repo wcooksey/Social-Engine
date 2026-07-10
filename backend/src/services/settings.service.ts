@@ -26,6 +26,7 @@ export const ORG_SETTING_DEFS: OrgSettingDef[] = [
 
   { key: 'SEARCH_API_KEY', label: 'Web search API key', group: 'search', secret: true },
   { key: 'SEARCH_API_PROVIDER', label: 'Search provider', group: 'search', secret: false, placeholder: 'brave' },
+  { key: 'GOOGLE_PLACES_API_KEY', label: 'Google Places API key (lead sourcing)', group: 'search', secret: true },
 
   { key: 'MAILGUN_API_KEY', label: 'Mailgun API key', group: 'email', secret: true },
   { key: 'MAILGUN_DOMAIN', label: 'Mailgun domain', group: 'email', secret: false },
@@ -94,7 +95,7 @@ export interface ResolvedOrgConfig {
     xai: string;
     deepseek: string;
   };
-  search: { apiKey: string; provider: string };
+  search: { apiKey: string; provider: string; googlePlacesApiKey: string };
   mailgun: { apiKey: string; domain: string };
   twilio: { accountSid: string; authToken: string; fromNumber: string };
   vapi: {
@@ -111,13 +112,13 @@ export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgC
   const g = (key: string) => resolveOrg(organizationId, key);
   const [
     anthropic, openai, gemini, xai, deepseek,
-    searchKey, searchProvider,
+    searchKey, searchProvider, placesKey,
     mgKey, mgDomain,
     twSid, twToken, twFrom,
     vpKey, vpPhone, vpSecret, vpModel, vpVoiceProvider, vpVoiceId,
   ] = await Promise.all([
     g('ANTHROPIC_API_KEY'), g('OPENAI_API_KEY'), g('GEMINI_API_KEY'), g('XAI_API_KEY'), g('DEEPSEEK_API_KEY'),
-    g('SEARCH_API_KEY'), g('SEARCH_API_PROVIDER'),
+    g('SEARCH_API_KEY'), g('SEARCH_API_PROVIDER'), g('GOOGLE_PLACES_API_KEY'),
     g('MAILGUN_API_KEY'), g('MAILGUN_DOMAIN'),
     g('TWILIO_ACCOUNT_SID'), g('TWILIO_AUTH_TOKEN'), g('TWILIO_FROM_NUMBER'),
     g('VAPI_API_KEY'), g('VAPI_PHONE_NUMBER_ID'), g('VAPI_WEBHOOK_SECRET'),
@@ -125,7 +126,7 @@ export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgC
   ]);
   return {
     providerKeys: { anthropic, openai, google: gemini, xai, deepseek },
-    search: { apiKey: searchKey, provider: searchProvider || 'brave' },
+    search: { apiKey: searchKey, provider: searchProvider || 'brave', googlePlacesApiKey: placesKey },
     mailgun: { apiKey: mgKey, domain: mgDomain },
     twilio: { accountSid: twSid, authToken: twToken, fromNumber: twFrom },
     vapi: {
