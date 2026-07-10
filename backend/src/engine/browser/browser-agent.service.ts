@@ -1,5 +1,5 @@
 import { config } from '../../config/environment';
-import { ProviderKeys } from '../llm/catalog';
+import { estimateCostUsd, ProviderKeys } from '../llm/catalog';
 import { llmService, LlmMessage, LlmToolDefinition } from '../llm/llm.service';
 import { BrowserSession, PageObservation } from './browser.service';
 
@@ -11,6 +11,8 @@ export interface BrowserAgentResult {
   data?: unknown;
   steps: number;
   error?: string;
+  /** LLM usage across all browser steps (for cost attribution to the run). */
+  usage: { inputTokens: number; outputTokens: number; costUsd: number };
 }
 
 export interface BrowserAgentOptions {
@@ -99,6 +101,7 @@ export async function runBrowserAgent(opts: BrowserAgentOptions): Promise<Browse
   const session = new BrowserSession();
   const maxSteps = config.browser.maxSteps;
   const note = opts.onStep ?? (() => undefined);
+  const usage = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
 
   const system = `You are a browser automation agent operating a real Chromium browser to accomplish a web task for a sales team.
 
@@ -149,6 +152,13 @@ Objective: ${opts.objective}
         },
         opts.providerKeys
       );
+      usage.inputTokens += response.usage.inputTokens;
+      usage.outputTokens += response.usage.outputTokens;
+      usage.costUsd += estimateCostUsd(
+        response.model,
+        response.usage.inputTokens,
+        response.usage.outputTokens
+      );
 
       if (response.toolCalls.length === 0) {
         // Model answered without acting — treat its text as the summary.
@@ -158,6 +168,7 @@ Objective: ${opts.objective}
           status: 'completed',
           summary: response.text || 'No action taken.',
           steps: step,
+          usage,
         };
       }
 
@@ -180,6 +191,7 @@ Objective: ${opts.objective}
             summary: input.summary || 'Task finished.',
             data: input.data,
             steps: step + 1,
+            usage,
           };
         }
 
@@ -223,6 +235,7 @@ Objective: ${opts.objective}
       status: 'max_steps',
       summary: `Reached the ${maxSteps}-step limit without finishing. Consider a narrower objective.`,
       steps: maxSteps,
+      usage,
     };
   } catch (err) {
     await session.close();
@@ -231,6 +244,7 @@ Objective: ${opts.objective}
       summary: 'Browser agent failed.',
       error: err instanceof Error ? err.message : 'Unknown error',
       steps: 0,
+      usage,
     };
   }
 }

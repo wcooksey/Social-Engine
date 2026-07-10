@@ -479,6 +479,9 @@ model AgentRun {
   error          String?
   inputTokens    Int             @default(0)
   outputTokens   Int             @default(0)
+  // Estimated USD cost at list prices (accumulated per LLM call, incl. the
+  // browser agent's calls attributed back to this run).
+  costUsd        Float           @default(0)
   startedAt      DateTime        @default(now())
   finishedAt     DateTime?
 

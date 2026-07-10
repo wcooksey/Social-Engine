@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "AgentRun" ADD COLUMN     "costUsd" DOUBLE PRECISION NOT NULL DEFAULT 0;

@@ -3,7 +3,7 @@ import { config } from '../config/environment';
 import { isEmailConfigured, isSmsConfigured, isVoiceConfigured } from '../services/channels.service';
 import { formatPlaybooksForPrompt, getActivePlaybooks } from '../services/playbook.service';
 import { getOrgConfig, getPlatformEngineConfig } from '../services/settings.service';
-import { ProviderKeys } from './llm/catalog';
+import { estimateCostUsd, ProviderKeys } from './llm/catalog';
 import { buildEngineSystemPrompt } from './prompts';
 import { LlmMessage, LlmToolDefinition, llmService } from './llm/llm.service';
 import { AgentRole, roleAllowsTool, rolePersona } from './roles';
@@ -125,6 +125,7 @@ class EngineService {
     let finalText = '';
     let inputTokens = 0;
     let outputTokens = 0;
+    let costUsd = 0;
     let servedByModel = model;
 
     try {
@@ -148,6 +149,12 @@ class EngineService {
         );
         inputTokens += response.usage.inputTokens;
         outputTokens += response.usage.outputTokens;
+        // Price against the model that actually served (matters on failover).
+        costUsd += estimateCostUsd(
+          response.model,
+          response.usage.inputTokens,
+          response.usage.outputTokens
+        );
         servedByModel = response.model;
 
         if (response.text) {
@@ -192,14 +199,17 @@ class EngineService {
         messages.push({ role: 'tool', results });
       }
 
+      // Increment (not set): browser-agent tool calls attribute their own
+      // usage to this run mid-flight, and that must survive the final write.
       await prisma.agentRun.update({
         where: { id: run.id },
         data: {
           status: 'COMPLETED',
           summary: finalText.slice(0, 4000) || options.objective,
           model: servedByModel,
-          inputTokens,
-          outputTokens,
+          inputTokens: { increment: inputTokens },
+          outputTokens: { increment: outputTokens },
+          costUsd: { increment: costUsd },
           finishedAt: new Date(),
         },
       });
@@ -212,8 +222,9 @@ class EngineService {
           status: 'FAILED',
           error: message.slice(0, 2000),
           model: servedByModel,
-          inputTokens,
-          outputTokens,
+          inputTokens: { increment: inputTokens },
+          outputTokens: { increment: outputTokens },
+          costUsd: { increment: costUsd },
           finishedAt: new Date(),
         },
       });

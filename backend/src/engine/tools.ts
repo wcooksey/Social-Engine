@@ -766,6 +766,24 @@ async function draftOnlyReason(
   return null;
 }
 
+/** Attribute a browser sub-agent's LLM usage to the parent run's totals. */
+async function attributeBrowserUsage(
+  runId: string,
+  usage: { inputTokens: number; outputTokens: number; costUsd: number }
+): Promise<void> {
+  if (!usage || (usage.inputTokens === 0 && usage.outputTokens === 0)) return;
+  await prisma.agentRun
+    .update({
+      where: { id: runId },
+      data: {
+        inputTokens: { increment: usage.inputTokens },
+        outputTokens: { increment: usage.outputTokens },
+        costUsd: { increment: usage.costUsd },
+      },
+    })
+    .catch(() => undefined);
+}
+
 /**
  * A real touch happened on a campaign lead: advance its cadence clock so the
  * mechanical sweep knows when the next touch is due. Keeps working even if
@@ -1467,6 +1485,7 @@ const executors: Record<string, ToolExecutor> = {
         ? { persistState: (state) => saveStorageState(ctx.organizationId, platform, state) }
         : {}),
     });
+    await attributeBrowserUsage(ctx.runId, result.usage);
     if (input.leadId) {
       await prisma.lead
         .findFirst({ where: { id: input.leadId, organizationId: ctx.organizationId } })
@@ -1593,6 +1612,7 @@ const executors: Record<string, ToolExecutor> = {
       storageState,
       persistState: (state) => saveStorageState(ctx.organizationId, platform, state),
     });
+    await attributeBrowserUsage(ctx.runId, result.usage);
 
     const success = result.status === 'completed';
     await recordTouch(

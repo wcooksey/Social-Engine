@@ -75,11 +75,20 @@ export function isProviderConfigured(provider: Provider, keys?: ProviderKeys): b
   return !!providerKey(provider, keys);
 }
 
+export interface ModelPricing {
+  /** USD per million input tokens. */
+  inputPerMTok: number;
+  /** USD per million output tokens. */
+  outputPerMTok: number;
+}
+
 export interface CatalogModel {
   id: string;
   label: string;
   provider: Provider;
   recommended?: boolean;
+  /** Published list prices (estimates — vendors change them; update here). */
+  pricing?: ModelPricing;
 }
 
 /**
@@ -88,17 +97,42 @@ export interface CatalogModel {
  * models is a data change only.
  */
 export const MODEL_CATALOG: CatalogModel[] = [
-  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', provider: 'anthropic', recommended: true },
-  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', provider: 'anthropic' },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', provider: 'anthropic' },
-  { id: 'gpt-5.1', label: 'GPT-5.1', provider: 'openai' },
-  { id: 'gpt-5.1-mini', label: 'GPT-5.1 mini', provider: 'openai' },
-  { id: 'gemini-3-pro-preview', label: 'Gemini 3 Pro', provider: 'google' },
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google' },
-  { id: 'grok-4', label: 'Grok 4', provider: 'xai' },
-  { id: 'deepseek-chat', label: 'DeepSeek Chat', provider: 'deepseek' },
-  { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner', provider: 'deepseek' },
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', provider: 'anthropic', recommended: true, pricing: { inputPerMTok: 3, outputPerMTok: 15 } },
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', provider: 'anthropic', pricing: { inputPerMTok: 5, outputPerMTok: 25 } },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', provider: 'anthropic', pricing: { inputPerMTok: 1, outputPerMTok: 5 } },
+  { id: 'gpt-5.1', label: 'GPT-5.1', provider: 'openai', pricing: { inputPerMTok: 1.25, outputPerMTok: 10 } },
+  { id: 'gpt-5.1-mini', label: 'GPT-5.1 mini', provider: 'openai', pricing: { inputPerMTok: 0.25, outputPerMTok: 2 } },
+  { id: 'gemini-3-pro-preview', label: 'Gemini 3 Pro', provider: 'google', pricing: { inputPerMTok: 2, outputPerMTok: 12 } },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google', pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 } },
+  { id: 'grok-4', label: 'Grok 4', provider: 'xai', pricing: { inputPerMTok: 3, outputPerMTok: 15 } },
+  { id: 'deepseek-chat', label: 'DeepSeek Chat', provider: 'deepseek', pricing: { inputPerMTok: 0.27, outputPerMTok: 1.1 } },
+  { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner', provider: 'deepseek', pricing: { inputPerMTok: 0.55, outputPerMTok: 2.19 } },
 ];
+
+// Provider-level fallback pricing for models not in the catalog.
+const PROVIDER_DEFAULT_PRICING: Record<Provider, ModelPricing> = {
+  anthropic: { inputPerMTok: 3, outputPerMTok: 15 },
+  openai: { inputPerMTok: 1.25, outputPerMTok: 10 },
+  google: { inputPerMTok: 2, outputPerMTok: 12 },
+  xai: { inputPerMTok: 3, outputPerMTok: 15 },
+  deepseek: { inputPerMTok: 0.55, outputPerMTok: 2.19 },
+};
+
+export function pricingForModel(model: string): ModelPricing {
+  const entry = MODEL_CATALOG.find((m) => m.id === model);
+  if (entry?.pricing) return entry.pricing;
+  try {
+    return PROVIDER_DEFAULT_PRICING[resolveProvider(model)];
+  } catch {
+    return { inputPerMTok: 3, outputPerMTok: 15 };
+  }
+}
+
+/** Estimated USD cost of a call — list prices, no caching/batch discounts. */
+export function estimateCostUsd(model: string, inputTokens: number, outputTokens: number): number {
+  const p = pricingForModel(model);
+  return (inputTokens * p.inputPerMTok + outputTokens * p.outputPerMTok) / 1_000_000;
+}
 
 /**
  * Failover order when the active model's provider is erroring: the default

@@ -31,6 +31,10 @@ router.get(
           status: r.status,
           summary: r.summary,
           error: r.error,
+          model: r.model,
+          inputTokens: r.inputTokens,
+          outputTokens: r.outputTokens,
+          costUsd: r.costUsd,
           startedAt: r.startedAt,
           finishedAt: r.finishedAt,
           stepCount: r._count.steps,
@@ -52,6 +56,76 @@ router.get(
     });
     if (!run) throw new AppError('Run not found', 404);
     res.json({ success: true, data: run });
+  })
+);
+
+/**
+ * AI usage & estimated cost, aggregated for the org: totals, per-model, and
+ * per-day over the requested window (?days=30, max 365). Costs are estimates
+ * at list prices — the provider's invoice is the source of truth.
+ */
+router.get(
+  '/usage',
+  asyncHandler(async (req, res) => {
+    const days = Math.min(Math.max(parseInt((req.query.days as string) || '30', 10) || 30, 1), 365);
+    const since = new Date(Date.now() - days * 24 * 3600 * 1000);
+    const where = { organizationId: req.user!.organizationId, startedAt: { gte: since } };
+
+    const [totals, byModelRaw, runs] = await Promise.all([
+      prisma.agentRun.aggregate({
+        where,
+        _sum: { inputTokens: true, outputTokens: true, costUsd: true },
+        _count: true,
+      }),
+      prisma.agentRun.groupBy({
+        by: ['model'],
+        where,
+        _sum: { inputTokens: true, outputTokens: true, costUsd: true },
+        _count: true,
+      }),
+      prisma.agentRun.findMany({
+        where,
+        select: { startedAt: true, inputTokens: true, outputTokens: true, costUsd: true },
+      }),
+    ]);
+
+    // Per-day rollup (UTC days) for the trend line.
+    const byDayMap = new Map<string, { inputTokens: number; outputTokens: number; costUsd: number; runs: number }>();
+    for (const r of runs) {
+      const day = r.startedAt.toISOString().slice(0, 10);
+      const entry = byDayMap.get(day) ?? { inputTokens: 0, outputTokens: 0, costUsd: 0, runs: 0 };
+      entry.inputTokens += r.inputTokens;
+      entry.outputTokens += r.outputTokens;
+      entry.costUsd += r.costUsd;
+      entry.runs += 1;
+      byDayMap.set(day, entry);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        days,
+        totals: {
+          runs: totals._count,
+          inputTokens: totals._sum.inputTokens ?? 0,
+          outputTokens: totals._sum.outputTokens ?? 0,
+          costUsd: totals._sum.costUsd ?? 0,
+        },
+        byModel: byModelRaw
+          .map((m) => ({
+            model: m.model ?? 'unknown',
+            runs: m._count,
+            inputTokens: m._sum.inputTokens ?? 0,
+            outputTokens: m._sum.outputTokens ?? 0,
+            costUsd: m._sum.costUsd ?? 0,
+          }))
+          .sort((a, b) => b.costUsd - a.costUsd),
+        byDay: [...byDayMap.entries()]
+          .map(([day, v]) => ({ day, ...v }))
+          .sort((a, b) => a.day.localeCompare(b.day)),
+        note: 'Estimated at list prices per token; provider invoices are authoritative.',
+      },
+    });
   })
 );
 
