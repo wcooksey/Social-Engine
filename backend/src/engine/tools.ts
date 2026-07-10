@@ -24,6 +24,12 @@ import {
 import { getOrgConfig } from '../services/settings.service';
 import { sourceBusinesses } from '../services/places.service';
 import * as coverage from '../services/coverage.service';
+import {
+  apolloPeopleSearch,
+  crawlSiteForContacts,
+  verifyEmail as verifyEmailAddress,
+} from '../services/enrichment.service';
+import { llmService } from './llm/llm.service';
 import { notify } from '../services/notification.service';
 import { signToken } from '../utils/signing';
 import { resolveLeadTimezone, localHourIn, isWithinQuietHours } from '../utils/timezone';
@@ -223,6 +229,43 @@ export const engineTools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'find_contacts_on_website',
+    description:
+      "Crawl a lead's own website (homepage + contact/about/team pages) and extract published emails and phone numbers. Emails found here are usually live since the business publishes them — prefer this before Apollo. Returns findings for you to save via upsert_contact (match names/titles from page context when possible).",
+    input_schema: {
+      type: 'object' as const,
+      properties: { leadId: { type: 'string' } },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'enrich_contacts_apollo',
+    description:
+      "Find decision makers at a lead's company via the Apollo.io database (searches by the lead's website domain + job titles). People with unlocked emails are saved as contacts automatically. Apollo emails can be stale — verify_email important ones before cold emailing. Requires the Apollo API key in Settings.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        leadId: { type: 'string' },
+        titles: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Job titles to target, e.g. ["Owner", "General Manager", "Sales Manager"]',
+        },
+      },
+      required: ['leadId'],
+    },
+  },
+  {
+    name: 'verify_email',
+    description:
+      'Check whether an email address is deliverable BEFORE cold-emailing it (protects sender reputation — bounces hurt future deliverability). Undeliverable addresses are suppressed automatically on the matching contact. Uses Mailgun email validation.',
+    input_schema: {
+      type: 'object' as const,
+      properties: { email: { type: 'string' } },
+      required: ['email'],
+    },
+  },
+  {
     name: 'get_lead_timeline',
     description:
       'Get a lead with its contacts and recent activity timeline. ALWAYS read this before messaging a lead so outreach reflects history.',
@@ -334,7 +377,7 @@ export const engineTools: Anthropic.Tool[] = [
   {
     name: 'place_call',
     description:
-      'Place a live AI voice call to a lead contact. The voice assistant gets the lead context, your objective, and the team VOICE playbooks as its call script; the transcript lands on the lead timeline when the call ends. Uses the contact phone or the lead company phone.',
+      'Place a live AI voice call to a lead contact. The voice assistant gets the lead context, your objective, and the team VOICE playbooks as its call script; the transcript lands on the lead timeline when the call ends. Uses the contact phone or the lead company phone. If the call hits voicemail, the assistant leaves voicemailMessage (or a sensible default) instead of hanging up.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -342,6 +385,10 @@ export const engineTools: Anthropic.Tool[] = [
         contactId: { type: 'string' },
         objective: { type: 'string', description: 'What the call should accomplish' },
         campaignId: { type: 'string' },
+        voicemailMessage: {
+          type: 'string',
+          description: 'What to say if voicemail answers (~15-25s: who you are, why you called, callback number or that you will follow up by text/email)',
+        },
       },
       required: ['leadId', 'objective'],
     },
@@ -371,7 +418,7 @@ export const engineTools: Anthropic.Tool[] = [
   {
     name: 'send_social_dm',
     description:
-      'Use the browser to find a lead contact on a social platform and send them a direct message / connection request. Requires the org to have social autonomy enabled; otherwise the message is recorded as a draft for human approval. Records a social touch on the lead timeline.',
+      'Use the browser to find a lead contact on a social platform and send them a direct message / connection request. COLD DM RULE: each lead gets exactly ONE cold DM per platform — the tool refuses repeats unless allowRepeat is set (replies are handled by the inbound loop, not by re-DMing). Requires the org to have social autonomy enabled; otherwise the message is recorded as a draft for human approval. Records a social touch on the lead timeline.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -383,6 +430,10 @@ export const engineTools: Anthropic.Tool[] = [
         profileUrl: { type: 'string', description: 'Direct profile URL if known (skips searching)' },
         personName: { type: 'string', description: 'Who to reach if no profileUrl' },
         message: { type: 'string', description: 'The DM text to send' },
+        allowRepeat: {
+          type: 'boolean',
+          description: 'Override the one-cold-DM-per-lead rule (only when the lead has replied and you must respond via browser)',
+        },
       },
       required: ['leadId', 'platform', 'message'],
     },
@@ -587,6 +638,40 @@ export const engineTools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'get_setup_status',
+    description:
+      "Check what's configured and what's missing across the whole workspace: channels (email/SMS/voice/social), sourcing & enrichment keys, playbooks, campaigns, booking links, guardrails. Use when the user asks to 'set everything up', to diagnose why something isn't sending, or to walk them through onboarding — then fix what you can with your tools and tell them exactly which API keys to add in Settings (never ask for key values in chat).",
+    input_schema: { type: 'object' as const, properties: {} },
+  },
+  {
+    name: 'create_booking_link',
+    description:
+      'Create a public self-serve booking link (leads pick a time; it lands on the calendar with an emailed invite). Defaults to Mon–Fri 09:00–17:00 in the given timezone. Returns the public URL to drop into outreach.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        title: { type: 'string', description: 'e.g. "15-min intro call"' },
+        description: { type: 'string' },
+        durationMinutes: { type: 'number', description: 'Default 30' },
+        timezone: { type: 'string', description: 'IANA tz the availability is defined in, e.g. "America/New_York"' },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'update_org_guardrails',
+    description:
+      'Adjust outreach guardrails when the user asks: daily send cap and quiet hours (24h local hours; quiet window applies in each LEAD\'s timezone). The kill switch and social autonomy stay human-only in Settings.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        dailySendCap: { type: 'number', description: '1–2000' },
+        quietHoursStart: { type: 'number', description: '0–23, start of no-contact window' },
+        quietHoursEnd: { type: 'number', description: '0–23, end of no-contact window' },
+      },
+    },
+  },
+  {
     name: 'update_group_summary',
     description:
       'Update the rolling AI summary on a lead group — your long-term memory of progress, findings, and next steps for that group.',
@@ -681,6 +766,25 @@ async function draftOnlyReason(
   return null;
 }
 
+/**
+ * A real touch happened on a campaign lead: advance its cadence clock so the
+ * mechanical sweep knows when the next touch is due. Keeps working even if
+ * the agent forgets — persistence is enforced by the system, not remembered.
+ */
+async function recordCampaignTouch(campaignId: string, leadId: string): Promise<void> {
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  if (!campaign) return;
+  const nextTouchAt = new Date(Date.now() + campaign.followUpCadenceDays * 24 * 3600 * 1000);
+  await prisma.campaignLead.updateMany({
+    where: { campaignId, leadId },
+    data: { touchCount: { increment: 1 }, lastTouchAt: new Date(), nextTouchAt },
+  });
+  await prisma.campaignLead.updateMany({
+    where: { campaignId, leadId, status: 'PENDING' },
+    data: { status: 'IN_SEQUENCE' },
+  });
+}
+
 async function recordOutbound(opts: {
   ctx: ToolContext;
   leadId: string;
@@ -721,6 +825,9 @@ async function recordOutbound(opts: {
   });
   if (opts.status === 'sent' && opts.experimentVariantId) {
     await recordSend(opts.experimentVariantId);
+  }
+  if (opts.status === 'sent' && opts.campaignId) {
+    await recordCampaignTouch(opts.campaignId, opts.leadId);
   }
   await prisma.conversation.update({
     where: { id: conversation.id },
@@ -888,6 +995,96 @@ const executors: Record<string, ToolExecutor> = {
       });
     }
     return { leadId: lead.id, companyName: lead.companyName, created, mergedIntoExisting: !created };
+  },
+
+  find_contacts_on_website: async (input, ctx) => {
+    const lead = await requireLead(input.leadId, ctx.organizationId);
+    if (!lead.website) {
+      return { emails: [], phones: [], note: 'This lead has no website on file — research one first (search_web / source_local_businesses usually provide it).' };
+    }
+    const found = await crawlSiteForContacts(lead.website);
+    return {
+      ...found,
+      note:
+        found.emails.length === 0
+          ? 'No emails published on the crawled pages. Try browse_web for JS-heavy sites, or enrich_contacts_apollo.'
+          : 'Save useful people via upsert_contact. Website-published emails are usually live, but verify_email before high-volume sends.',
+    };
+  },
+
+  enrich_contacts_apollo: async (input, ctx) => {
+    const lead = await requireLead(input.leadId, ctx.organizationId);
+    const orgConfig = await getOrgConfig(ctx.organizationId);
+    if (!orgConfig.search.apolloApiKey) {
+      return { people: [], note: 'Apollo API key not configured (Settings → Integrations). Use find_contacts_on_website or browse_web instead.' };
+    }
+    const domain = lead.domain || (lead.website ? lead.website.replace(/^https?:\/\/(www\.)?/i, '').split('/')[0] : null);
+    if (!domain) {
+      return { people: [], note: 'No website/domain on this lead — Apollo searches by company domain. Find the website first.' };
+    }
+    const titles = Array.isArray(input.titles) && input.titles.length
+      ? input.titles.map(String)
+      : ['Owner', 'General Manager', 'Sales Manager'];
+    const { people, error } = await apolloPeopleSearch(domain, titles, orgConfig.search.apolloApiKey);
+    if (error) return { people: [], error };
+
+    // Auto-save people whose emails Apollo actually revealed.
+    let saved = 0;
+    for (const p of people) {
+      if (!p.email || !p.name) continue;
+      const [firstName, ...rest] = p.name.split(/\s+/);
+      const existing = await prisma.contact.findFirst({
+        where: { leadId: lead.id, email: p.email.toLowerCase() },
+      });
+      if (existing) continue;
+      await prisma.contact.create({
+        data: {
+          organizationId: ctx.organizationId,
+          leadId: lead.id,
+          firstName: firstName || p.name,
+          lastName: rest.join(' ') || null,
+          title: p.title || null,
+          email: p.email.toLowerCase(),
+          socials: p.linkedinUrl ? { linkedin: p.linkedinUrl } : undefined,
+          source: 'apollo',
+        },
+      });
+      saved++;
+    }
+    const locked = people.filter((p) => p.emailLocked).length;
+    return {
+      people,
+      saved,
+      note: `${saved} contact(s) saved.${locked ? ` ${locked} had locked emails (Apollo credits needed to reveal).` : ''} Apollo emails can be stale — verify_email before cold emailing.`,
+    };
+  },
+
+  verify_email: async (input, ctx) => {
+    const orgConfig = await getOrgConfig(ctx.organizationId);
+    if (!orgConfig.mailgun.apiKey) {
+      return { verdict: 'unknown', note: 'Mailgun is not configured — cannot verify. Treat the address as unverified.' };
+    }
+    const email = String(input.email || '').toLowerCase().trim();
+    if (!email) throw new Error('email is required');
+    const result = await verifyEmailAddress(email, orgConfig.mailgun.apiKey);
+
+    // Suppress undeliverable addresses on matching contacts so send_email
+    // refuses them — a pre-send bounce prevented is reputation saved.
+    if (result.verdict === 'undeliverable') {
+      await prisma.contact.updateMany({
+        where: { organizationId: ctx.organizationId, email },
+        data: { emailStatus: 'undeliverable' },
+      });
+    }
+    return {
+      ...result,
+      note:
+        result.verdict === 'deliverable'
+          ? 'Safe to email.'
+          : result.verdict === 'undeliverable'
+            ? 'Dead address — suppressed. Find another contact or channel.'
+            : 'Uncertain — acceptable to try once, but prefer a deliverable address if available.',
+    };
   },
 
   upsert_contact: async (input, ctx) => {
@@ -1209,11 +1406,15 @@ const executors: Record<string, ToolExecutor> = {
     });
     const firstMessage = `Hi${contactName ? ` ${contactName.split(' ')[0]}` : ''}, this is the assistant calling on behalf of ${org?.name || 'our team'} — do you have a quick minute?`;
 
+    const voicemailMessage =
+      input.voicemailMessage ||
+      `Hi, this is the assistant calling from ${org?.name || 'our office'} for ${lead.companyName}. Sorry we missed you — we'll follow up by text or email shortly. Have a great day!`;
     const delivery = await channels.placeVapiCall(
       {
         toNumber,
         systemPrompt,
         firstMessage,
+        voicemailMessage,
         metadata: {
           organizationId: ctx.organizationId,
           leadId: lead.id,
@@ -1236,6 +1437,9 @@ const executors: Record<string, ToolExecutor> = {
       campaignId: input.campaignId,
       agentRunId: ctx.runId,
     });
+    if (input.campaignId) {
+      await recordCampaignTouch(input.campaignId, lead.id);
+    }
     return {
       called: true,
       to: toNumber,
@@ -1290,6 +1494,26 @@ const executors: Record<string, ToolExecutor> = {
   send_social_dm: async (input, ctx) => {
     const lead = await requireLead(input.leadId, ctx.organizationId);
     assertContactable(lead);
+
+    // One cold DM per lead per platform — repeats waste quota, look spammy,
+    // and risk the account. Replies flow through the inbound loop instead.
+    if (!input.allowRepeat) {
+      const existing = await prisma.message.findFirst({
+        where: {
+          direction: 'OUTBOUND',
+          status: { in: ['sent', 'sending', 'draft_pending_approval'] },
+          conversation: { leadId: lead.id, channel: 'SOCIAL' },
+        },
+      });
+      if (existing) {
+        return {
+          sent: false,
+          skipped: true,
+          note: `This lead already has an outbound social DM (status: ${existing.status}). Cold DM = one per lead; if they replied, reply via the conversation instead. Pass allowRepeat only if you truly must send another browser DM.`,
+        };
+      }
+    }
+
     const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
 
     const blocked = await outboundBlockReason(ctx.organizationId, lead);
@@ -1707,6 +1931,112 @@ const executors: Record<string, ToolExecutor> = {
     });
     const results = await getExperimentResults(experiment.id, ctx.organizationId);
     return { ok: true, results };
+  },
+
+  get_setup_status: async (_input, ctx) => {
+    const orgConfig = await getOrgConfig(ctx.organizationId);
+    const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
+    const [playbooks, activeCampaigns, bookingLinks, leads, socialAccounts, contactsWithEmail] =
+      await Promise.all([
+        prisma.playbook.count({ where: { organizationId: ctx.organizationId, isActive: true } }),
+        prisma.campaign.count({ where: { organizationId: ctx.organizationId, status: 'ACTIVE' } }),
+        prisma.bookingLink.count({ where: { organizationId: ctx.organizationId, active: true } }),
+        prisma.lead.count({ where: { organizationId: ctx.organizationId } }),
+        prisma.socialAccount.count({
+          where: { organizationId: ctx.organizationId, status: 'CONNECTED' },
+        }),
+        prisma.contact.count({
+          where: { organizationId: ctx.organizationId, email: { not: null }, optedOut: false },
+        }),
+      ]);
+
+    const configured = {
+      aiProvider: llmService.isAnyProviderConfigured(orgConfig.providerKeys),
+      email: channels.isEmailConfigured(orgConfig.mailgun),
+      sms: channels.isSmsConfigured(orgConfig.twilio),
+      voice: channels.isVoiceConfigured(orgConfig.vapi),
+      webSearch: !!orgConfig.search.apiKey,
+      placesSourcing: !!orgConfig.search.googlePlacesApiKey,
+      apolloEnrichment: !!orgConfig.search.apolloApiKey,
+      socialAccountsConnected: socialAccounts,
+    };
+    const suggestions: string[] = [];
+    if (!configured.aiProvider) suggestions.push('Add at least one AI provider API key (Settings → Integrations) — nothing runs without it.');
+    if (!configured.email) suggestions.push('Configure Mailgun (API key + domain) to enable email outreach, calendar invites, and notifications.');
+    if (!configured.sms) suggestions.push('Configure Twilio to enable SMS touches.');
+    if (!configured.voice) suggestions.push('Configure Vapi (incl. webhook secret) to enable AI voice calls.');
+    if (!configured.placesSourcing) suggestions.push('Add a Google Places API key for systematic lead sourcing.');
+    if (!configured.apolloEnrichment) suggestions.push('Add an Apollo API key for decision-maker enrichment (optional — website crawl works without it).');
+    if (playbooks === 0) suggestions.push('Create playbooks: outreach tone/rules, objection handling, a VOICE call script.');
+    if (bookingLinks === 0) suggestions.push('Create a booking link so leads can self-schedule (create_booking_link).');
+    if (activeCampaigns === 0) suggestions.push('Create and activate a campaign to start the outreach cadence.');
+    if (leads === 0) suggestions.push('Source leads (coverage grid + source_local_businesses) or import a CSV.');
+
+    return {
+      configured,
+      counts: { leads, contactsWithEmail, playbooks, activeCampaigns, bookingLinks },
+      guardrails: org
+        ? { dailySendCap: org.dailySendCap, quietHours: `${org.quietHoursStart}:00–${org.quietHoursEnd}:00 (lead-local)`, paused: org.paused, socialAutonomy: org.socialAutonomy }
+        : null,
+      suggestions,
+    };
+  },
+
+  create_booking_link: async (input, ctx) => {
+    const title = String(input.title || '').trim();
+    if (!title) throw new Error('title is required');
+    let slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'meet';
+    if (await prisma.bookingLink.findUnique({ where: { slug } })) {
+      slug = `${slug}-${Math.random().toString(36).slice(2, 7)}`;
+    }
+    const link = await prisma.bookingLink.create({
+      data: {
+        organizationId: ctx.organizationId,
+        slug,
+        title,
+        description: input.description || null,
+        durationMinutes: Math.min(Math.max(Number(input.durationMinutes) || 30, 5), 240),
+        timezone: input.timezone || 'America/New_York',
+        availability: {
+          '1': [['09:00', '17:00']],
+          '2': [['09:00', '17:00']],
+          '3': [['09:00', '17:00']],
+          '4': [['09:00', '17:00']],
+          '5': [['09:00', '17:00']],
+        },
+      },
+    });
+    return {
+      url: `${config.appPublicUrl}/book/${link.slug}`,
+      title: link.title,
+      durationMinutes: link.durationMinutes,
+      note: 'Share this URL in outreach. The user can fine-tune availability in Settings → Booking links.',
+    };
+  },
+
+  update_org_guardrails: async (input, ctx) => {
+    const data: Record<string, number> = {};
+    if (input.dailySendCap !== undefined) {
+      data.dailySendCap = Math.min(Math.max(Number(input.dailySendCap) || 0, 1), 2000);
+    }
+    if (input.quietHoursStart !== undefined) {
+      data.quietHoursStart = Math.min(Math.max(Number(input.quietHoursStart) || 0, 0), 23);
+    }
+    if (input.quietHoursEnd !== undefined) {
+      data.quietHoursEnd = Math.min(Math.max(Number(input.quietHoursEnd) || 0, 0), 23);
+    }
+    if (Object.keys(data).length === 0) return { ok: false, note: 'Nothing to change.' };
+    const org = await prisma.organization.update({
+      where: { id: ctx.organizationId },
+      data,
+    });
+    return {
+      ok: true,
+      guardrails: {
+        dailySendCap: org.dailySendCap,
+        quietHours: `${org.quietHoursStart}:00–${org.quietHoursEnd}:00 (lead-local)`,
+      },
+    };
   },
 
   update_group_summary: async (input, ctx) => {

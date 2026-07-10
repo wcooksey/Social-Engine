@@ -45,6 +45,9 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
       'plan_coverage',
       'claim_coverage_cells',
       'complete_coverage_cell',
+      'find_contacts_on_website',
+      'enrich_contacts_apollo',
+      'verify_email',
     ],
   },
   CALLER: {
@@ -77,6 +80,8 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
       // experiments stays with the Coordinator).
       'pick_experiment_variant',
       'list_experiments',
+      // Screen addresses before cold sends — bounces hurt deliverability.
+      'verify_email',
     ],
   },
 };

@@ -2,6 +2,7 @@ import { prisma } from '../config/database';
 import { engineService } from './engine.service';
 import { getPlatformEngineConfig } from '../services/settings.service';
 import { runReminderSweep, runDigestSweepIfDue } from '../services/reminder.service';
+import { runCadenceSweep } from '../services/campaign-cadence.service';
 import { AgentRole } from './roles';
 
 const MAX_ATTEMPTS = 3;
@@ -141,6 +142,7 @@ async function runTimeSweeps(): Promise<void> {
   lastSweepAt = now;
   try {
     await runReminderSweep();
+    await runCadenceSweep();
     await runDigestSweepIfDue();
   } catch (err) {
     console.error('Time sweep error:', err instanceof Error ? err.message : err);

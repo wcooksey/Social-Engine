@@ -60,4 +60,70 @@ router.get(
   })
 );
 
+/**
+ * Funnel: sourced → has contact info → contacted → replied → interested →
+ * meeting booked → meeting completed. Optional ?campaignId= scopes every stage
+ * to leads enrolled in that campaign. Powers the dashboard funnel view so you
+ * can see where leads stall and tune playbooks/experiments accordingly.
+ */
+router.get(
+  '/funnel',
+  asyncHandler(async (req, res) => {
+    const organizationId = req.user!.organizationId;
+    const campaignId = (req.query.campaignId as string) || undefined;
+    const inCampaign = campaignId ? { campaignLeads: { some: { campaignId } } } : {};
+    const leadWhere = { organizationId, ...inCampaign };
+
+    const [sourced, withContactInfo, contacted, replied, interested, booked, completedMeetings] =
+      await Promise.all([
+        prisma.lead.count({ where: leadWhere }),
+        prisma.lead.count({
+          where: {
+            ...leadWhere,
+            contacts: { some: { OR: [{ email: { not: null } }, { phone: { not: null } }] } },
+          },
+        }),
+        prisma.lead.count({
+          where: {
+            ...leadWhere,
+            activities: {
+              some: { type: { in: ['EMAIL_SENT', 'SMS_SENT', 'CALL_PLACED', 'SOCIAL_TOUCH'] } },
+            },
+          },
+        }),
+        prisma.lead.count({
+          where: {
+            ...leadWhere,
+            activities: { some: { type: { in: ['EMAIL_REPLY', 'SMS_REPLY'] } } },
+          },
+        }),
+        prisma.lead.count({
+          where: { ...leadWhere, status: { in: ['INTERESTED', 'CUSTOMER'] } },
+        }),
+        prisma.lead.count({
+          where: { ...leadWhere, calendarEvents: { some: { status: { not: 'CANCELLED' } } } },
+        }),
+        prisma.lead.count({
+          where: { ...leadWhere, calendarEvents: { some: { status: 'COMPLETED' } } },
+        }),
+      ]);
+
+    res.json({
+      success: true,
+      data: {
+        funnel: [
+          { stage: 'Sourced', count: sourced },
+          { stage: 'Has contact info', count: withContactInfo },
+          { stage: 'Contacted', count: contacted },
+          { stage: 'Replied', count: replied },
+          { stage: 'Interested', count: interested },
+          { stage: 'Meeting booked', count: booked },
+          { stage: 'Meeting completed', count: completedMeetings },
+        ],
+        campaignId: campaignId ?? null,
+      },
+    });
+  })
+);
+
 export default router;

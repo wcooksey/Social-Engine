@@ -159,6 +159,48 @@ continues where the last one stopped, never re-searching covered ground.
 Without a Places key the agent falls back to search_web/browse_web per cell
 (less complete). Requires `GOOGLE_PLACES_API_KEY` (org setting or env).
 
+### Contact enrichment
+
+Turning a sourced business into a reachable person uses three complementary
+tools, in preference order: `find_contacts_on_website` (deterministic crawl of
+the lead's contact/about/team pages — published emails are usually live),
+`enrich_contacts_apollo` (Apollo.io people search by company domain + titles;
+revealed emails auto-save as contacts), and `verify_email` (Mailgun address
+validation — undeliverable addresses are suppressed on the contact BEFORE a
+bounce can hurt sender reputation). Requires `APOLLO_API_KEY` for Apollo;
+crawl + verification work with just Mailgun.
+
+### Cold DM machine
+
+Researchers find the right account/person on social (browser agent with the
+org's persistent login) and save the profile on the lead; SDRs send **one**
+personalized cold DM per lead — `send_social_dm` enforces one-per-lead/platform
+in code (repeats refused unless explicitly overridden). Replies land through
+the inbound webhook and are answered via the conversation API loop, not by
+re-DMing. Human-approved drafts dispatch through the browser agent.
+
+### Mechanical campaign cadence
+
+Follow-up persistence is enforced by the system, not agent memory: every send
+with a `campaignId` advances that lead's cadence clock (`touchCount`,
+`nextTouchAt`); a worker sweep queues **batched** SDR jobs (~15 leads per run,
+~10x cheaper than per-lead runs) for leads whose next touch is due. Replies
+flip the campaign lead to `REPLIED` (drip pauses, conversation takes over),
+max-touches marks it `COMPLETED`, opt-outs are excluded, and a requeue guard
+prevents duplicate jobs. Voicemail: AI calls detect machines and leave a
+configurable message instead of hanging up.
+
+### Conversational setup
+
+The Coordinator can configure the workspace from a chat instruction
+("set me up to book demos with FL dealerships"): `get_setup_status` reports
+what's configured/missing with suggestions, `create_booking_link` and
+`update_org_guardrails` handle scheduling and safety knobs, and campaigns/
+playbooks/coverage plans are created through the existing tools. Secrets stay
+in Settings — the AI points at what's missing but never handles key values.
+The dashboard funnel (`/api/dashboard/funnel`) tracks sourced → contact info →
+contacted → replied → interested → booked → completed, per campaign.
+
 ### Bulk import
 
 CSV import maps common header aliases (company, website, email, first/last name,

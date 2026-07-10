@@ -204,6 +204,13 @@ export async function handleInbound(input: InboundMessage): Promise<{
     await prisma.lead.update({ where: { id: leadId }, data: { status: 'ENGAGED' } });
   }
 
+  // A reply pauses the mechanical cadence on every campaign this lead is in —
+  // the SDR conversation loop takes over from the drip.
+  await prisma.campaignLead.updateMany({
+    where: { leadId, status: { in: ['PENDING', 'IN_SEQUENCE'] } },
+    data: { status: 'REPLIED' },
+  });
+
   // Alert the humans that a lead replied (hot signal worth a look).
   const replyLead = lead ?? (await prisma.lead.findUnique({ where: { id: leadId } }));
   await notify({

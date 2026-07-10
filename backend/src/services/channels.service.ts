@@ -154,6 +154,8 @@ export async function placeVapiCall(
     toNumber: string;
     systemPrompt: string;
     firstMessage: string;
+    /** Spoken if the call lands in voicemail (detection enabled when set). */
+    voicemailMessage?: string;
     metadata: Record<string, string>;
   },
   creds: VoiceCreds
@@ -179,6 +181,12 @@ export async function placeVapiCall(
             messages: [{ role: 'system', content: opts.systemPrompt }],
           },
           voice: { provider: creds.voiceProvider, voiceId: creds.voiceId },
+          ...(opts.voicemailMessage
+            ? {
+                voicemailMessage: opts.voicemailMessage,
+                voicemailDetection: { provider: 'twilio' },
+              }
+            : {}),
         },
       }),
       signal: AbortSignal.timeout(20000),
