@@ -1,0 +1,132 @@
+<div class="live-page">
+  <div class="page-header">
+    <div class="page-header-text">
+      <h1>Live</h1>
+      <p class="subtitle">Mission control — watch your agents work in real time</p>
+    </div>
+    <div class="stat-chips">
+      <span class="stat-chip">
+        <i class="bi bi-broadcast"></i>
+        {{ runningCount() }} {{ runningCount() === 1 ? 'agent' : 'agents' }} running
+      </span>
+      <span class="stat-chip">
+        <i class="bi bi-hourglass-split"></i>
+        {{ queuedJobs() }} {{ queuedJobs() === 1 ? 'job' : 'jobs' }} queued
+      </span>
+    </div>
+  </div>
+
+  @if (live(); as snapshot) {
+    @if (snapshot.running.length) {
+      <div class="running-grid">
+        @for (run of snapshot.running; track run.id) {
+          <app-card padding="lg" class="agent-card">
+            <div class="agent-header">
+              <app-badge [variant]="roleBadgeVariant(run.role)" size="sm">{{ roleLabel(run.role) }}</app-badge>
+              <span class="live-dot" title="Running"></span>
+              <span class="agent-duration">
+                <i class="bi bi-stopwatch"></i>
+                {{ runningDuration(run) }}
+              </span>
+            </div>
+
+            <p class="agent-objective">{{ run.objective }}</p>
+
+            <div class="agent-meta">
+              @if (run.model) {
+                <span class="agent-model">{{ run.model }}</span>
+              }
+              <span>{{ run.trigger }}</span>
+              @if (run.costUsd != null) {
+                <span>{{ formatCost(run.costUsd) }}</span>
+              }
+            </div>
+
+            @if (run.browser; as browser) {
+              <div class="browser-panel">
+                <div class="browser-bar">
+                  <span class="browser-bar-dot"></span>
+                  <span class="browser-bar-dot"></span>
+                  <span class="browser-bar-dot"></span>
+                  <span class="browser-url">{{ frameFor(run.id)?.url || browser.frameUrl || 'about:blank' }}</span>
+                </div>
+                @if (frameFor(run.id); as frame) {
+                  <img class="browser-frame" [src]="frameSrc(frame)" alt="Live browser view" />
+                  @if (frame.action || browser.frameAction; as action) {
+                    <p class="browser-action">{{ action }}</p>
+                  }
+                } @else {
+                  <div class="browser-waiting">
+                    <i class="bi bi-window"></i>
+                    Waiting for browser frame...
+                  </div>
+                }
+                @if (recentBrowserActions(browser).length) {
+                  <ul class="browser-actions">
+                    @for (action of recentBrowserActions(browser); track $index) {
+                      <li class="browser-action-item">
+                        <span class="browser-action-time">{{ action.at | date: 'h:mm:ss a' }}</span>
+                        <span class="browser-action-note">{{ action.note }}</span>
+                      </li>
+                    }
+                  </ul>
+                }
+              </div>
+            }
+
+            <div class="step-feed">
+              @if (visibleSteps(run).length) {
+                @for (step of visibleSteps(run); track step.index) {
+                  <div class="step-row">
+                    <i class="bi step-icon" [ngClass]="stepIcon(step.type)"></i>
+                    <span class="step-text">
+                      <span class="step-tool">{{ step.toolName || step.type }}</span>
+                      @if (stepInput(step); as input) {
+                        <span class="step-input">{{ input }}</span>
+                      }
+                    </span>
+                    <span class="step-time">{{ step.createdAt | date: 'h:mm:ss a' }}</span>
+                  </div>
+                }
+              } @else {
+                <p class="step-feed-empty">No steps yet...</p>
+              }
+            </div>
+          </app-card>
+        }
+      </div>
+    } @else {
+      <app-card padding="lg" class="section-card">
+        <div class="empty-state">
+          <i class="bi bi-broadcast"></i>
+          <h3>No agents running right now</h3>
+          <p>When the worker picks up a scheduled job, it will appear here live.</p>
+        </div>
+      </app-card>
+    }
+
+    @if (snapshot.recentFinished.length) {
+      <app-card padding="lg" class="section-card">
+        <h3>Recently finished</h3>
+        <ul class="finished-list">
+          @for (run of snapshot.recentFinished; track run.id) {
+            <li class="finished-item">
+              <app-badge [variant]="statusBadgeVariant(run.status)" size="sm">{{ run.status }}</app-badge>
+              <span class="finished-objective">{{ run.objective }}</span>
+              <span class="finished-meta">
+                {{ relativeTime(run.finishedAt) }}
+                @if (run.costUsd != null) {
+                  · {{ formatCost(run.costUsd) }}
+                }
+              </span>
+            </li>
+          }
+        </ul>
+      </app-card>
+    }
+  } @else {
+    <app-card padding="lg" class="section-card">
+      <p class="empty-text">Loading live activity...</p>
+    </app-card>
+  }
+</div>

@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
 import { AgentJob, AgentRun, AgentUsage } from '../models/agent.model';
+import { AgentLiveSnapshot, LiveBrowserFrame } from '../models/live.model';
 
 export interface AgentRunsPage {
   runs: AgentRun[];
@@ -26,5 +27,13 @@ export class AgentService {
 
   getUsage(days: number): Observable<AgentUsage> {
     return this.api.get<AgentUsage>('/api/agent/usage', { days });
+  }
+
+  getLive(): Observable<AgentLiveSnapshot> {
+    return this.api.get<AgentLiveSnapshot>('/api/agent/live');
+  }
+
+  getLiveFrame(runId: string): Observable<LiveBrowserFrame> {
+    return this.api.get<LiveBrowserFrame>(`/api/agent/live/${runId}/frame`);
   }
 }

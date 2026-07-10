@@ -32,6 +32,7 @@ export class SidebarComponent {
     { icon: 'bi-journal-text', label: 'Playbooks', route: '/playbooks' },
     { icon: 'bi-bar-chart', label: 'Experiments', route: '/experiments' },
     { icon: 'bi-calendar3', label: 'Calendar', route: '/calendar' },
+    { icon: 'bi-broadcast', label: 'Live', route: '/live' },
     { icon: 'bi-activity', label: 'Activity', route: '/activity' },
     { icon: 'bi-gear', label: 'Settings', route: '/settings' }
   ];
