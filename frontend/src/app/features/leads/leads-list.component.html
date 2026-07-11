@@ -35,6 +35,10 @@
     [rows]="leads()"
     [loading]="loading()"
     [clickableRows]="true"
+    [total]="total()"
+    [page]="page"
+    [pageSize]="pageSize"
+    (pageChange)="onPageChange($event)"
     emptyText="No leads found."
     (rowClick)="goToLead($event)">
 

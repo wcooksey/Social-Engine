@@ -155,3 +155,35 @@
   font-size: $font-size-xs;
   color: var(--text-tertiary);
 }
+
+.section-subtitle {
+  margin: -4px 0 $spacing-md;
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+}
+
+.goal-result {
+  font-style: italic;
+}
+
+.goal-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--bg-secondary);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+}

@@ -81,3 +81,26 @@
     </tfoot>
   </table>
 </div>
+
+<div class="data-table__pager" *ngIf="showPager">
+  <span class="data-table__pager-info">{{ pageStart }}–{{ pageEnd }} of {{ total }}</span>
+  <div class="data-table__pager-controls">
+    <button
+      type="button"
+      class="data-table__pager-btn"
+      [disabled]="page <= 1 || loading"
+      (click)="goToPage(page - 1)"
+      aria-label="Previous page">
+      <i class="bi bi-chevron-left"></i>
+    </button>
+    <span class="data-table__pager-page">Page {{ page }} of {{ totalPages }}</span>
+    <button
+      type="button"
+      class="data-table__pager-btn"
+      [disabled]="page >= totalPages || loading"
+      (click)="goToPage(page + 1)"
+      aria-label="Next page">
+      <i class="bi bi-chevron-right"></i>
+    </button>
+  </div>
+</div>

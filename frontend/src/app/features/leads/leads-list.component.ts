@@ -113,6 +113,11 @@ export class LeadsListComponent implements OnInit {
     this.load();
   }
 
+  onPageChange(page: number): void {
+    this.page = page;
+    this.load();
+  }
+
   load(): void {
     this.loading.set(true);
     this.leadsService

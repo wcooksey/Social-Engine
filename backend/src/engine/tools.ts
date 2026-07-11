@@ -22,6 +22,7 @@ import {
   saveStorageState,
 } from '../services/social-account.service';
 import { getOrgConfig } from '../services/settings.service';
+import { sweepSocialInbox } from './social-inbox.service';
 import { sourceBusinesses } from '../services/places.service';
 import * as coverage from '../services/coverage.service';
 import {
@@ -178,7 +179,12 @@ export const engineTools: Anthropic.Tool[] = [
         },
         groupName: { type: 'string' },
         state: { type: 'string', description: 'Two-letter state/region filter' },
-        limit: { type: 'number', description: 'Max results (default 25, max 100)' },
+        limit: { type: 'number', description: 'Max results per page (default 25, max 100)' },
+        page: {
+          type: 'number',
+          description:
+            'Page number (1-based). Results include total + hasMore — keep paging until hasMore is false when you need the whole list.',
+        },
       },
     },
   },
@@ -327,6 +333,11 @@ export const engineTools: Anthropic.Tool[] = [
         },
         followUpCadenceDays: { type: 'number' },
         maxTouches: { type: 'number' },
+        autoEnrollGroupName: {
+          type: 'string',
+          description:
+            'Lead group to link for auto-enrollment: every lead that lands in this group (now or later) is enrolled into the campaign automatically by the cadence sweep. The best way to make sourcing flow straight into outreach.',
+        },
       },
       required: ['name'],
     },
@@ -438,6 +449,21 @@ export const engineTools: Anthropic.Tool[] = [
         },
       },
       required: ['leadId', 'platform', 'message'],
+    },
+  },
+  {
+    name: 'check_social_inbox',
+    description:
+      "Read a connected social account's DM inbox for NEW replies from prospects (read-only — sends nothing). Matched replies are ingested automatically: they land on the lead conversation/timeline, pause the campaign cadence, alert the humans, and queue an SDR to respond. The platform also runs this hourly on its own; call it when the user asks to check DMs now or when you just sent DMs and expect replies.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        platform: {
+          type: 'string',
+          enum: ['linkedin', 'facebook', 'instagram', 'x'],
+        },
+      },
+      required: ['platform'],
     },
   },
   {
@@ -701,6 +727,61 @@ export const engineTools: Anthropic.Tool[] = [
       required: ['groupName', 'aiSummary'],
     },
   },
+  {
+    name: 'create_autopilot_goal',
+    description:
+      'Create a STANDING goal the platform works mechanically: a sweep re-queues an agent job with this objective every cadenceHours until the goal completes — autonomy that survives failed jobs and forgotten follow-ups. Use for open-ended mandates like "keep sourcing dealerships until the group has 500" or "review campaign performance and tune playbooks weekly". Link a leadGroup + targetLeadCount to auto-complete when the group reaches the target. Prefer this over chains of schedule_followup for anything meant to run for days or weeks.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string', description: 'Short label, e.g. "Top up Florida Dealerships"' },
+        objective: {
+          type: 'string',
+          description:
+            'The full instruction each queued job executes, with all needed context (the agent gets live progress appended automatically)',
+        },
+        role: {
+          type: 'string',
+          enum: ['RESEARCHER', 'CALLER', 'SDR', 'COORDINATOR'],
+          description: 'Specialist that runs each cycle (default COORDINATOR)',
+        },
+        cadenceHours: { type: 'number', description: 'Hours between cycles (default 24)' },
+        groupName: { type: 'string', description: 'Lead group this goal works on (optional)' },
+        campaignName: { type: 'string', description: 'Campaign this goal relates to (optional)' },
+        targetLeadCount: {
+          type: 'number',
+          description: 'Auto-complete when the linked group reaches this many leads (optional)',
+        },
+      },
+      required: ['name', 'objective'],
+    },
+  },
+  {
+    name: 'list_autopilot_goals',
+    description: 'List the standing Autopilot goals: status, cadence, next run, last result.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        status: { type: 'string', enum: ['ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'] },
+      },
+    },
+  },
+  {
+    name: 'update_autopilot_goal',
+    description:
+      'Change a standing goal: pause/resume/cancel/complete it, or adjust its objective, cadence, or target.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        goalId: { type: 'string' },
+        status: { type: 'string', enum: ['ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'] },
+        objective: { type: 'string' },
+        cadenceHours: { type: 'number' },
+        targetLeadCount: { type: 'number' },
+      },
+      required: ['goalId'],
+    },
+  },
 ];
 
 async function requireLead(leadId: string, organizationId: string) {
@@ -832,6 +913,8 @@ async function recordOutbound(opts: {
   activityType: 'EMAIL_SENT' | 'SMS_SENT';
   activitySummary: string;
   experimentVariantId?: string;
+  /** Provider message id (Mailgun/Twilio) — lets delivery/open/click events find this message. */
+  externalId?: string;
 }) {
   const conversation =
     (await prisma.conversation.findFirst({
@@ -854,6 +937,8 @@ async function recordOutbound(opts: {
       body: opts.body,
       status: opts.status,
       sentAt: opts.status === 'sent' ? new Date() : null,
+      // Mailgun wraps message ids in angle brackets; events echo them bare.
+      externalId: opts.externalId?.replace(/^<|>$/g, ''),
       // Only attribute the split-test variant if the message actually went out.
       experimentVariantId: opts.status === 'sent' ? opts.experimentVariantId : undefined,
     },
@@ -993,15 +1078,20 @@ const executors: Record<string, ToolExecutor> = {
       if (!group) return { leads: [], total: 0, note: `No group named "${input.groupName}"` };
       groupId = group.id;
     }
+    const page = Math.max(1, Number(input.page) || 1);
+    const pageSize = Math.min(input.limit || 25, 100);
     const result = await leadService.searchLeads(ctx.organizationId, {
       search: input.search,
       status: input.status,
       groupId,
       state: input.state,
-      pageSize: Math.min(input.limit || 25, 100),
+      page,
+      pageSize,
     });
     return {
       total: result.total,
+      page,
+      hasMore: page * pageSize < result.total,
       leads: result.leads.map((l) => ({
         id: l.id,
         companyName: l.companyName,
@@ -1222,6 +1312,23 @@ const executors: Record<string, ToolExecutor> = {
   },
 
   create_campaign: async (input, ctx) => {
+    let autoEnrollGroupId: string | undefined;
+    if (input.autoEnrollGroupName) {
+      const group = await prisma.leadGroup.findUnique({
+        where: {
+          organizationId_name: {
+            organizationId: ctx.organizationId,
+            name: input.autoEnrollGroupName,
+          },
+        },
+      });
+      if (!group) {
+        throw new Error(
+          `No lead group named "${input.autoEnrollGroupName}" — create it first (create_lead_group) or check the name with search_leads.`
+        );
+      }
+      autoEnrollGroupId = group.id;
+    }
     const campaign = await prisma.campaign.create({
       data: {
         organizationId: ctx.organizationId,
@@ -1231,9 +1338,19 @@ const executors: Record<string, ToolExecutor> = {
         mode: input.mode || 'APPROVAL_REQUIRED',
         followUpCadenceDays: input.followUpCadenceDays ?? 3,
         maxTouches: input.maxTouches ?? 6,
+        autoEnrollGroupId,
       },
     });
-    return { campaignId: campaign.id, name: campaign.name, mode: campaign.mode };
+    return {
+      campaignId: campaign.id,
+      name: campaign.name,
+      mode: campaign.mode,
+      ...(autoEnrollGroupId
+        ? {
+            autoEnroll: `Leads in group "${input.autoEnrollGroupName}" will be enrolled automatically (checked every few minutes once the campaign is ACTIVE).`,
+          }
+        : {}),
+    };
   },
 
   add_leads_to_campaign: async (input, ctx) => {
@@ -1321,6 +1438,7 @@ const executors: Record<string, ToolExecutor> = {
       activityType: 'EMAIL_SENT',
       activitySummary: `Email sent to ${contact.email}: "${input.subject}"`,
       experimentVariantId: input.experimentVariantId,
+      externalId: delivery.externalId,
     });
     return { sent: true, to: contact.email, externalId: delivery.externalId, ...result };
   },
@@ -1379,6 +1497,7 @@ const executors: Record<string, ToolExecutor> = {
       activityType: 'SMS_SENT',
       activitySummary: `SMS sent to ${contact.phone}`,
       experimentVariantId: input.experimentVariantId,
+      externalId: delivery.externalId,
     });
     return { sent: true, to: contact.phone, externalId: delivery.externalId, ...result };
   },
@@ -1651,6 +1770,24 @@ const executors: Record<string, ToolExecutor> = {
       summary: result.summary,
       steps: result.steps,
       ...(result.error ? { error: result.error } : {}),
+    };
+  },
+
+  check_social_inbox: async (input, ctx) => {
+    const platform = input.platform as PlatformKey;
+    const result = await sweepSocialInbox(ctx.organizationId, platform);
+    if (result.status === 'skipped') {
+      return { checked: false, note: result.error };
+    }
+    return {
+      checked: true,
+      newReplies: result.found,
+      matchedToLeads: result.matched,
+      unrecognizedSenders: result.unmatched,
+      note:
+        result.status === 'failed'
+          ? `Sweep failed: ${result.error}`
+          : 'Matched replies are already ingested — each lead conversation is updated and an SDR job is queued to respond. Do not re-read or re-ingest them.',
     };
   },
 
@@ -2141,6 +2278,102 @@ const executors: Record<string, ToolExecutor> = {
     if (!group) throw new Error(`No group named "${input.groupName}"`);
     await prisma.leadGroup.update({ where: { id: group.id }, data: { aiSummary: input.aiSummary } });
     return { ok: true };
+  },
+
+  create_autopilot_goal: async (input, ctx) => {
+    let leadGroupId: string | undefined;
+    if (input.groupName) {
+      const group = await prisma.leadGroup.findUnique({
+        where: {
+          organizationId_name: { organizationId: ctx.organizationId, name: input.groupName },
+        },
+      });
+      if (!group) throw new Error(`No group named "${input.groupName}" — create it first.`);
+      leadGroupId = group.id;
+    }
+    let campaignId: string | undefined;
+    if (input.campaignName) {
+      const campaign = await prisma.campaign.findFirst({
+        where: { organizationId: ctx.organizationId, name: input.campaignName },
+      });
+      if (!campaign) throw new Error(`No campaign named "${input.campaignName}".`);
+      campaignId = campaign.id;
+    }
+    if (input.targetLeadCount && !leadGroupId) {
+      throw new Error('targetLeadCount needs a linked groupName to count against.');
+    }
+    const cadenceHours = Math.min(Math.max(1, input.cadenceHours ?? 24), 24 * 30);
+    const goal = await prisma.autopilotGoal.create({
+      data: {
+        organizationId: ctx.organizationId,
+        name: input.name,
+        objective: input.objective,
+        role: (input.role as AgentRole) || 'COORDINATOR',
+        cadenceHours,
+        leadGroupId,
+        campaignId,
+        targetLeadCount: input.targetLeadCount,
+        createdByRunId: ctx.runId,
+      },
+    });
+    return {
+      goalId: goal.id,
+      name: goal.name,
+      cadenceHours,
+      note: `Standing goal is ACTIVE — the first cycle queues within ~5 minutes, then every ${cadenceHours}h${input.targetLeadCount ? ` until "${input.groupName}" reaches ${input.targetLeadCount} leads` : ' until paused/completed'}.`,
+    };
+  },
+
+  list_autopilot_goals: async (input, ctx) => {
+    const goals = await prisma.autopilotGoal.findMany({
+      where: {
+        organizationId: ctx.organizationId,
+        ...(input.status ? { status: input.status } : {}),
+      },
+      include: {
+        leadGroup: { select: { name: true } },
+        campaign: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    return {
+      goals: goals.map((g) => ({
+        goalId: g.id,
+        name: g.name,
+        status: g.status,
+        role: g.role,
+        cadenceHours: g.cadenceHours,
+        group: g.leadGroup?.name,
+        campaign: g.campaign?.name,
+        targetLeadCount: g.targetLeadCount,
+        nextRunAt: g.status === 'ACTIVE' ? g.nextRunAt.toISOString() : null,
+        lastQueuedAt: g.lastQueuedAt?.toISOString(),
+        lastResult: g.lastResult?.slice(0, 300),
+        objective: g.objective.slice(0, 300),
+      })),
+    };
+  },
+
+  update_autopilot_goal: async (input, ctx) => {
+    const goal = await prisma.autopilotGoal.findFirst({
+      where: { id: input.goalId, organizationId: ctx.organizationId },
+    });
+    if (!goal) throw new Error('Autopilot goal not found');
+    const updated = await prisma.autopilotGoal.update({
+      where: { id: goal.id },
+      data: {
+        ...(input.status ? { status: input.status } : {}),
+        ...(input.objective ? { objective: input.objective } : {}),
+        ...(input.cadenceHours
+          ? { cadenceHours: Math.min(Math.max(1, input.cadenceHours), 24 * 30) }
+          : {}),
+        ...(input.targetLeadCount !== undefined ? { targetLeadCount: input.targetLeadCount } : {}),
+        // Resuming shouldn't wait out a stale clock.
+        ...(input.status === 'ACTIVE' ? { nextRunAt: new Date() } : {}),
+      },
+    });
+    return { goalId: updated.id, status: updated.status, cadenceHours: updated.cadenceHours };
   },
 };
 

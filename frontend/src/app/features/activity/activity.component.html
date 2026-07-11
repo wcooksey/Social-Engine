@@ -11,6 +11,10 @@
       [rows]="runs()"
       [loading]="loadingRuns()"
       [clickableRows]="true"
+      [total]="runsTotal()"
+      [page]="runsPage"
+      [pageSize]="runsPageSize"
+      (pageChange)="onRunsPageChange($event)"
       emptyText="No Engine runs yet."
       (rowClick)="openRun($event)">
 
@@ -51,6 +55,50 @@
         <span class="dt-num">{{ value }}</span>
       </ng-template>
     </app-data-table>
+  </app-card>
+
+  <app-card padding="lg" class="section-card">
+    <h3>Autopilot Goals</h3>
+    <p class="section-subtitle">Standing objectives the platform re-runs on a cadence until they complete — ask the Engine to create one.</p>
+    @if (loadingGoals()) {
+      <p class="empty-text">Loading goals...</p>
+    } @else if (goals().length) {
+      <ul class="job-list">
+        @for (goal of goals(); track goal.id) {
+          <li class="job-item">
+            <div class="job-icon"><i class="bi bi-arrow-repeat"></i></div>
+            <div class="job-content">
+              <span class="job-objective">{{ goal.name }}</span>
+              <span class="job-meta">
+                every {{ goal.cadenceHours }}h
+                @if (goal.leadGroup) { · {{ goal.leadGroup.name }} }
+                @if (goal.targetLeadCount) { · target {{ goal.targetLeadCount }} leads }
+                @if (goal.campaign) { · {{ goal.campaign.name }} }
+                @if (goal.status === 'ACTIVE') { · next run {{ goal.nextRunAt | date: 'MMM d, h:mm a' }} }
+              </span>
+              @if (goal.lastResult) {
+                <span class="job-meta goal-result">{{ goal.lastResult }}</span>
+              }
+            </div>
+            <div class="job-badges">
+              <app-badge [variant]="roleBadgeVariant(goal.role)" size="sm">{{ roleLabel(goal.role) }}</app-badge>
+              <app-badge [variant]="goalBadgeVariant(goal.status)" size="sm">{{ goal.status }}</app-badge>
+              @if (goal.status === 'ACTIVE') {
+                <button type="button" class="goal-action" [disabled]="updatingGoalId() === goal.id" (click)="setGoalStatus(goal, 'PAUSED')" title="Pause goal">
+                  <i class="bi bi-pause-fill"></i>
+                </button>
+              } @else if (goal.status === 'PAUSED') {
+                <button type="button" class="goal-action" [disabled]="updatingGoalId() === goal.id" (click)="setGoalStatus(goal, 'ACTIVE')" title="Resume goal">
+                  <i class="bi bi-play-fill"></i>
+                </button>
+              }
+            </div>
+          </li>
+        }
+      </ul>
+    } @else {
+      <p class="empty-text">No standing goals yet. Ask the Engine for one — e.g. "keep sourcing dealerships until the group has 500".</p>
+    }
   </app-card>
 
   <app-card padding="lg" class="section-card">

@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
-import { AgentJob, AgentRun, AgentUsage } from '../models/agent.model';
+import { AgentJob, AgentRun, AgentUsage, AutopilotGoal, AutopilotGoalStatus } from '../models/agent.model';
 import { AgentLiveSnapshot, LiveBrowserFrame } from '../models/live.model';
 
 export interface AgentRunsPage {
@@ -27,6 +27,14 @@ export class AgentService {
 
   getUsage(days: number): Observable<AgentUsage> {
     return this.api.get<AgentUsage>('/api/agent/usage', { days });
+  }
+
+  listGoals(): Observable<AutopilotGoal[]> {
+    return this.api.get<AutopilotGoal[]>('/api/agent/goals');
+  }
+
+  setGoalStatus(id: string, status: AutopilotGoalStatus): Observable<AutopilotGoal> {
+    return this.api.patch<AutopilotGoal>(`/api/agent/goals/${id}`, { status });
   }
 
   getLive(): Observable<AgentLiveSnapshot> {

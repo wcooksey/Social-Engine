@@ -1,3 +1,5 @@
+import { existsSync } from 'fs';
+import { delimiter, join } from 'path';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import { config } from '../../config/environment';
 import { isForbiddenUrlSync } from '../../utils/url-guard';
@@ -28,7 +30,44 @@ export interface PageObservation {
   elements: InteractiveElement[];
 }
 
-const EXECUTABLE_PATH = process.env.PLAYWRIGHT_CHROMIUM_PATH || '/opt/pw-browsers/chromium';
+/**
+ * Find a Chromium/Chrome binary to launch, in priority order: an explicit
+ * PLAYWRIGHT_CHROMIUM_PATH, well-known install locations, anything named
+ * chromium/chrome on PATH (covers the Nix-provided chromium on Railway), and
+ * finally Playwright's own downloaded browser. Returns undefined only when
+ * nothing exists — the caller turns that into an actionable error instead of
+ * Playwright's opaque "executable doesn't exist" launch failure.
+ */
+function resolveChromiumExecutable(chromium: {
+  executablePath: () => string;
+}): string | undefined {
+  if (process.env.PLAYWRIGHT_CHROMIUM_PATH) return process.env.PLAYWRIGHT_CHROMIUM_PATH;
+
+  const wellKnown = [
+    '/opt/pw-browsers/chromium',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+  ];
+  for (const p of wellKnown) if (existsSync(p)) return p;
+
+  const names = ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable'];
+  for (const dir of (process.env.PATH || '').split(delimiter).filter(Boolean)) {
+    for (const name of names) {
+      const p = join(dir, name);
+      if (existsSync(p)) return p;
+    }
+  }
+
+  try {
+    const bundled = chromium.executablePath();
+    if (bundled && existsSync(bundled)) return bundled;
+  } catch {
+    /* no bundled browser */
+  }
+  return undefined;
+}
 
 export class BrowserSession {
   private browser: Browser | null = null;
@@ -37,6 +76,14 @@ export class BrowserSession {
 
   async open(opts?: { storageState?: Record<string, unknown> | string }): Promise<void> {
     const { chromium } = await import('playwright');
+    const executablePath = resolveChromiumExecutable(chromium);
+    if (!executablePath) {
+      throw new Error(
+        'No Chromium browser is installed on this server, so browser tasks (web research, social DMs) cannot run. ' +
+          'Fix the deployment: add "chromium" to nixPkgs in nixpacks.toml (Railway/Nixpacks), or run ' +
+          '"npx playwright install chromium", or set PLAYWRIGHT_CHROMIUM_PATH to an existing Chrome/Chromium binary.'
+      );
+    }
     // Honor the environment's HTTPS proxy so the browser reaches the internet
     // through the same egress path as the rest of the app.
     const proxyUrl =
@@ -49,7 +96,7 @@ export class BrowserSession {
       .filter(Boolean)
       .join(', ');
     this.browser = await chromium.launch({
-      executablePath: EXECUTABLE_PATH,
+      executablePath,
       headless: true,
       args: ['--no-sandbox', '--disable-dev-shm-usage'],
       ...(proxyUrl ? { proxy: { server: proxyUrl, bypass } } : {}),

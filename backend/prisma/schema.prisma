@@ -54,6 +54,7 @@ model Organization {
   bookingLinks BookingLink[]
   notifications Notification[]
   coverageCells CoverageCell[]
+  autopilotGoals AutopilotGoal[]
 }
 
 model User {
@@ -110,6 +111,8 @@ model LeadGroup {
   leads     Lead[]
   playbooks Playbook[]
   coverageCells CoverageCell[]
+  autoEnrollCampaigns Campaign[]
+  autopilotGoals      AutopilotGoal[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -263,16 +266,22 @@ model Campaign {
   aiSummary      String?
   followUpCadenceDays Int       @default(3)
   maxTouches          Int       @default(6)
+  // Leads that land in this group are enrolled automatically by the cadence
+  // sweep — closes the sourcing -> outreach gap without agent judgment.
+  autoEnrollGroupId   String?
+  autoEnrollGroup     LeadGroup? @relation(fields: [autoEnrollGroupId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   campaignLeads CampaignLead[]
+  autopilotGoals AutopilotGoal[]
   activities    Activity[]
   agentJobs     AgentJob[]
   playbooks     Playbook[]
 
   @@index([organizationId, status])
+  @@index([autoEnrollGroupId])
 }
 
 enum CampaignLeadStatus {
@@ -315,6 +324,8 @@ enum ActivityType {
   EMAIL_REPLY
   SMS_SENT
   SMS_REPLY
+  EMAIL_OPENED
+  EMAIL_CLICKED
   CALL_PLACED
   CALL_COMPLETED
   SOCIAL_TOUCH
@@ -549,6 +560,50 @@ model AgentJob {
 }
 
 // ============================================
+// AUTOPILOT (standing goals that re-seed work)
+// ============================================
+
+enum AutopilotGoalStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+// A standing objective the platform keeps working mechanically: a sweep
+// re-queues an agent job on a cadence until the goal completes, so autonomy
+// no longer depends on each agent remembering to schedule its successor.
+model AutopilotGoal {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name      String
+  objective String              // the instruction each queued job executes
+  role      AgentRole           @default(COORDINATOR)
+  status    AutopilotGoalStatus @default(ACTIVE)
+  cadenceHours Int              @default(24)
+
+  // Optional completion criteria / context
+  leadGroupId     String?
+  leadGroup       LeadGroup? @relation(fields: [leadGroupId], references: [id], onDelete: SetNull)
+  campaignId      String?
+  campaign        Campaign?  @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  targetLeadCount Int?       // goal completes when the group reaches this size
+
+  nextRunAt    DateTime  @default(now())
+  lastQueuedAt DateTime?
+  lastResult   String?   // outcome of the most recent queued job (for the UI)
+  createdByRunId String? // AgentRun that created this goal (audit)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@index([status, nextRunAt])
+}
+
+// ============================================
 // SETTINGS (DB-backed config; overrides env)
 // ============================================
 
@@ -604,6 +659,8 @@ model SocialAccount {
   status         SocialAccountStatus @default(CONNECTED)
   lastValidatedAt DateTime?
   lastUsedAt      DateTime?
+  // Last time the inbound DM sweep read this account's inbox for replies.
+  lastInboxSweepAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -3,6 +3,9 @@ import { engineService } from './engine.service';
 import { getPlatformEngineConfig } from '../services/settings.service';
 import { runReminderSweep, runDigestSweepIfDue } from '../services/reminder.service';
 import { runCadenceSweep } from '../services/campaign-cadence.service';
+import { runAutopilotSweep, recordGoalJobOutcome } from '../services/autopilot.service';
+import { notify } from '../services/notification.service';
+import { runSocialInboxSweeps } from './social-inbox.service';
 import { AgentRole } from './roles';
 
 const MAX_ATTEMPTS = 3;
@@ -51,6 +54,7 @@ interface ClaimedJob {
   leadId: string | null;
   campaignId: string | null;
   attempts: number;
+  payload: unknown;
 }
 
 /** Atomically claim one due job for an org under its concurrency cap, or null. */
@@ -90,6 +94,7 @@ async function claimNextJob(
       leadId: job.leadId,
       campaignId: job.campaignId,
       attempts: job.attempts + 1,
+      payload: job.payload,
     };
   }
   return null;
@@ -123,6 +128,11 @@ async function runJob(job: ClaimedJob): Promise<void> {
                 runAt: new Date(Date.now() + 10 * 60 * 1000),
               },
     });
+    if (result.status === 'COMPLETED') {
+      await recordGoalJobOutcome(job.payload, result.finalText || 'Completed.');
+    } else if (job.attempts >= MAX_ATTEMPTS) {
+      await reportTerminalFailure(job, result.error || 'Run failed');
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Job execution failed';
     await prisma.agentJob.update({
@@ -132,6 +142,28 @@ async function runJob(job: ClaimedJob): Promise<void> {
           ? { status: 'FAILED', lastError: message }
           : { status: 'PENDING', lastError: message, runAt: new Date(Date.now() + 10 * 60 * 1000) },
     });
+    if (job.attempts >= MAX_ATTEMPTS) {
+      await reportTerminalFailure(job, message);
+    }
+  }
+}
+
+/**
+ * A job just failed for the last time. Silence here is what kills autonomy —
+ * the humans (and any linked Autopilot goal) hear about it instead.
+ */
+async function reportTerminalFailure(job: ClaimedJob, error: string): Promise<void> {
+  try {
+    await recordGoalJobOutcome(job.payload, `FAILED after ${MAX_ATTEMPTS} attempts: ${error}`);
+    await notify({
+      organizationId: job.organizationId,
+      type: 'SYSTEM',
+      title: `Scheduled agent job failed permanently (${job.role})`,
+      body: `"${job.objective.slice(0, 160)}" failed ${MAX_ATTEMPTS} times. Last error: ${error.slice(0, 300)}`,
+      ...(job.leadId ? { leadId: job.leadId } : {}),
+    });
+  } catch (err) {
+    console.error('Failed to report terminal job failure:', err instanceof Error ? err.message : err);
   }
 }
 
@@ -143,7 +175,10 @@ async function runTimeSweeps(): Promise<void> {
   try {
     await runReminderSweep();
     await runCadenceSweep();
+    await runAutopilotSweep();
     await runDigestSweepIfDue();
+    // Reads connected social DM inboxes for replies (hourly per account).
+    await runSocialInboxSweeps();
   } catch (err) {
     console.error('Time sweep error:', err instanceof Error ? err.message : err);
   }

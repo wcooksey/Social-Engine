@@ -532,3 +532,42 @@
     }
   }
 }
+
+// ---------- List pagination ----------
+
+.list-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-sm;
+  padding-top: $spacing-sm;
+  flex-shrink: 0;
+}
+
+.list-pager__label {
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.list-pager__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--bg-secondary);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+}

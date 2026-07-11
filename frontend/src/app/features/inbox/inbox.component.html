@@ -70,6 +70,28 @@
         </div>
       }
     </div>
+
+    @if (totalPages > 1 || page > 1) {
+      <div class="list-pager">
+        <button
+          type="button"
+          class="list-pager__btn"
+          [disabled]="page <= 1 || loading()"
+          (click)="goToPage(page - 1)"
+          aria-label="Previous page">
+          <i class="bi bi-chevron-left"></i>
+        </button>
+        <span class="list-pager__label">Page {{ page }} of {{ totalPages }}</span>
+        <button
+          type="button"
+          class="list-pager__btn"
+          [disabled]="page >= totalPages || loading()"
+          (click)="goToPage(page + 1)"
+          aria-label="Next page">
+          <i class="bi bi-chevron-right"></i>
+        </button>
+      </div>
+    }
   </div>
 
   <div class="thread-pane">
