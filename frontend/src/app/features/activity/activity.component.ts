@@ -16,6 +16,9 @@ import { DialogComponent } from '../../shared/components/dialog/dialog.component
 })
 export class ActivityComponent implements OnInit {
   runs = signal<AgentRun[]>([]);
+  runsTotal = signal(0);
+  runsPage = 1;
+  readonly runsPageSize = 25;
   loadingRuns = signal(true);
 
   jobs = signal<AgentJob[]>([]);
@@ -45,13 +48,19 @@ export class ActivityComponent implements OnInit {
 
   loadRuns(): void {
     this.loadingRuns.set(true);
-    this.agentService.listRuns(1).subscribe({
+    this.agentService.listRuns(this.runsPage).subscribe({
       next: (res) => {
         this.runs.set(res.runs);
+        this.runsTotal.set(res.total);
         this.loadingRuns.set(false);
       },
       error: () => this.loadingRuns.set(false)
     });
+  }
+
+  onRunsPageChange(page: number): void {
+    this.runsPage = page;
+    this.loadRuns();
   }
 
   loadJobs(): void {

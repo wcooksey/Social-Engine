@@ -11,6 +11,10 @@
       [rows]="runs()"
       [loading]="loadingRuns()"
       [clickableRows]="true"
+      [total]="runsTotal()"
+      [page]="runsPage"
+      [pageSize]="runsPageSize"
+      (pageChange)="onRunsPageChange($event)"
       emptyText="No Engine runs yet."
       (rowClick)="openRun($event)">
 

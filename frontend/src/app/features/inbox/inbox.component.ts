@@ -39,6 +39,8 @@ export class InboxComponent implements OnInit {
   search = '';
   channel = '';
   page = 1;
+  // Mirrors the API's fixed inbox page size.
+  readonly pageSize = 25;
 
   channelOptions: SelectOption[] = [
     { label: 'Email', value: 'EMAIL' },
@@ -70,6 +72,17 @@ export class InboxComponent implements OnInit {
 
   onFilterChange(): void {
     this.page = 1;
+    this.load();
+  }
+
+  get totalPages(): number {
+    return Math.max(1, Math.ceil(this.total() / this.pageSize));
+  }
+
+  goToPage(page: number): void {
+    const clamped = Math.min(Math.max(1, page), this.totalPages);
+    if (clamped === this.page) return;
+    this.page = clamped;
     this.load();
   }
 
