@@ -105,8 +105,9 @@ export const MODEL_CATALOG: CatalogModel[] = [
   { id: 'gemini-3-pro-preview', label: 'Gemini 3 Pro', provider: 'google', pricing: { inputPerMTok: 2, outputPerMTok: 12 } },
   { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google', pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 } },
   { id: 'grok-4', label: 'Grok 4', provider: 'xai', pricing: { inputPerMTok: 3, outputPerMTok: 15 } },
-  { id: 'deepseek-chat', label: 'DeepSeek Chat', provider: 'deepseek', pricing: { inputPerMTok: 0.27, outputPerMTok: 1.1 } },
-  { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner', provider: 'deepseek', pricing: { inputPerMTok: 0.55, outputPerMTok: 2.19 } },
+  // deepseek-chat / deepseek-reasoner are deprecated 2026/07/24 → V4 models.
+  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', provider: 'deepseek', pricing: { inputPerMTok: 0.55, outputPerMTok: 2.19 } },
+  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', provider: 'deepseek', pricing: { inputPerMTok: 0.27, outputPerMTok: 1.1 } },
 ];
 
 // Provider-level fallback pricing for models not in the catalog.
