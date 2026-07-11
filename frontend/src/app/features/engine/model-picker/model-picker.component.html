@@ -25,7 +25,7 @@
               class="model-picker-option"
               [class.model-picker-option--active]="option.id === currentModelId()"
               [class.model-picker-option--disabled]="!option.configured"
-              [disabled]="!option.configured || switchingId() === option.id"
+              [disabled]="switchingId() === option.id"
               (click)="select(option)">
               <span class="model-picker-option-text">
                 <span class="model-picker-option-label">

@@ -53,7 +53,7 @@ export class ModelPickerComponent implements OnInit {
   }
 
   select(option: ModelOption): void {
-    if (!option.configured || option.id === this.currentModelId() || this.switchingId()) {
+    if (option.id === this.currentModelId() || this.switchingId()) {
       return;
     }
     this.switchingId.set(option.id);
@@ -61,7 +61,12 @@ export class ModelPickerComponent implements OnInit {
       next: () => {
         this.switchingId.set(null);
         this.open.set(false);
-        this.toast.success(`Engine model set to ${option.label}`);
+        // Let the user pick any model, but warn if its provider key is missing.
+        if (option.configured) {
+          this.toast.success(`Engine model set to ${option.label}`);
+        } else {
+          this.toast.warning(`Set to ${option.label} — add the ${option.providerLabel} API key in Settings → Integrations to use it.`);
+        }
       },
       error: () => {
         this.switchingId.set(null);
