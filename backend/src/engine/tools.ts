@@ -178,7 +178,12 @@ export const engineTools: Anthropic.Tool[] = [
         },
         groupName: { type: 'string' },
         state: { type: 'string', description: 'Two-letter state/region filter' },
-        limit: { type: 'number', description: 'Max results (default 25, max 100)' },
+        limit: { type: 'number', description: 'Max results per page (default 25, max 100)' },
+        page: {
+          type: 'number',
+          description:
+            'Page number (1-based). Results include total + hasMore — keep paging until hasMore is false when you need the whole list.',
+        },
       },
     },
   },
@@ -993,15 +998,20 @@ const executors: Record<string, ToolExecutor> = {
       if (!group) return { leads: [], total: 0, note: `No group named "${input.groupName}"` };
       groupId = group.id;
     }
+    const page = Math.max(1, Number(input.page) || 1);
+    const pageSize = Math.min(input.limit || 25, 100);
     const result = await leadService.searchLeads(ctx.organizationId, {
       search: input.search,
       status: input.status,
       groupId,
       state: input.state,
-      pageSize: Math.min(input.limit || 25, 100),
+      page,
+      pageSize,
     });
     return {
       total: result.total,
+      page,
+      hasMore: page * pageSize < result.total,
       leads: result.leads.map((l) => ({
         id: l.id,
         companyName: l.companyName,

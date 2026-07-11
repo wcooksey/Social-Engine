@@ -1,5 +1,7 @@
 [phases.setup]
-nixPkgs = ["nodejs_20"]
+# chromium: the Engine's browser tools (browse_web / send_social_dm) drive a
+# real browser via Playwright — without it every browser step fails at launch.
+nixPkgs = ["nodejs_20", "chromium"]
 
 [phases.install]
 cmds = ["npm run install:all"]
