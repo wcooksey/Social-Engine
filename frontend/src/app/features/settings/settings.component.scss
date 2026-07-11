@@ -727,3 +727,57 @@
   display: inline-block;
   margin-top: $spacing-xs;
 }
+
+// --- Test channels (send to yourself) ---
+
+.test-channels {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-lg;
+}
+
+.test-channel-section {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  padding-top: $spacing-lg;
+  border-top: 1px solid var(--border-primary);
+
+  &:first-child {
+    padding-top: 0;
+    border-top: none;
+  }
+}
+
+.test-channel-label {
+  font-size: $font-size-sm;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.test-channel-row {
+  display: flex;
+  align-items: flex-end;
+  gap: $spacing-sm;
+  flex-wrap: wrap;
+}
+
+.test-channel-input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.test-dm-fields {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+
+  .form-row {
+    margin-bottom: 0;
+  }
+}
+
+.test-dm-actions {
+  display: flex;
+  justify-content: flex-end;
+}

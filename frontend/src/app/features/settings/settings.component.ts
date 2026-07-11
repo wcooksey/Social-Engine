@@ -13,6 +13,7 @@ import { SocialAccount, SocialPlatform, SocialPlatformParam } from '../../core/m
 import { BookingLinksService } from '../../core/services/booking-links.service';
 import { Availability, BookingLink, BookingLinkInput } from '../../core/models/booking-link.model';
 import { LeadsService, ImportResult } from '../../core/services/leads.service';
+import { TestBenchService, TestChannelStatus } from '../../core/services/test-bench.service';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { InputComponent } from '../../shared/components/input/input.component';
 import { ButtonComponent } from '../../shared/components/button/button.component';
@@ -224,6 +225,19 @@ export class SettingsComponent implements OnInit {
   importingCsv = false;
   importResult: ImportResult | null = null;
 
+  // Test channels (send to yourself)
+  loadingTestStatus = true;
+  testStatus: TestChannelStatus | null = null;
+  testEmailTo = '';
+  testPhoneTo = '';
+  testDmPlatform: string | null = null;
+  testDmProfileUrl = '';
+  testDmMessage = '';
+  sendingTestEmail = false;
+  sendingTestSms = false;
+  placingTestCall = false;
+  sendingTestDm = false;
+
   constructor(
     private authService: AuthService,
     private organizationService: OrganizationService,
@@ -233,7 +247,8 @@ export class SettingsComponent implements OnInit {
     private settingsService: SettingsService,
     private socialAccountsService: SocialAccountsService,
     private bookingLinksService: BookingLinksService,
-    private leadsService: LeadsService
+    private leadsService: LeadsService,
+    private testBenchService: TestBenchService
   ) {}
 
   ngOnInit(): void {
@@ -266,6 +281,10 @@ export class SettingsComponent implements OnInit {
     this.loadSocialAccounts();
     this.loadOrgSettings();
     this.loadBookingLinks();
+    this.loadTestStatus();
+
+    // Prefill the test-email box with the signed-in user's address.
+    this.testEmailTo = this.authService.currentUser()?.email ?? '';
 
     // Seed the notifications toggle from the cached user, then refresh from /me.
     this.notifyByEmail = this.authService.currentUser()?.notifyByEmail ?? true;
@@ -757,6 +776,119 @@ export class SettingsComponent implements OnInit {
         this.importingCsv = false;
         const message = err?.error?.error?.message || err?.error?.message || 'Failed to import leads';
         this.toast.error(message);
+      }
+    });
+  }
+
+  // --- Test channels (send to yourself) ---
+
+  private testError(err: any, fallback: string): string {
+    return err?.error?.error || err?.error?.message || fallback;
+  }
+
+  loadTestStatus(): void {
+    this.loadingTestStatus = true;
+    this.testBenchService.status().subscribe({
+      next: status => {
+        this.testStatus = status;
+        // Default the DM platform picker to the first connected platform.
+        if (status.socialPlatforms.length > 0 && !this.testDmPlatform) {
+          this.testDmPlatform = status.socialPlatforms[0];
+        }
+        this.loadingTestStatus = false;
+      },
+      error: (err) => {
+        this.loadingTestStatus = false;
+        this.toast.error(this.testError(err, 'Failed to load test channel status'));
+      }
+    });
+  }
+
+  testDmPlatformOptions(): SelectOption[] {
+    return (this.testStatus?.socialPlatforms ?? []).map(p => ({
+      label: p.charAt(0).toUpperCase() + p.slice(1),
+      value: p
+    }));
+  }
+
+  sendTestEmail(): void {
+    const to = this.testEmailTo.trim();
+    if (!to) {
+      this.toast.error('Enter an email address first');
+      return;
+    }
+    this.sendingTestEmail = true;
+    this.testBenchService.sendEmail(to).subscribe({
+      next: res => {
+        this.sendingTestEmail = false;
+        this.toast.success(`Test email sent to ${res.to} — check your inbox.`);
+      },
+      error: (err) => {
+        this.sendingTestEmail = false;
+        this.toast.error(this.testError(err, 'Failed to send test email'));
+      }
+    });
+  }
+
+  sendTestSms(): void {
+    const to = this.testPhoneTo.trim();
+    if (!to) {
+      this.toast.error('Enter a phone number first');
+      return;
+    }
+    this.sendingTestSms = true;
+    this.testBenchService.sendSms(to).subscribe({
+      next: res => {
+        this.sendingTestSms = false;
+        this.toast.success(`Test SMS sent to ${res.to}.`);
+      },
+      error: (err) => {
+        this.sendingTestSms = false;
+        this.toast.error(this.testError(err, 'Failed to send test SMS'));
+      }
+    });
+  }
+
+  placeTestCall(): void {
+    const to = this.testPhoneTo.trim();
+    if (!to) {
+      this.toast.error('Enter a phone number first');
+      return;
+    }
+    this.placingTestCall = true;
+    this.testBenchService.placeCall(to).subscribe({
+      next: res => {
+        this.placingTestCall = false;
+        this.toast.success(`Test call placed to ${res.to} — your phone should ring.`);
+      },
+      error: (err) => {
+        this.placingTestCall = false;
+        this.toast.error(this.testError(err, 'Failed to place test call'));
+      }
+    });
+  }
+
+  sendTestDm(): void {
+    const platform = this.testDmPlatform;
+    const profileUrl = this.testDmProfileUrl.trim();
+    if (!platform) {
+      this.toast.error('Choose a platform first');
+      return;
+    }
+    if (!profileUrl) {
+      this.toast.error('Enter a profile URL first');
+      return;
+    }
+    this.sendingTestDm = true;
+    const message = this.testDmMessage.trim();
+    this.testBenchService.sendDm(platform, profileUrl, message || undefined).subscribe({
+      next: res => {
+        this.sendingTestDm = false;
+        this.toast.success(res.note);
+      },
+      error: (err) => {
+        this.sendingTestDm = false;
+        this.toast.error(this.testError(err, 'Failed to send test DM'));
       }
     });
   }

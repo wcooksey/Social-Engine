@@ -224,6 +224,120 @@
   </app-card>
 
   <app-card padding="lg" class="section-card">
+    <h3>Test channels</h3>
+    <p class="integrations-intro">
+      Send a real test message to yourself on each channel to confirm your providers work. These use your configured
+      providers and may incur provider costs.
+    </p>
+
+    @if (loadingTestStatus) {
+      <p class="loading-hint">Loading channel status…</p>
+    } @else {
+      <div class="test-channels">
+        <div class="test-channel-section">
+          <span class="test-channel-label">Email</span>
+          <div class="test-channel-row">
+            <div class="test-channel-input">
+              <app-input
+                type="email"
+                placeholder="you@example.com"
+                [(ngModel)]="testEmailTo"
+                [ngModelOptions]="{ standalone: true }"
+                [disabled]="!testStatus?.email">
+              </app-input>
+            </div>
+            <app-button
+              variant="primary"
+              [loading]="sendingTestEmail"
+              [disabled]="!testStatus?.email || !testEmailTo.trim()"
+              (clicked)="sendTestEmail()">
+              Send test email
+            </app-button>
+          </div>
+          @if (!testStatus?.email) {
+            <p class="field-hint">Configure email in Integrations.</p>
+          }
+        </div>
+
+        <div class="test-channel-section">
+          <span class="test-channel-label">Phone</span>
+          <div class="test-channel-row">
+            <div class="test-channel-input">
+              <app-input
+                type="tel"
+                placeholder="+15551234567"
+                [(ngModel)]="testPhoneTo"
+                [ngModelOptions]="{ standalone: true }"
+                [disabled]="!testStatus?.sms && !testStatus?.voice">
+              </app-input>
+            </div>
+            <app-button
+              variant="primary"
+              [loading]="sendingTestSms"
+              [disabled]="!testStatus?.sms || !testPhoneTo.trim()"
+              (clicked)="sendTestSms()">
+              Send test SMS
+            </app-button>
+            <app-button
+              variant="secondary"
+              [loading]="placingTestCall"
+              [disabled]="!testStatus?.voice || !testPhoneTo.trim()"
+              (clicked)="placeTestCall()">
+              Place test call
+            </app-button>
+          </div>
+          @if (!testStatus?.sms) {
+            <p class="field-hint">Configure Twilio (SMS) in Integrations.</p>
+          }
+          @if (!testStatus?.voice) {
+            <p class="field-hint">Configure Vapi (voice) in Integrations.</p>
+          }
+        </div>
+
+        <div class="test-channel-section">
+          <span class="test-channel-label">Social DM</span>
+          @if (testStatus && testStatus.socialPlatforms.length > 0) {
+            <div class="test-dm-fields">
+              <div class="form-row">
+                <app-select
+                  label="Platform"
+                  [options]="testDmPlatformOptions()"
+                  [(ngModel)]="testDmPlatform"
+                  [ngModelOptions]="{ standalone: true }"
+                  [showPlaceholderOption]="false">
+                </app-select>
+                <app-input
+                  label="Profile URL"
+                  placeholder="https://instagram.com/yourhandle"
+                  [(ngModel)]="testDmProfileUrl"
+                  [ngModelOptions]="{ standalone: true }">
+                </app-input>
+              </div>
+              <app-input
+                label="Message (optional)"
+                placeholder="Test DM from the Engine"
+                [(ngModel)]="testDmMessage"
+                [ngModelOptions]="{ standalone: true }">
+              </app-input>
+              <div class="test-dm-actions">
+                <app-button
+                  variant="primary"
+                  [loading]="sendingTestDm"
+                  [disabled]="!testDmProfileUrl.trim()"
+                  (clicked)="sendTestDm()">
+                  Send test DM
+                </app-button>
+              </div>
+            </div>
+          } @else {
+            <p class="field-hint">Connect a social account below to test DMs.</p>
+          }
+        </div>
+      </div>
+    }
+  </app-card>
+
+  <app-card padding="lg" class="section-card">
     <h3>Integrations &amp; API keys</h3>
     <p class="integrations-intro">
       Each account configures its own keys here. Values are resolved from what you save first, then any server environment
