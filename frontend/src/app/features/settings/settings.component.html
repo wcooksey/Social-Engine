@@ -329,7 +329,12 @@
     <h3>Connected social accounts</h3>
     <p class="social-accounts-description">
       Connect a social account once and the Engine's browser agent stays logged in for every lead — no per-lead login.
-      Run the capture helper (<code>backend/scripts/capture-social-login.mjs</code>) to log in and export a session, then paste it here.
+      On your own computer, run this one command (installs nothing permanent), log in normally in the window that opens, then close it:
+      <br />
+      <code>npx playwright&#64;latest codegen --save-storage=session.json https://www.instagram.com</code>
+      <br />
+      Swap the URL for the platform you're connecting. Then open the generated <code>session.json</code>, copy everything, and paste it below.
+      It's your live login — treat it like a password; it's stored encrypted.
     </p>
 
     @if (!encryptionConfigured()) {
@@ -414,8 +419,8 @@
         class="storage-state-input"
         [(ngModel)]="connectStorageState"
         [ngModelOptions]="{ standalone: true }"
-        placeholder="Paste the storageState JSON exported by the capture helper..."></textarea>
-      <p class="field-hint">Paste the JSON from the capture helper for this platform. This is treated as a secret and stored encrypted.</p>
+        placeholder="Paste the contents of session.json here..."></textarea>
+      <p class="field-hint">Generate it with <code>npx playwright&#64;latest codegen --save-storage=session.json &lt;platform login URL&gt;</code>, log in, close the window, then paste the file's contents. This is your live login — stored encrypted.</p>
     </div>
   </div>
 
