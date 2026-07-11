@@ -69,6 +69,13 @@ export class DataTableComponent<T = any> {
 
   @Output() rowClick = new EventEmitter<T>();
 
+  // ---- Pagination (opt-in: set total + pageSize; host fetches on pageChange) ----
+  /** Total row count across all pages. Null keeps the pager hidden. */
+  @Input() total: number | null = null;
+  @Input() page = 1;
+  @Input() pageSize = 0;
+  @Output() pageChange = new EventEmitter<number>();
+
   @ContentChildren(DataTableCellDirective) cellTemplates!: QueryList<DataTableCellDirective>;
 
   get visibleColumns(): DataTableColumn[] {
@@ -163,5 +170,30 @@ export class DataTableComponent<T = any> {
 
   onRowClick(row: T): void {
     if (this.clickableRows) this.rowClick.emit(row);
+  }
+
+  // ---- Pagination ----
+  get totalPages(): number {
+    if (this.total == null || !this.pageSize) return 0;
+    return Math.max(1, Math.ceil(this.total / this.pageSize));
+  }
+
+  get showPager(): boolean {
+    return this.total != null && this.pageSize > 0 && (this.totalPages > 1 || this.page > 1);
+  }
+
+  get pageStart(): number {
+    return this.total === 0 ? 0 : (this.page - 1) * this.pageSize + 1;
+  }
+
+  get pageEnd(): number {
+    return Math.min(this.page * this.pageSize, this.total ?? 0);
+  }
+
+  goToPage(page: number): void {
+    const clamped = Math.min(Math.max(1, page), this.totalPages || 1);
+    if (clamped === this.page) return;
+    this.page = clamped;
+    this.pageChange.emit(clamped);
   }
 }

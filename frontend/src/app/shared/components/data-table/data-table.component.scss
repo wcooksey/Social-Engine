@@ -155,3 +155,47 @@
   font-weight: $font-weight-semibold;
   color: var(--text-secondary);
 }
+
+// Pagination footer
+.data-table__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  padding: $spacing-sm 2px;
+}
+
+.data-table__pager-info,
+.data-table__pager-page {
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.data-table__pager-controls {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.data-table__pager-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--bg-secondary);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+}
