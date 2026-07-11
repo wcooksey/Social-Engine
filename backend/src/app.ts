@@ -28,6 +28,7 @@ import playbooksRoutes from './routes/playbooks.routes';
 import publicRoutes from './routes/public.routes';
 import settingsRoutes from './routes/settings.routes';
 import socialAccountsRoutes from './routes/social-accounts.routes';
+import testRoutes from './routes/test.routes';
 import vapiWebhookRoutes from './routes/webhooks.vapi.routes';
 
 const app = express();
@@ -82,6 +83,7 @@ app.use('/api/booking-links', apiRateLimit, authMiddleware, bookingLinksRoutes);
 app.use('/api/notifications', apiRateLimit, authMiddleware, notificationsRoutes);
 app.use('/api/settings', apiRateLimit, authMiddleware, settingsRoutes);
 app.use('/api/social-accounts', apiRateLimit, authMiddleware, socialAccountsRoutes);
+app.use('/api/test', apiRateLimit, authMiddleware, testRoutes);
 app.use('/api/experiments', apiRateLimit, authMiddleware, experimentsRoutes);
 
 // Webhooks: no auth middleware; validated inside handlers
