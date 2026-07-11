@@ -1,0 +1,157 @@
+@import '../../../assets/styles/variables';
+@import '../../../assets/styles/mixins';
+
+.page-header {
+  margin-bottom: $spacing-lg;
+
+  .subtitle {
+    color: var(--text-secondary);
+    margin-top: $spacing-xs;
+  }
+}
+
+.section-card {
+  margin-bottom: $spacing-lg;
+
+  h3 {
+    margin-bottom: $spacing-md;
+  }
+}
+
+.empty-text {
+  color: var(--text-tertiary);
+  font-size: $font-size-sm;
+  font-style: italic;
+}
+
+.run-model {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.run-model-name {
+  @include truncate;
+  max-width: 180px;
+}
+
+.run-cost-badge {
+  font-size: $font-size-xs;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.run-model-empty {
+  color: var(--text-tertiary);
+}
+
+.job-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.job-item {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-sm 0;
+  border-bottom: 1px solid var(--border-primary);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.job-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: $secondary-orange;
+  @include flex-center;
+  flex-shrink: 0;
+}
+
+.job-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.job-objective {
+  font-size: $font-size-sm;
+  font-weight: 500;
+}
+
+.job-meta {
+  font-size: $font-size-xs;
+  color: var(--text-tertiary);
+}
+
+.job-badges {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  flex-shrink: 0;
+}
+
+.run-detail {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.run-summary {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+  font-size: $font-size-sm;
+}
+
+.step-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+  border-top: 1px solid var(--border-primary);
+  padding-top: $spacing-md;
+}
+
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-xs 0;
+}
+
+.step-index {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: $font-size-xs;
+  @include flex-center;
+  flex-shrink: 0;
+}
+
+.step-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.step-type {
+  font-size: $font-size-sm;
+  font-family: $font-family-mono;
+}
+
+.step-time {
+  font-size: $font-size-xs;
+  color: var(--text-tertiary);
+}

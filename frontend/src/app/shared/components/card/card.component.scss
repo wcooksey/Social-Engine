@@ -1,0 +1,88 @@
+@import '../../../../assets/styles/variables';
+@import '../../../../assets/styles/mixins';
+
+// Custom elements default to inline, which swallows vertical margins and
+// breaks block layout. A card is always a block-level box.
+:host {
+  display: block;
+}
+
+.card {
+  background-color: var(--bg-card, white);
+  color: var(--text-primary, $gray-900);
+  border-radius: $border-radius-lg;
+  transition: all $transition-normal;
+
+  &--default {
+    @include card-shadow(1);
+    border: 1px solid var(--border-primary, $gray-200);
+    box-shadow: 0 1px 2px var(--shadow-sm, rgba(0, 0, 0, 0.05));
+  }
+
+  &--elevated {
+    @include card-shadow(2);
+    border: 1px solid var(--border-primary, $gray-200);
+    box-shadow: 0 4px 6px var(--shadow-md, rgba(0, 0, 0, 0.1));
+  }
+
+  &--outlined {
+    border: 1px solid var(--border-secondary, $gray-300);
+    box-shadow: none;
+  }
+
+  &--flat {
+    border: none;
+    box-shadow: none;
+    background-color: transparent;
+  }
+
+  &--hoverable {
+    cursor: pointer;
+
+    &:hover {
+      @include card-shadow(2);
+      transform: translateY(-2px);
+    }
+  }
+
+  &--selected {
+    border-color: var(--primary-color);
+  }
+
+  // Padding variants
+  &--padding-sm {
+    padding: $spacing-md;
+  }
+
+  &--padding-md {
+    padding: $spacing-lg;
+  }
+
+  &--padding-lg {
+    padding: $spacing-xl;
+  }
+}
+
+.card-header {
+  padding-bottom: $spacing-md;
+  border-bottom: 1px solid var(--border-primary, $gray-200);
+  margin-bottom: $spacing-md;
+}
+
+.card-title {
+  font-size: $font-size-xl;
+  font-weight: $font-weight-semibold;
+  color: var(--text-primary, $gray-900);
+  margin: 0;
+}
+
+.card-content {
+  color: var(--text-secondary, $gray-700);
+}
+
+.card-footer {
+  padding-top: $spacing-md;
+  border-top: 1px solid var(--border-primary, $gray-200);
+  margin-top: $spacing-md;
+}
+

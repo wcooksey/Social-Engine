@@ -1,0 +1,207 @@
+<div class="dashboard">
+  <div class="dashboard-header">
+    <h1>Dashboard</h1>
+    <p class="subtitle">Here's what the Engine has been up to.</p>
+  </div>
+
+  @if (isLoading()) {
+    <div class="loading-state">
+      <span class="spinner"></span>
+      <p>Loading dashboard...</p>
+    </div>
+  } @else {
+  @if (stats(); as s) {
+    <div class="stats-grid">
+      <app-card class="stat-card" [routerLink]="['/leads']">
+        <div class="stat-icon" style="background: rgba(66, 93, 185, 0.12);">
+          <i class="bi bi-building" style="color: #425DB9;"></i>
+        </div>
+        <div class="stat-content">
+          <h3 class="stat-value">{{ s.totalLeads }}</h3>
+          <p class="stat-label">Total Leads</p>
+        </div>
+      </app-card>
+
+      <app-card class="stat-card" [routerLink]="['/leads']">
+        <div class="stat-icon" style="background: rgba(16, 185, 129, 0.12);">
+          <i class="bi bi-person-lines-fill" style="color: #10B981;"></i>
+        </div>
+        <div class="stat-content">
+          <h3 class="stat-value">{{ s.totalContacts }}</h3>
+          <p class="stat-label">Contacts</p>
+        </div>
+      </app-card>
+
+      <app-card class="stat-card" [routerLink]="['/campaigns']">
+        <div class="stat-icon" style="background: rgba(250, 125, 35, 0.12);">
+          <i class="bi bi-megaphone" style="color: #FA7D23;"></i>
+        </div>
+        <div class="stat-content">
+          <h3 class="stat-value">{{ s.activeCampaigns }}</h3>
+          <p class="stat-label">Active Campaigns</p>
+        </div>
+      </app-card>
+
+      <app-card class="stat-card" [routerLink]="['/activity']">
+        <div class="stat-icon" style="background: rgba(139, 92, 246, 0.12);">
+          <i class="bi bi-stars" style="color: #8B5CF6;"></i>
+        </div>
+        <div class="stat-content">
+          <h3 class="stat-value">{{ s.pendingJobs }}</h3>
+          <p class="stat-label">Pending Engine Jobs</p>
+        </div>
+      </app-card>
+    </div>
+
+    <div class="content-grid">
+      <app-card class="chart-card" padding="lg">
+        <h3 class="card-title">Leads by Status</h3>
+        @if (chartData) {
+          <div class="chart-container">
+            <app-chart
+              type="doughnut"
+              [data]="chartData"
+              [options]="{ plugins: { legend: { display: true, position: 'bottom' } } }">
+            </app-chart>
+          </div>
+        } @else {
+          <p class="empty-text">No lead data yet.</p>
+        }
+      </app-card>
+
+      <app-card class="funnel-card" padding="lg">
+        <div class="funnel-header">
+          <h3 class="card-title">Pipeline Funnel</h3>
+          @if (campaignOptions().length) {
+            <app-select
+              class="funnel-filter"
+              size="sm"
+              placeholder="All campaigns"
+              [options]="campaignOptions()"
+              (selectionChange)="onFunnelCampaignChange($event)">
+            </app-select>
+          }
+        </div>
+        @if (isFunnelLoading()) {
+          <div class="funnel-loading">
+            <span class="spinner"></span>
+          </div>
+        } @else if (funnelEmpty()) {
+          <p class="empty-text">No leads yet — source some leads to see the funnel.</p>
+        } @else {
+          <ul class="funnel-list">
+            @for (stage of funnel(); track stage.stage; let i = $index) {
+              <li class="funnel-row">
+                <span class="funnel-stage">{{ stage.stage }}</span>
+                <div class="funnel-track">
+                  <div class="funnel-bar" [style.width.%]="funnelBarWidth(stage.count)"></div>
+                </div>
+                <span class="funnel-count">{{ stage.count }}</span>
+                <span class="funnel-conversion">{{ funnelConversion(i) }}</span>
+              </li>
+            }
+          </ul>
+        }
+      </app-card>
+
+      <app-card class="usage-card" padding="lg">
+        <div class="usage-header">
+          <h3 class="card-title">AI usage &amp; cost</h3>
+          <div class="usage-range" role="group" aria-label="Usage range">
+            @for (range of usageRanges; track range) {
+              <button
+                type="button"
+                class="usage-range-btn"
+                [class.active]="usageDays() === range"
+                (click)="onUsageRangeChange(range)">
+                {{ range }}d
+              </button>
+            }
+          </div>
+        </div>
+        @if (isUsageLoading()) {
+          <div class="usage-loading">
+            <span class="spinner"></span>
+          </div>
+        } @else if (usageEmpty()) {
+          <p class="empty-text">No AI usage in this period yet.</p>
+        } @else {
+          @if (usage(); as u) {
+            <div class="usage-stats">
+              <div class="usage-stat">
+                <span class="usage-stat-value">{{ formatCost(u.totals.costUsd) }}</span>
+                <span class="usage-stat-label">Estimated cost</span>
+              </div>
+              <div class="usage-stat">
+                <span class="usage-stat-value">{{ formatTokens(u.totals.inputTokens + u.totals.outputTokens) }}</span>
+                <span class="usage-stat-label">Tokens</span>
+              </div>
+              <div class="usage-stat">
+                <span class="usage-stat-value">{{ u.totals.runs }}</span>
+                <span class="usage-stat-label">Runs</span>
+              </div>
+            </div>
+            <ul class="usage-model-list">
+              @for (m of u.byModel; track m.model) {
+                <li class="usage-model-row">
+                  <span class="usage-model-name">{{ m.model }}</span>
+                  <div class="usage-track">
+                    <div class="usage-bar" [style.width.%]="usageBarWidth(m.costUsd)"></div>
+                  </div>
+                  <span class="usage-model-cost">
+                    {{ formatCost(m.costUsd) }}
+                    <span class="usage-model-tokens">· {{ formatTokens(m.inputTokens + m.outputTokens) }} tok</span>
+                  </span>
+                </li>
+              }
+            </ul>
+            <p class="usage-footnote">Estimated at list prices — provider invoices are authoritative.</p>
+          }
+        }
+      </app-card>
+
+      <app-card class="list-card" padding="lg">
+        <h3 class="card-title">Recent Engine Runs</h3>
+        @if (s.recentRuns.length) {
+          <ul class="run-list">
+            @for (run of s.recentRuns; track run.id) {
+              <li class="run-item" [routerLink]="['/activity']">
+                <div class="run-main">
+                  <span class="run-objective">{{ run.objective }}</span>
+                  <span class="run-time">{{ relativeTime(run.startedAt) }}</span>
+                </div>
+                <app-badge
+                  [variant]="run.status === 'COMPLETED' ? 'success' : run.status === 'FAILED' ? 'error' : run.status === 'RUNNING' ? 'info' : 'neutral'"
+                  size="sm">
+                  {{ run.status }}
+                </app-badge>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="empty-text">No Engine runs yet.</p>
+        }
+      </app-card>
+
+      <app-card class="list-card" padding="lg">
+        <h3 class="card-title">Recent Activity</h3>
+        @if (s.recentActivities.length) {
+          <ul class="activity-list">
+            @for (activity of s.recentActivities; track activity.id) {
+              <li class="activity-item">
+                <i class="bi bi-circle-fill activity-dot"></i>
+                <div class="activity-content">
+                  <span class="activity-summary">{{ activity.summary }}</span>
+                  <span class="activity-time">{{ relativeTime(activity.createdAt) }}</span>
+                </div>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="empty-text">No activity yet.</p>
+        }
+      </app-card>
+    </div>
+  }
+  }
+</div>

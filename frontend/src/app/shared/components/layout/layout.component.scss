@@ -1,0 +1,184 @@
+@import '../../../../assets/styles/variables';
+@import '../../../../assets/styles/mixins';
+
+.app-layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-primary, #363636);
+  transition: background-color $transition-normal;
+  position: relative;
+
+  @include responsive($breakpoint-md) {
+    height: 100dvh;
+    overflow: visible;
+  }
+}
+
+.mobile-overlay {
+  display: none;
+
+  @include responsive($breakpoint-md) {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 900;
+    transition: opacity $transition-normal;
+  }
+}
+
+.main-content {
+  flex: 1;
+  margin-left: 240px;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--bg-primary, #363636);
+  transition: background-color $transition-normal, margin-left $transition-normal;
+  display: flex;
+  flex-direction: column;
+
+  @include responsive($breakpoint-md) {
+    margin-left: 0;
+    padding-top: calc(64px + env(safe-area-inset-top));
+    height: 100dvh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .main-content-inner {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    @include responsive($breakpoint-md) {
+      overflow-y: visible;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+    }
+  }
+}
+
+// Desktop top bar
+.desktop-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  height: 60px;
+  padding: 0 $spacing-xl;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  background: var(--bg-secondary, #2D2D2D);
+
+  [data-theme="light"] &,
+  :host-context([data-theme="light"]) & {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  }
+
+  @include responsive($breakpoint-md) {
+    display: none;
+  }
+}
+
+.desktop-top-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.mobile-top-bar {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: $spacing-md;
+  padding-top: calc($spacing-md + env(safe-area-inset-top));
+  gap: $spacing-md;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+
+  [data-theme="light"] &,
+  :host-context([data-theme="light"]) & {
+    background: rgba(255, 255, 255, 0.9);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  }
+
+  @include responsive($breakpoint-md) {
+    display: flex;
+  }
+}
+
+.mobile-menu-toggle {
+  display: none;
+
+  @include responsive($breakpoint-md) {
+    display: inline-flex;
+    width: 42px;
+    height: 42px;
+    border-radius: $border-radius-md;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-primary, #FFFFFF);
+    cursor: pointer;
+    @include flex-center;
+    font-size: $font-size-lg;
+    transition: all $transition-fast;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+  }
+}
+
+.main-content-inner {
+  padding: $spacing-xl;
+  padding-top: $spacing-lg;
+
+  @include responsive($breakpoint-lg) {
+    padding: $spacing-lg;
+  }
+
+  @include responsive($breakpoint-md) {
+    padding: calc($spacing-lg + 8px) $spacing-md $spacing-md;
+  }
+}
+
+.mobile-top-title {
+  display: none;
+
+  @include responsive($breakpoint-md) {
+    display: flex;
+    align-items: center;
+    gap: $spacing-xs;
+    color: var(--text-primary);
+    font-weight: $font-weight-semibold;
+    font-size: $font-size-base;
+    font-family: 'Poppins', sans-serif;
+
+    i {
+      color: $primary-blue;
+    }
+  }
+}
+
+.mobile-top-spacer-icon {
+  width: 42px;
+
+  @include responsive($breakpoint-md) {
+    display: block;
+  }
+}

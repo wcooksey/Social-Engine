@@ -1,0 +1,65 @@
+<div class="auth-page">
+  <div class="auth-content">
+    <div class="auth-branding">
+      <i class="bi bi-lightning-charge-fill brand-icon"></i>
+      <span class="brand-text">Social Engine</span>
+    </div>
+
+    <form [formGroup]="registerForm" (ngSubmit)="onSubmit()" class="auth-form">
+      @if (error) {
+        <div class="auth-error">{{ error }}</div>
+      }
+
+      <input
+        type="text"
+        placeholder="First name"
+        formControlName="firstName"
+        class="auth-input"
+        [class.input-error]="fieldError('firstName', 'First name')"
+        required>
+
+      <input
+        type="text"
+        placeholder="Last name"
+        formControlName="lastName"
+        class="auth-input"
+        [class.input-error]="fieldError('lastName', 'Last name')"
+        required>
+
+      <input
+        type="text"
+        placeholder="Company name"
+        formControlName="organizationName"
+        class="auth-input"
+        [class.input-error]="fieldError('organizationName', 'Company name')"
+        required>
+
+      <input
+        type="email"
+        placeholder="Email"
+        formControlName="email"
+        class="auth-input"
+        [class.input-error]="fieldError('email', 'Email')"
+        required>
+
+      <input
+        type="password"
+        placeholder="Password"
+        formControlName="password"
+        class="auth-input"
+        [class.input-error]="fieldError('password', 'Password')"
+        required>
+
+      <app-button
+        type="submit"
+        variant="primary"
+        [fullWidth]="true"
+        [disabled]="registerForm.invalid"
+        [loading]="isLoading">
+        Create Account
+      </app-button>
+
+      <a routerLink="/login" class="switch-link">Already have an account? Sign in</a>
+    </form>
+  </div>
+</div>

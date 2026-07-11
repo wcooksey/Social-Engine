@@ -1,0 +1,263 @@
+@import '../../../../assets/styles/variables';
+@import '../../../../assets/styles/mixins';
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-md;
+  font-family: $font-family-primary;
+  font-size: $font-size-base;
+  font-weight: $font-weight-regular;
+  border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.1));
+  border-radius: $border-radius-md;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  box-shadow: none;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    border-color: var(--border-primary, rgba(255, 255, 255, 0.05));
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color, rgba(99, 102, 241, 0.5));
+    outline-offset: 2px;
+  }
+}
+
+// Icon-only buttons (square, compact, no label spacing)
+.button--icon-only {
+  gap: 0;
+  padding: 0;
+  width: 40px;
+  height: 40px;
+
+  .button__content {
+    display: none;
+  }
+
+  .button__icon--left,
+  .button__icon--right {
+    margin: 0;
+  }
+}
+
+// Variants
+.button--primary {
+  background: var(--bg-tertiary, #363636);
+  color: var(--text-primary, #FFFFFF);
+  border-color: var(--border-primary, rgba(255, 255, 255, 0.1));
+
+  &:hover:not(:disabled) {
+    background: var(--bg-secondary, #3a3a3a);
+    border-color: var(--border-secondary, rgba(255, 255, 255, 0.15));
+    box-shadow: 0 4px 12px var(--shadow-md, rgba(0, 0, 0, 0.3)), 0 2px 4px var(--shadow-sm, rgba(0, 0, 0, 0.2));
+    transform: translateY(-1px);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0px);
+    box-shadow: 0 2px 6px var(--shadow-md, rgba(0, 0, 0, 0.25));
+  }
+}
+
+.button--secondary {
+  background: var(--bg-tertiary, #363636);
+  color: var(--text-primary, #FFFFFF);
+  border-color: var(--border-primary, rgba(255, 255, 255, 0.1));
+
+  &:hover:not(:disabled) {
+    background: var(--bg-secondary, #3a3a3a);
+    border-color: var(--border-secondary, rgba(255, 255, 255, 0.15));
+    box-shadow: 0 4px 12px var(--shadow-md, rgba(0, 0, 0, 0.3)), 0 2px 4px var(--shadow-sm, rgba(0, 0, 0, 0.2));
+    transform: translateY(-1px);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0px);
+    box-shadow: 0 2px 6px var(--shadow-md, rgba(0, 0, 0, 0.25));
+  }
+}
+
+.button--ghost {
+  background-color: transparent;
+  color: var(--text-primary, #FFFFFF);
+  border-color: var(--border-primary, rgba(255, 255, 255, 0.1));
+
+  &:hover:not(:disabled) {
+    background-color: var(--bg-secondary, rgba(255, 255, 255, 0.05));
+    border-color: var(--border-secondary, rgba(255, 255, 255, 0.15));
+    box-shadow: 0 4px 12px var(--shadow-md, rgba(0, 0, 0, 0.3)), 0 2px 4px var(--shadow-sm, rgba(0, 0, 0, 0.2));
+    transform: translateY(-1px);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0px);
+    box-shadow: 0 2px 6px var(--shadow-md, rgba(0, 0, 0, 0.25));
+  }
+}
+
+.button--danger {
+  background: var(--error-color, #EF4444);
+  color: #FFFFFF;
+  border-color: var(--border-primary, rgba(255, 255, 255, 0.1));
+
+  &:hover:not(:disabled) {
+    background: #DC2626;
+    border-color: var(--border-secondary, rgba(255, 255, 255, 0.15));
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3), 0 2px 4px rgba(239, 68, 68, 0.2);
+    transform: translateY(-1px);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0px);
+    box-shadow: 0 2px 6px rgba(239, 68, 68, 0.25);
+  }
+}
+
+.button--text {
+  background-color: transparent;
+  color: var(--text-primary, #FFFFFF);
+  padding: $spacing-xs $spacing-sm;
+  border: none;
+
+  &:hover:not(:disabled) {
+    background-color: var(--bg-secondary, rgba(255, 255, 255, 0.05));
+  }
+}
+
+// Sizes — fixed heights so every button of a given size matches regardless of
+// content (icon vs text-only would otherwise differ by the icon's line height).
+.button--sm {
+  height: 34px;
+  padding: 8px 12px;
+  font-size: $font-size-sm;
+  border-radius: $border-radius-md;
+}
+
+.button--icon-only.button--sm {
+  width: 34px;
+  height: 34px;
+}
+
+.button--md {
+  height: 40px;
+  padding: 10px 16px;
+  font-size: $font-size-base;
+  border-radius: $border-radius-md;
+}
+
+.button--icon-only.button--md {
+  width: 40px;
+  height: 40px;
+}
+
+.button--lg {
+  height: 48px;
+  padding: 14px 20px;
+  font-size: $font-size-lg;
+  border-radius: $border-radius-md;
+}
+
+.button--icon-only.button--lg {
+  width: 48px;
+  height: 48px;
+}
+
+// Compact on mobile (opt-in per button)
+.button--compact-mobile {
+  @include responsive($breakpoint-md) {
+    padding: 6px 8px;
+    font-size: $font-size-xs;
+    gap: $spacing-xs;
+  }
+
+  // Slightly shrink icons when compact
+  @include responsive($breakpoint-md) {
+    &.button--sm .button__icon,
+    &.button--md .button__icon,
+    &.button--lg .button__icon {
+      width: 16px;
+      height: 16px;
+    }
+
+    &.button--sm .button__icon svg,
+    &.button--md .button__icon svg,
+    &.button--lg .button__icon svg,
+    &.button--sm .button__icon img,
+    &.button--md .button__icon img,
+    &.button--lg .button__icon img {
+      width: 16px;
+      height: 16px;
+    }
+  }
+}
+
+// Full width
+.button--full-width {
+  width: 100%;
+}
+
+// Loading spinner
+.button__spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--text-tertiary, rgba(255, 255, 255, 0.3));
+  border-top-color: var(--text-primary, white);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  
+  &--left {
+    margin-right: $spacing-xs;
+  }
+  
+  &--right {
+    margin-left: $spacing-xs;
+  }
+  
+  i {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    line-height: 1;
+  }
+  
+  // Custom icon styling (for SVG/images)
+  svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+  }
+  
+  img {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+  }
+}
+
+.button__content {
+  display: inline-flex;
+  align-items: center;
+}
+

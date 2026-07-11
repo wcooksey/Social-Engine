@@ -1,0 +1,52 @@
+@import '../../../../assets/styles/variables';
+@import '../../../../assets/styles/mixins';
+
+.theme-toggle-btn {
+  width: 100%;
+  min-height: 40px;
+  border-radius: $border-radius-lg;
+  border: none;
+  background: var(--border-primary, rgba(255, 255, 255, 0.05));
+  cursor: pointer;
+  @include flex-center;
+  transition: all $transition-fast;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: var(--text-primary, #FFFFFF);
+  
+  [data-theme="light"] & {
+    background: rgba(0, 0, 0, 0.03);
+    color: #64748b;
+    
+    &:hover {
+      background: rgba(0, 0, 0, 0.05);
+      color: #1e293b;
+    }
+  }
+  
+  &:hover {
+    background: var(--border-secondary, rgba(255, 255, 255, 0.1));
+  }
+  
+  &:focus-visible {
+    outline: 2px solid $primary-blue;
+    outline-offset: 2px;
+  }
+}
+
+.theme-icon {
+  display: block;
+  font-size: $font-size-lg;
+}
+
+// Light theme styles
+.light-theme .theme-toggle-btn {
+  border-color: $gray-200;
+  background: white;
+  
+  &:hover {
+    background: $gray-50;
+    border-color: $gray-300;
+  }
+}
+

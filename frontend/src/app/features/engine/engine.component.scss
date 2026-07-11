@@ -1,0 +1,691 @@
+@import '../../../assets/styles/variables';
+@import '../../../assets/styles/mixins';
+
+:host {
+  display: block;
+  height: 100%;
+}
+
+.engine-page {
+  display: flex;
+  height: calc(100vh - 60px - #{$spacing-lg} - #{$spacing-xl});
+  min-height: 560px;
+  gap: $spacing-lg;
+  margin: -#{$spacing-lg} -#{$spacing-xl} -#{$spacing-xl};
+  padding: $spacing-lg $spacing-xl $spacing-xl;
+
+  @include responsive($breakpoint-lg) {
+    flex-direction: column;
+    height: auto;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+// ---- Chat list panel ----
+.chat-list-panel {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-lg;
+  padding: $spacing-md;
+
+  @include responsive($breakpoint-lg) {
+    width: 100%;
+    max-height: 200px;
+  }
+}
+
+.new-chat-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-md;
+  border-radius: $border-radius-md;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: $font-size-sm;
+  font-weight: 500;
+  transition: all $transition-fast;
+
+  &:hover {
+    border-color: $primary-blue;
+    color: $primary-blue;
+  }
+}
+
+.chat-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.chat-list-empty {
+  color: var(--text-tertiary);
+  font-size: $font-size-sm;
+  font-style: italic;
+  padding: $spacing-sm;
+}
+
+.chat-list-item {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm;
+  border-radius: $border-radius-md;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  font-size: $font-size-sm;
+  transition: all $transition-fast;
+
+  i {
+    flex-shrink: 0;
+    color: var(--text-tertiary);
+  }
+
+  .chat-title {
+    @include truncate;
+  }
+
+  &:hover {
+    background: var(--bg-tertiary);
+  }
+
+  &.active {
+    background: rgba(66, 93, 185, 0.15);
+    color: $primary-blue;
+
+    i {
+      color: $primary-blue;
+    }
+  }
+}
+
+// ---- Main panel ----
+.engine-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  position: relative;
+}
+
+// ---- Top bar ----
+.engine-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  padding-bottom: $spacing-sm;
+  margin-bottom: $spacing-xs;
+  border-bottom: 1px solid var(--border-primary);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.engine-topbar-title {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  font-size: $font-size-sm;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 0;
+  @include truncate;
+
+  i {
+    color: $primary-blue;
+    flex-shrink: 0;
+  }
+}
+
+// ---- Hero (empty state) ----
+.hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: $spacing-2xl $spacing-lg;
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.hero-glow {
+  position: absolute;
+  top: 20%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 480px;
+  height: 480px;
+  background: radial-gradient(circle, rgba($primary-blue, 0.16) 0%, transparent 70%);
+  pointer-events: none;
+
+  :host-context([data-theme="light"]) &,
+  :host-context([data-theme="light"]) & {
+    background: radial-gradient(circle, rgba($primary-blue, 0.08) 0%, transparent 70%);
+  }
+}
+
+.hero-icon {
+  font-size: 2.2rem;
+  color: $primary-blue;
+  margin-bottom: $spacing-md;
+  position: relative;
+  animation: hero-breathe 3s ease-in-out infinite;
+}
+
+@keyframes hero-breathe {
+  0%, 100% { opacity: 0.75; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+.hero h1 {
+  position: relative;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-3xl;
+}
+
+.hero-subtitle {
+  position: relative;
+  color: var(--text-secondary);
+  max-width: 480px;
+  margin-bottom: $spacing-xl;
+}
+
+.example-chips {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: $spacing-sm;
+  max-width: 640px;
+}
+
+.example-chip {
+  padding: $spacing-sm $spacing-md;
+  border-radius: $border-radius-full;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: $font-size-sm;
+  transition: all $transition-fast;
+
+  &:hover {
+    border-color: $primary-blue;
+    color: $primary-blue;
+    transform: translateY(-1px);
+  }
+}
+
+// ---- Thread ----
+.thread {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+  // Inner padding so bubbles don't touch the chat-window edges.
+  padding: $spacing-lg $spacing-lg $spacing-xl;
+  position: relative;
+  z-index: 1;
+}
+
+.thread-loading {
+  color: var(--text-tertiary);
+  font-size: $font-size-sm;
+  text-align: center;
+}
+
+// ============================================
+// Chat bubbles — ported from Dealegent
+// ASSISTANT (our AI) = outbound-AI bubble on the LEFT (message-user / message-ai)
+// USER = lead bubble on the RIGHT (message-lead)
+// ============================================
+.message {
+  display: flex;
+  margin-bottom: $spacing-sm;
+  @include fade-in($transition-fast);
+
+  // Our outbound AI messages — LEFT side, glassy dark bubble with blue glow
+  &.message-user {
+    justify-content: flex-start;
+
+    .message-bubble {
+      background: rgba(26, 26, 26, 0.6);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      color: var(--text-primary, #FFFFFF);
+      border: 1px solid rgba($primary-blue, 0.5);
+      border-radius: $border-radius-xl $border-radius-xl $border-radius-xl $border-radius-sm;
+      box-shadow:
+        0 4px 16px rgba($primary-blue, 0.15),
+        0 0 15px rgba($primary-blue, 0.1);
+      position: relative;
+
+      @include responsive($breakpoint-md) {
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        background: rgba(26, 26, 26, 0.95);
+      }
+
+      // Light mode: ceramic white bubble with soft shadow
+      :host-context([data-theme="light"]) & {
+        background: #FFFFFF;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid #e2e8f0;
+        color: var(--text-primary);
+        box-shadow:
+          0 4px 16px -4px rgba(0, 0, 0, 0.08),
+          0 2px 6px -2px rgba(0, 0, 0, 0.04);
+      }
+    }
+  }
+
+  // User (lead) messages — RIGHT side, blue gradient with white text
+  &.message-lead {
+    justify-content: flex-end;
+
+    .message-bubble {
+      background: linear-gradient(135deg, rgba($primary-blue, 0.95) 0%, rgba(darken($primary-blue, 10%), 0.95) 100%);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      color: #FFFFFF;
+      border: 1px solid rgba($primary-blue, 0.4);
+      border-radius: $border-radius-xl $border-radius-xl $border-radius-sm $border-radius-xl;
+      box-shadow:
+        0 4px 16px rgba($primary-blue, 0.25),
+        0 0 20px rgba($primary-blue, 0.15);
+      position: relative;
+
+      @include responsive($breakpoint-md) {
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+      }
+
+      .message-content,
+      .message-text {
+        color: #FFFFFF;
+      }
+
+      :host-context([data-theme="light"]) & {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        border: none;
+        box-shadow:
+          0 10px 25px -8px rgba(37, 99, 235, 0.45),
+          0 4px 10px -4px rgba(37, 99, 235, 0.25);
+      }
+    }
+  }
+}
+
+.message-bubble {
+  max-width: 70%;
+  padding: $spacing-md $spacing-lg;
+  transition: transform $transition-fast, box-shadow $transition-fast;
+
+  &:hover {
+    transform: translateY(-2px);
+  }
+
+  @include responsive($breakpoint-md) {
+    max-width: 85%;
+    padding: $spacing-sm $spacing-md;
+  }
+
+  @include responsive($breakpoint-sm) {
+    max-width: 90%;
+    padding: $spacing-sm $spacing-md;
+  }
+}
+
+// ---- Message header + sender badges (ported from Dealegent) ----
+.message-header {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-xs;
+
+  .sender-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: $font-size-xs;
+    font-weight: $font-weight-medium;
+
+    i {
+      font-size: $font-size-xs;
+    }
+
+    &.ai-badge {
+      background: rgba($primary-blue, 0.2);
+      color: white;
+      border: 1px solid rgba($primary-blue, 0.4);
+
+      :host-context([data-theme="light"]) & {
+        background: rgba($primary-blue, 0.1);
+        color: $primary-blue;
+        border: 1px solid rgba($primary-blue, 0.2);
+      }
+    }
+
+    &.human-badge {
+      background: rgba($secondary-orange, 0.2);
+      color: $secondary-orange;
+      border: 1px solid rgba($secondary-orange, 0.4);
+
+      :host-context([data-theme="light"]) & {
+        background: rgba($secondary-orange, 0.1);
+        color: darken($secondary-orange, 12%);
+        border: 1px solid rgba($secondary-orange, 0.2);
+      }
+    }
+  }
+}
+
+// Outbound header sits at the left; lead header aligns to the right edge
+.message-header-outbound {
+  flex-direction: row;
+}
+
+.message-lead .message-header {
+  flex-direction: row-reverse;
+}
+
+// ---- Typing indicator (three bouncing dots) ----
+.lead-typing-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0 6px;
+
+  .lead-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: rgba($primary-blue, 0.7);
+    animation: lead-typing-wave 1.4s ease-in-out infinite;
+
+    :host-context([data-theme="light"]) & {
+      background: $primary-blue;
+    }
+
+    &:nth-child(1) { animation-delay: 0s; }
+    &:nth-child(2) { animation-delay: 0.15s; }
+    &:nth-child(3) { animation-delay: 0.3s; }
+  }
+}
+
+@keyframes lead-typing-wave {
+  0%, 50%, 100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  25% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
+}
+
+.message-text {
+  font-size: $font-size-sm;
+  line-height: 1.5;
+  word-wrap: break-word;
+}
+
+.message-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: $font-size-sm;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+// Rendered-markdown variant: the pipe supplies real <p>/<ul>/<pre> structure,
+// so normal whitespace handling applies (pre-wrap would double the spacing).
+.message-content--rich {
+  white-space: normal;
+
+  ::ng-deep {
+    p {
+      margin: 0 0 $spacing-sm;
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+    ul,
+    ol {
+      margin: 0 0 $spacing-sm;
+      padding-left: 1.4em;
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+    li {
+      margin-bottom: 2px;
+    }
+    code {
+      font-family: $font-family-mono, monospace;
+      font-size: 0.85em;
+      background: var(--bg-tertiary);
+      padding: 1px 5px;
+      border-radius: $border-radius-sm;
+    }
+    pre {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-primary);
+      border-radius: $border-radius-md;
+      padding: $spacing-sm $spacing-md;
+      overflow-x: auto;
+      margin: 0 0 $spacing-sm;
+
+      code {
+        background: none;
+        padding: 0;
+      }
+    }
+    a {
+      color: $primary-blue;
+      text-decoration: underline;
+    }
+    strong {
+      font-weight: 600;
+    }
+  }
+}
+
+.cursor-blink {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--text-primary);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 1s step-start infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+.tool-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+  margin-bottom: $spacing-sm;
+}
+
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: $border-radius-full;
+  background: rgba($secondary-orange, 0.14);
+  border: 1px solid rgba($secondary-orange, 0.3);
+  color: $secondary-orange;
+  font-size: $font-size-xs;
+  font-weight: 500;
+
+  &--done {
+    background: rgba($success-green, 0.14);
+    border-color: rgba($success-green, 0.3);
+    color: $success-green;
+  }
+}
+
+// ---- Input bar ----
+.input-bar {
+  // Breathing room around the input bubble on all sides.
+  padding: $spacing-md $spacing-md $spacing-md;
+  position: relative;
+  z-index: 1;
+}
+
+.listening-hint {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  padding: 0 $spacing-md $spacing-xs;
+  color: $error-red;
+  font-size: $font-size-xs;
+  font-weight: 500;
+}
+
+.listening-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: $error-red;
+  animation: listening-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes listening-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.3); }
+}
+
+.input-shell {
+  display: flex;
+  // Vertically center the text/buttons with the input (was bottom-aligned).
+  align-items: center;
+  gap: $spacing-sm;
+  padding: $spacing-xs $spacing-sm;
+  border-radius: $border-radius-xl;
+  background: var(--bg-card);
+  border: 1px solid var(--border-secondary);
+  transition: border-color $transition-fast, box-shadow $transition-fast;
+
+  &:focus-within {
+    border-color: $primary-blue;
+    box-shadow: 0 0 0 3px rgba($primary-blue, 0.15);
+  }
+}
+
+.input-textarea {
+  flex: 1;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: $font-family-primary;
+  font-size: $font-size-base;
+  padding: $spacing-sm;
+  min-height: 24px;
+  max-height: 160px;
+
+  &::placeholder {
+    color: var(--text-tertiary);
+  }
+}
+
+.send-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: $primary-blue;
+  color: white;
+  cursor: pointer;
+  @include flex-center;
+  flex-shrink: 0;
+  transition: all $transition-fast;
+
+  &:hover:not(:disabled) {
+    background: darken($primary-blue, 8%);
+    transform: translateY(-1px);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+// ---- Mic / TTS icon buttons ----
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  @include flex-center;
+  flex-shrink: 0;
+  font-size: $font-size-lg;
+  transition: all $transition-fast;
+
+  &:hover:not(:disabled) {
+    color: $primary-blue;
+    border-color: var(--border-secondary);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.mic-btn--active {
+  color: white;
+  background: $error-red;
+  border-color: $error-red;
+  animation: mic-pulse 1.4s ease-in-out infinite;
+
+  &:hover:not(:disabled) {
+    color: white;
+    border-color: $error-red;
+  }
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba($error-red, 0.45); }
+  50% { box-shadow: 0 0 0 6px rgba($error-red, 0); }
+}
+
+.tts-btn--active {
+  color: $primary-blue;
+  background: rgba($primary-blue, 0.14);
+  border-color: rgba($primary-blue, 0.3);
+}

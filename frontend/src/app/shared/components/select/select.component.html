@@ -1,0 +1,40 @@
+<div class="select-wrapper">
+  @if (label) {
+    <label class="select-label">
+      {{ label }}
+      @if (required) {
+        <span class="select-label__required">*</span>
+      }
+    </label>
+  }
+  <div class="select-container" [class.select-container--error]="error" [class.select-container--sm]="size === 'sm'">
+    @if (icon) {
+      <span class="select-icon">{{ icon }}</span>
+    }
+    <select
+      [disabled]="disabled"
+      [required]="required"
+      [value]="value"
+      (change)="onSelectionChange($event)"
+      (blur)="onBlur()"
+      class="select"
+      [class.select--with-icon]="icon"
+      [class.select--sm]="size === 'sm'">
+      @if (showPlaceholderOption) {
+        <option value="">{{ placeholder }}</option>
+      }
+      @for (option of options; track option.value) {
+        <option [value]="option.value" [disabled]="option.disabled">{{ option.label }}</option>
+      }
+    </select>
+    <span class="select-arrow">
+      <i class="bi bi-chevron-down"></i>
+    </span>
+  </div>
+  @if (error) {
+    <span class="select-error">{{ error }}</span>
+  }
+  @if (helperText && !error) {
+    <span class="select-helper">{{ helperText }}</span>
+  }
+</div>

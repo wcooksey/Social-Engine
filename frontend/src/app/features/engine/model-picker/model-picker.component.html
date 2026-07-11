@@ -1,0 +1,53 @@
+<div class="model-picker">
+  <button
+    type="button"
+    class="model-picker-trigger"
+    [class.model-picker-trigger--open]="open()"
+    (click)="toggle()">
+    <i class="bi bi-cpu model-picker-icon"></i>
+    <span class="model-picker-label">{{ currentOption()?.label || 'Select model' }}</span>
+    <i class="bi bi-chevron-down model-picker-caret"></i>
+  </button>
+
+  @if (open()) {
+    <div class="model-picker-panel">
+      <div class="model-picker-panel-header">Engine model</div>
+
+      @if (!loaded()) {
+        <p class="model-picker-empty">Loading models...</p>
+      } @else if (!models().length) {
+        <p class="model-picker-empty">No models available.</p>
+      } @else {
+        <div class="model-picker-options">
+          @for (option of models(); track trackByModelId($index, option)) {
+            <button
+              type="button"
+              class="model-picker-option"
+              [class.model-picker-option--active]="option.id === currentModelId()"
+              [class.model-picker-option--disabled]="!option.configured"
+              [disabled]="switchingId() === option.id"
+              (click)="select(option)">
+              <span class="model-picker-option-text">
+                <span class="model-picker-option-label">
+                  {{ option.label }} <span class="model-picker-option-provider">— {{ option.providerLabel }}</span>
+                </span>
+                @if (!option.configured) {
+                  <span class="model-picker-option-hint">Not configured</span>
+                }
+              </span>
+
+              @if (option.recommended) {
+                <span class="model-picker-option-recommended">Recommended</span>
+              }
+              @if (switchingId() === option.id) {
+                <i class="bi bi-hourglass-split model-picker-option-icon"></i>
+              } @else if (option.id === currentModelId()) {
+                <i class="bi bi-check2 model-picker-option-icon model-picker-option-icon--active"></i>
+              }
+            </button>
+          }
+        </div>
+      }
+    </div>
+  }
+</div>

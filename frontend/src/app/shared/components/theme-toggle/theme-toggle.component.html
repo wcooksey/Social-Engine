@@ -1,0 +1,9 @@
+<button 
+  class="theme-toggle-btn" 
+  (click)="toggleTheme()"
+  [attr.aria-label]="theme$() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+  [title]="theme$() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+>
+  <i [class]="theme$() === 'dark' ? 'bi bi-sun' : 'bi bi-moon'" class="theme-icon"></i>
+</button>
+

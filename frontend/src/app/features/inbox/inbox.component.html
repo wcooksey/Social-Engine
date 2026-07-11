@@ -1,0 +1,185 @@
+<div class="inbox-page" [class.show-thread]="mobileShowThread()">
+  <div class="list-pane">
+    <div class="page-header">
+      <h1>Inbox</h1>
+      <p class="subtitle">{{ total() }} conversations</p>
+    </div>
+
+    <div class="filters">
+      <div class="filter-search">
+        <app-input
+          placeholder="Search company..."
+          icon="bi bi-search"
+          [ngModel]="search"
+          (ngModelChange)="onSearchChange($event)">
+        </app-input>
+      </div>
+      <app-select
+        placeholder="All Channels"
+        [options]="channelOptions"
+        [(ngModel)]="channel"
+        (selectionChange)="onFilterChange()">
+      </app-select>
+    </div>
+
+    <div class="conversation-list">
+      @if (loading()) {
+        <div class="loading-state">
+          <span class="spinner"></span>
+          <p>Loading conversations...</p>
+        </div>
+      } @else if (conversations().length) {
+        @for (c of conversations(); track c.id) {
+          <button
+            type="button"
+            class="conversation-row"
+            [class.active]="selectedId() === c.id"
+            (click)="selectConversation(c)">
+            <div class="row-icon"><i [class]="'bi ' + channelIcon(c.channel)"></i></div>
+            <div class="row-main">
+              <div class="row-top">
+                <span class="row-company">{{ c.lead.companyName }}</span>
+                <span class="row-time">{{ c.lastMessageAt ? relativeTime(c.lastMessageAt) : '' }}</span>
+              </div>
+              <div class="row-contact">{{ contactName(c.contact) }}</div>
+              @if (c.lastMessage) {
+                <div class="row-preview">
+                  <i
+                    class="bi preview-icon"
+                    [class.bi-arrow-up-right]="c.lastMessage.direction === 'OUTBOUND'"
+                    [class.bi-arrow-down-left]="c.lastMessage.direction === 'INBOUND'">
+                  </i>
+                  <span class="preview-text">{{ c.lastMessage.body }}</span>
+                </div>
+              } @else {
+                <div class="row-preview empty">No messages yet.</div>
+              }
+            </div>
+            <div class="row-side">
+              <app-badge [variant]="channelBadgeVariant(c.channel)" size="xs">{{ c.channel }}</app-badge>
+              @if (showStatusBadge(c.lastMessage?.status)) {
+                <app-badge [variant]="statusBadgeVariant(c.lastMessage?.status)" size="xs">{{ c.lastMessage?.status }}</app-badge>
+              }
+            </div>
+          </button>
+        }
+      } @else {
+        <div class="empty-state">
+          <i class="bi bi-inbox"></i>
+          <p>No conversations found.</p>
+        </div>
+      }
+    </div>
+  </div>
+
+  <div class="thread-pane">
+    @if (loadingDetail()) {
+      <div class="loading-state">
+        <span class="spinner"></span>
+        <p>Loading conversation...</p>
+      </div>
+    } @else {
+    @if (selectedConversation(); as convo) {
+      <div class="thread">
+        <app-chat-ambient></app-chat-ambient>
+        <div class="thread-header">
+          <button type="button" class="back-btn" (click)="backToList()">
+            <i class="bi bi-arrow-left"></i>
+          </button>
+          <div class="thread-header-main">
+            <a [routerLink]="['/leads', convo.lead.id]" class="thread-company">{{ convo.lead.companyName }}</a>
+            <div class="thread-meta">
+              <app-badge [variant]="channelBadgeVariant(convo.channel)" size="sm" [icon]="channelIcon(convo.channel)">{{ convo.channel }}</app-badge>
+              @if (convo.contact) {
+                <span class="thread-contact"><i class="bi bi-person"></i> {{ convo.contact.firstName }} {{ convo.contact.lastName }}</span>
+              }
+              @if (convo.subject) {
+                <span class="thread-subject">{{ convo.subject }}</span>
+              }
+            </div>
+          </div>
+        </div>
+
+        <div class="message-list">
+          @if (convo.messages.length) {
+            @for (m of convo.messages; track m.id) {
+              <div
+                class="message-bubble"
+                [class.outbound]="m.direction === 'OUTBOUND'"
+                [class.inbound]="m.direction === 'INBOUND'"
+                [class.draft]="isDraft(m)">
+                @if (isDraft(m)) {
+                  <div class="draft-header">
+                    <app-badge variant="warning" size="xs" icon="bi-pencil-square">{{ draftLabel(m) }}</app-badge>
+                  </div>
+                }
+                <div class="bubble-content">{{ m.body }}</div>
+                <div class="bubble-footer">
+                  @if (m.status && !isDraft(m)) { <span class="bubble-status">{{ m.status }}</span> }
+                  <span class="bubble-time">{{ relativeTime(m.sentAt || m.createdAt) }}</span>
+                </div>
+                @if (isDraft(m)) {
+                  <div class="draft-actions">
+                    <app-button
+                      size="sm"
+                      variant="primary"
+                      icon="bi-send"
+                      [loading]="actingMessageId() === m.id"
+                      [disabled]="actingMessageId() !== null && actingMessageId() !== m.id"
+                      (clicked)="approveDraft(convo, m)">
+                      Approve &amp; send
+                    </app-button>
+                    <app-button
+                      size="sm"
+                      variant="ghost"
+                      icon="bi-trash"
+                      [disabled]="actingMessageId() !== null"
+                      (clicked)="discardDraft(convo, m)">
+                      Discard
+                    </app-button>
+                  </div>
+                }
+              </div>
+            }
+          } @else {
+            <p class="empty-text">No messages in this conversation.</p>
+          }
+        </div>
+
+        @if (canReply(convo)) {
+          <div class="composer">
+            <textarea
+              class="composer-input"
+              rows="3"
+              [placeholder]="convo.channel === 'EMAIL' ? 'Write an email reply...' : 'Write an SMS reply...'"
+              [(ngModel)]="replyBody"
+              [disabled]="sendingReply()">
+            </textarea>
+            <div class="composer-actions">
+              <app-button
+                size="sm"
+                variant="primary"
+                icon="bi-send"
+                [loading]="sendingReply()"
+                [disabled]="!replyBody.trim()"
+                (clicked)="sendReply(convo)">
+                Send
+              </app-button>
+            </div>
+          </div>
+        } @else if (convo.channel === 'SOCIAL') {
+          <div class="composer-hint">
+            <i class="bi bi-robot"></i>
+            <span>Social DMs are sent by the Engine's browser agent.</span>
+          </div>
+        }
+      </div>
+    } @else {
+      <div class="empty-state">
+        <i class="bi bi-chat-square-text"></i>
+        <p>Select a conversation to view the thread.</p>
+      </div>
+    }
+    }
+  </div>
+</div>

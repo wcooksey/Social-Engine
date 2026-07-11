@@ -1,0 +1,97 @@
+@import '../../../../assets/styles/variables';
+@import '../../../../assets/styles/mixins';
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+  font-weight: $font-weight-semibold;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  line-height: 1.2;
+
+  .badge-icon {
+    font-size: inherit;
+  }
+
+  // Tones — translucent fill + matching border, the dense "pill" family used
+  // across the app (Lead Conversations, Leads, Inventory).
+  &--default {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--border-primary);
+  }
+
+  &--success {
+    background: rgba(16, 185, 129, 0.14);
+    color: $success-green;
+    border-color: rgba(16, 185, 129, 0.28);
+  }
+
+  &--warning {
+    background: rgba(245, 158, 11, 0.14);
+    color: $warning-yellow;
+    border-color: rgba(245, 158, 11, 0.28);
+  }
+
+  &--error {
+    background: rgba(239, 68, 68, 0.14);
+    color: $error-red;
+    border-color: rgba(239, 68, 68, 0.28);
+  }
+
+  &--info {
+    background: rgba(59, 130, 246, 0.14);
+    color: $info-blue;
+    border-color: rgba(59, 130, 246, 0.28);
+  }
+
+  &--neutral {
+    background: rgba(156, 163, 175, 0.14);
+    color: $gray-400;
+    border-color: rgba(156, 163, 175, 0.28);
+  }
+
+  &--purple {
+    background: rgba(139, 92, 246, 0.16);
+    color: #A78BFA;
+    border-color: rgba(139, 92, 246, 0.3);
+  }
+
+  &--orange {
+    background: rgba(250, 125, 35, 0.14);
+    color: $secondary-orange;
+    border-color: rgba(250, 125, 35, 0.3);
+  }
+
+  // Sizes
+  &--xs {
+    padding: 1px 7px;
+    font-size: 0.62rem;
+    border-radius: $border-radius-full;
+    letter-spacing: 0.02em;
+  }
+
+  &--sm {
+    padding: 2px $spacing-xs;
+    font-size: $font-size-xs;
+    border-radius: $border-radius-sm;
+  }
+
+  &--md {
+    padding: $spacing-xs $spacing-sm;
+    font-size: $font-size-xs;
+    border-radius: $border-radius-md;
+  }
+
+  &--lg {
+    padding: $spacing-sm $spacing-md;
+    font-size: $font-size-sm;
+    border-radius: $border-radius-md;
+  }
+
+  // Pill shape (rounds any size)
+  &--pill {
+    border-radius: $border-radius-full;
+  }
+}

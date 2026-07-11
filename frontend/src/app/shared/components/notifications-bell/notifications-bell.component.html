@@ -1,0 +1,57 @@
+<div class="notif-bell">
+  <button
+    type="button"
+    class="notif-bell-trigger"
+    [class.notif-bell-trigger--open]="open()"
+    (click)="toggle()"
+    [attr.aria-label]="unread() > 0 ? unread() + ' unread notifications' : 'Notifications'"
+    title="Notifications">
+    <i class="bi bi-bell"></i>
+    @if (unread() > 0) {
+      <span class="notif-bell-badge">{{ unread() > 99 ? '99+' : unread() }}</span>
+    }
+  </button>
+
+  @if (open()) {
+    <div class="notif-bell-panel">
+      <div class="notif-bell-panel-header">
+        <span class="notif-bell-panel-title">Notifications</span>
+        <button
+          type="button"
+          class="notif-bell-mark"
+          [disabled]="marking() || unread() === 0"
+          (click)="markAllRead()">
+          Mark all read
+        </button>
+      </div>
+
+      @if (!items().length) {
+        <p class="notif-bell-empty">You're all caught up.</p>
+      } @else {
+        <div class="notif-bell-list">
+          @for (notification of items(); track trackById($index, notification)) {
+            <button
+              type="button"
+              class="notif-bell-item"
+              [class.notif-bell-item--unread]="!notification.read"
+              [class.notif-bell-item--link]="!!notification.leadId"
+              (click)="select(notification)">
+              <span class="notif-bell-item-body">
+                <span class="notif-bell-item-title">
+                  @if (!notification.read) {
+                    <span class="notif-bell-item-dot" aria-hidden="true"></span>
+                  }
+                  {{ notification.title }}
+                </span>
+                @if (notification.body) {
+                  <span class="notif-bell-item-text">{{ notification.body }}</span>
+                }
+              </span>
+              <span class="notif-bell-item-time">{{ relativeTime(notification.createdAt) }}</span>
+            </button>
+          }
+        </div>
+      }
+    </div>
+  }
+</div>

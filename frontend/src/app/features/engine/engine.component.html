@@ -1,0 +1,147 @@
+<div class="engine-page">
+  <aside class="chat-list-panel">
+    <button class="new-chat-btn" (click)="startNewChat()">
+      <i class="bi bi-plus-lg"></i> New chat
+    </button>
+
+    <div class="chat-list">
+      @if (loadingChats()) {
+        <p class="chat-list-empty">Loading conversations...</p>
+      } @else if (chats().length) {
+        @for (chat of chats(); track chat.id) {
+          <button
+            class="chat-list-item"
+            [class.active]="activeChatId() === chat.id"
+            (click)="selectChat(chat)">
+            <i class="bi bi-chat-left-text"></i>
+            <span class="chat-title">{{ chat.title || 'New conversation' }}</span>
+          </button>
+        }
+      } @else {
+        <p class="chat-list-empty">No conversations yet.</p>
+      }
+    </div>
+  </aside>
+
+  <main class="engine-main">
+    <app-chat-ambient></app-chat-ambient>
+    <div class="engine-topbar">
+      <span class="engine-topbar-title">
+        <i class="bi bi-stars"></i>
+        {{ activeChatTitle() }}
+      </span>
+      <app-model-picker></app-model-picker>
+    </div>
+
+    @if (!activeChatId() && messages().length === 0) {
+      <div class="hero">
+        <div class="hero-glow"></div>
+        <i class="bi bi-stars hero-icon"></i>
+        <h1>What should the Engine work on?</h1>
+        <p class="hero-subtitle">Ask it to research prospects, build lead lists, launch campaigns, or follow up.</p>
+
+        <div class="example-chips">
+          @for (prompt of examplePrompts; track prompt) {
+            <button class="example-chip" (click)="useExamplePrompt(prompt)">{{ prompt }}</button>
+          }
+        </div>
+      </div>
+    } @else {
+      <div class="thread">
+        @if (loadingMessages()) {
+          <p class="thread-loading">Loading conversation...</p>
+        }
+        @for (message of messages(); track message.id) {
+          <div
+            class="message"
+            [class.message-user]="message.role === 'assistant'"
+            [class.message-ai]="message.role === 'assistant'"
+            [class.message-lead]="message.role === 'user'">
+            <div class="message-bubble">
+              @if (message.role === 'assistant') {
+                <div class="message-header message-header-outbound">
+                  <span class="sender-badge ai-badge">
+                    <i class="bi bi-robot"></i> AI
+                  </span>
+                </div>
+              } @else {
+                <div class="message-header">
+                  <span class="sender-badge human-badge">
+                    <i class="bi bi-person-fill"></i> You
+                  </span>
+                </div>
+              }
+              @if (message.toolEvents && message.toolEvents.length) {
+                <div class="tool-chips">
+                  @for (event of message.toolEvents; track $index) {
+                    <span class="tool-chip" [class.tool-chip--done]="!!event.summary">
+                      <i [class]="'bi ' + toolIcon(event.toolName)"></i>
+                      {{ toolLabel(event) }}
+                    </span>
+                  }
+                </div>
+              }
+              @if (message.role === 'user') {
+                <p class="message-content message-text">{{ message.content }}</p>
+              } @else if (message.streaming && !message.content) {
+                <div class="lead-typing-dots">
+                  <span class="lead-dot"></span>
+                  <span class="lead-dot"></span>
+                  <span class="lead-dot"></span>
+                </div>
+              } @else {
+                <div class="message-content message-content--rich message-text" [innerHTML]="message.content | markdown"></div>
+                @if (message.streaming) {<span class="cursor-blink"></span>}
+              }
+            </div>
+          </div>
+        }
+        <div #threadEnd></div>
+      </div>
+    }
+
+    <div class="input-bar">
+      @if (voiceService.listening()) {
+        <div class="listening-hint">
+          <span class="listening-dot"></span>
+          Listening&hellip;
+        </div>
+      }
+      <div class="input-shell">
+        <textarea
+          #textarea
+          class="input-textarea"
+          rows="1"
+          placeholder="Ask the Engine anything..."
+          [(ngModel)]="draft"
+          (keydown)="handleKeydown($event)">
+        </textarea>
+        <button
+          type="button"
+          class="icon-btn mic-btn"
+          [class.mic-btn--active]="voiceService.listening()"
+          [disabled]="!micSupported"
+          [attr.title]="micSupported ? (voiceService.listening() ? 'Stop listening' : 'Speak to the Engine') : 'Voice input not supported in this browser'"
+          (click)="toggleMic()">
+          <i class="bi" [class.bi-mic-fill]="voiceService.listening()" [class.bi-mic]="!voiceService.listening()"></i>
+        </button>
+        <button
+          type="button"
+          class="icon-btn tts-btn"
+          [class.tts-btn--active]="voiceService.ttsEnabled()"
+          [disabled]="!ttsSupported"
+          [attr.title]="ttsSupported ? (voiceService.ttsEnabled() ? 'Spoken replies on — click to mute' : 'Spoken replies off — click to enable') : 'Spoken replies not supported in this browser'"
+          (click)="toggleTts()">
+          <i class="bi" [class.bi-volume-up-fill]="voiceService.ttsEnabled()" [class.bi-volume-mute]="!voiceService.ttsEnabled()"></i>
+        </button>
+        <button class="send-btn" [disabled]="!draft.trim() || sending()" (click)="send()">
+          @if (sending()) {
+            <i class="bi bi-hourglass-split"></i>
+          } @else {
+            <i class="bi bi-arrow-up"></i>
+          }
+        </button>
+      </div>
+    </div>
+  </main>
+</div>

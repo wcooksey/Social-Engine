@@ -1,0 +1,77 @@
+import { Contact } from './lead.model';
+
+export type ConversationChannel = 'EMAIL' | 'SMS' | 'VOICE' | 'SOCIAL';
+export type MessageDirection = 'OUTBOUND' | 'INBOUND';
+
+export interface Message {
+  id: string;
+  direction: MessageDirection;
+  body: string;
+  status?: string;
+  externalId?: string;
+  sentAt?: string;
+  createdAt: string;
+}
+
+export interface ConversationContact {
+  id: string;
+  firstName: string;
+  lastName: string;
+}
+
+export interface Conversation {
+  id: string;
+  channel: ConversationChannel;
+  subject?: string;
+  lastMessageAt?: string;
+  contact?: ConversationContact | null;
+  messages: Message[];
+}
+
+export interface ConversationLeadSummary {
+  id: string;
+  companyName: string;
+  status: string;
+}
+
+export interface ConversationSummaryContact {
+  id: string;
+  name: string;
+}
+
+export interface ConversationLastMessage {
+  direction: MessageDirection;
+  body: string;
+  status?: string;
+  createdAt: string;
+}
+
+export interface ConversationSummary {
+  id: string;
+  channel: ConversationChannel;
+  subject?: string;
+  lastMessageAt?: string;
+  messageCount: number;
+  lead: ConversationLeadSummary;
+  contact: ConversationSummaryContact | null;
+  lastMessage: ConversationLastMessage | null;
+}
+
+export interface ConversationDetail extends Conversation {
+  lead: ConversationLeadSummary;
+  contact: Contact | null;
+}
+
+export interface ConversationsQuery {
+  channel?: string;
+  search?: string;
+  leadId?: string;
+  page?: number;
+}
+
+export interface ConversationsPage {
+  conversations: ConversationSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+}

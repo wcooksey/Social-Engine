@@ -1,0 +1,47 @@
+<div class="auth-page">
+  <div class="auth-content">
+    <div class="auth-branding">
+      <i class="bi bi-lightning-charge-fill brand-icon"></i>
+      <span class="brand-text">Social Engine</span>
+    </div>
+
+    <form [formGroup]="loginForm" (ngSubmit)="onSubmit()" class="auth-form">
+      @if (error) {
+        <div class="auth-error">{{ error }}</div>
+      }
+
+      <input
+        type="email"
+        placeholder="Email"
+        formControlName="email"
+        class="auth-input"
+        [class.input-error]="emailError"
+        required>
+      @if (emailError) {
+        <span class="field-error">{{ emailError }}</span>
+      }
+
+      <input
+        type="password"
+        placeholder="Password"
+        formControlName="password"
+        class="auth-input"
+        [class.input-error]="passwordError"
+        required>
+      @if (passwordError) {
+        <span class="field-error">{{ passwordError }}</span>
+      }
+
+      <app-button
+        type="submit"
+        variant="primary"
+        [fullWidth]="true"
+        [disabled]="loginForm.invalid"
+        [loading]="isLoading">
+        Sign In
+      </app-button>
+
+      <a routerLink="/register" class="switch-link">Don't have an account? Create one</a>
+    </form>
+  </div>
+</div>

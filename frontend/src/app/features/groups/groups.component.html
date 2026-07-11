@@ -1,0 +1,60 @@
+<div class="groups-page">
+  <div class="page-header">
+    <div>
+      <h1>Groups</h1>
+      <p class="subtitle">Lead lists the Engine is building and tracking</p>
+    </div>
+    <app-button variant="primary" icon="bi-plus-lg" (clicked)="openCreate()">New Group</app-button>
+  </div>
+
+  @if (loading()) {
+    <div class="loading-state">
+      <span class="spinner"></span>
+      <p>Loading groups...</p>
+    </div>
+  } @else if (groups().length) {
+    <div class="groups-grid">
+      @for (group of groups(); track group.id) {
+        <app-card class="group-card" [hoverable]="true" padding="lg" (click)="viewLeads(group)">
+          <div class="group-header">
+            <h3>{{ group.name }}</h3>
+            <button class="icon-btn" (click)="openEdit(group, $event)" title="Edit"><i class="bi bi-pencil"></i></button>
+          </div>
+          <p class="group-goal">{{ group.goal }}</p>
+          @if (group.aiSummary) {
+            <p class="group-summary">{{ group.aiSummary }}</p>
+          }
+          <div class="group-footer">
+            <span class="lead-count"><i class="bi bi-building"></i> {{ group.leadCount }} leads</span>
+          </div>
+        </app-card>
+      }
+    </div>
+  } @else {
+    <div class="empty-state">
+      <i class="bi bi-collection"></i>
+      <p>No groups yet. Ask the Engine to build one, or create one manually.</p>
+    </div>
+  }
+</div>
+
+<app-dialog
+  [title]="editingGroup ? 'Edit Group' : 'New Group'"
+  [show]="showDialog()"
+  size="md"
+  (close)="showDialog.set(false)">
+  <div class="group-form">
+    <app-input label="Name" [required]="true" [(ngModel)]="form.name" [ngModelOptions]="{ standalone: true }"></app-input>
+    <div class="textarea-field">
+      <label>Goal</label>
+      <textarea rows="4" [(ngModel)]="form.goal" [ngModelOptions]="{ standalone: true }" placeholder="e.g. Every automotive dealership in Florida with 20+ employees"></textarea>
+    </div>
+  </div>
+
+  <div dialog-footer>
+    <app-button variant="ghost" (clicked)="showDialog.set(false)">Cancel</app-button>
+    <app-button variant="primary" [loading]="saving()" [disabled]="!form.name.trim() || !form.goal.trim()" (clicked)="submit()">
+      {{ editingGroup ? 'Save Changes' : 'Create Group' }}
+    </app-button>
+  </div>
+</app-dialog>

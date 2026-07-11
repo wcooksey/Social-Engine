@@ -1,0 +1,88 @@
+<div class="campaigns-page">
+  <div class="page-header">
+    <div>
+      <h1>Campaigns</h1>
+      <p class="subtitle">Multi-channel outreach the Engine is running</p>
+    </div>
+    <app-button variant="primary" icon="bi-plus-lg" (clicked)="openCreate()">New Campaign</app-button>
+  </div>
+
+  @if (loading()) {
+    <div class="loading-state">
+      <span class="spinner"></span>
+      <p>Loading campaigns...</p>
+    </div>
+  } @else if (campaigns().length) {
+    <div class="campaigns-grid">
+      @for (campaign of campaigns(); track campaign.id) {
+        <app-card padding="lg" class="campaign-card">
+          <div class="campaign-header">
+            <h3>{{ campaign.name }}</h3>
+            <app-badge [variant]="statusBadgeVariant(campaign.status)" size="sm">{{ campaign.status }}</app-badge>
+          </div>
+          <p class="campaign-offer">{{ campaign.offer }}</p>
+
+          <div class="channel-row">
+            @for (channel of campaign.channels; track channel) {
+              <span class="channel-chip"><i [class]="'bi ' + channelIcon(channel)"></i> {{ channel }}</span>
+            }
+          </div>
+
+          <div class="campaign-footer">
+            <app-badge [variant]="modeBadgeVariant(campaign.mode)" size="sm">{{ campaign.mode.replace('_', ' ') }}</app-badge>
+            <span class="lead-count"><i class="bi bi-building"></i> {{ campaign.leadCount }} leads</span>
+          </div>
+        </app-card>
+      }
+    </div>
+  } @else {
+    <div class="empty-state">
+      <i class="bi bi-megaphone"></i>
+      <p>No campaigns yet. Create one to start reaching leads.</p>
+    </div>
+  }
+</div>
+
+<app-dialog title="New Campaign" [show]="showDialog()" size="md" (close)="showDialog.set(false)">
+  <div class="campaign-form">
+    <app-input label="Name" [required]="true" [(ngModel)]="form.name" [ngModelOptions]="{ standalone: true }"></app-input>
+
+    <div class="textarea-field">
+      <label>Offer</label>
+      <textarea rows="3" [(ngModel)]="form.offer" [ngModelOptions]="{ standalone: true }" placeholder="What are we offering these leads?"></textarea>
+    </div>
+
+    <div class="field">
+      <label>Channels</label>
+      <div class="channel-toggles">
+        @for (channel of allChannels; track channel) {
+          <button
+            type="button"
+            class="channel-toggle"
+            [class.active]="form.channels.includes(channel)"
+            (click)="toggleChannel(channel)">
+            <i [class]="'bi ' + channelIcon(channel)"></i> {{ channel }}
+          </button>
+        }
+      </div>
+    </div>
+
+    <app-select label="Mode" [showPlaceholderOption]="false" [options]="modeOptions" [(ngModel)]="form.mode" [ngModelOptions]="{ standalone: true }"></app-select>
+
+    <div class="form-row">
+      <app-input label="Follow-up cadence (days)" type="number" [(ngModel)]="form.followUpCadenceDays" [ngModelOptions]="{ standalone: true }"></app-input>
+      <app-input label="Max touches" type="number" [(ngModel)]="form.maxTouches" [ngModelOptions]="{ standalone: true }"></app-input>
+    </div>
+  </div>
+
+  <div dialog-footer>
+    <app-button variant="ghost" (clicked)="showDialog.set(false)">Cancel</app-button>
+    <app-button
+      variant="primary"
+      [loading]="saving()"
+      [disabled]="!form.name.trim() || !form.offer.trim() || form.channels.length === 0"
+      (clicked)="submit()">
+      Create Campaign
+    </app-button>
+  </div>
+</app-dialog>

@@ -1,0 +1,84 @@
+<div class="leads-page">
+  <div class="page-header">
+    <div>
+      <h1>Leads</h1>
+      <p class="subtitle">{{ total() }} leads tracked by the Engine</p>
+    </div>
+    <app-button variant="primary" icon="bi-plus-lg" (clicked)="openAddDialog()">Add Lead</app-button>
+  </div>
+
+  <div class="filters">
+    <div class="filter-search">
+      <app-input
+        placeholder="Search company, domain, city..."
+        icon="bi bi-search"
+        [ngModel]="search"
+        (ngModelChange)="onSearchChange($event)">
+      </app-input>
+    </div>
+    <app-select
+      placeholder="All statuses"
+      [options]="statusOptions"
+      [(ngModel)]="status"
+      (selectionChange)="onFilterChange()">
+    </app-select>
+    <app-select
+      placeholder="All groups"
+      [options]="groupOptions"
+      [(ngModel)]="groupId"
+      (selectionChange)="onFilterChange()">
+    </app-select>
+  </div>
+
+  <app-data-table
+    [columns]="columns"
+    [rows]="leads()"
+    [loading]="loading()"
+    [clickableRows]="true"
+    emptyText="No leads found."
+    (rowClick)="goToLead($event)">
+
+    <ng-template appDataCell="companyName" let-row="row">
+      <span class="dt-strong">{{ row.companyName }}</span>
+    </ng-template>
+
+    <ng-template appDataCell="location" let-row="row">
+      {{ location(row) }}
+    </ng-template>
+
+    <ng-template appDataCell="status" let-value>
+      <app-badge [variant]="statusBadgeVariant(value)" size="sm">{{ value }}</app-badge>
+    </ng-template>
+
+    <ng-template appDataCell="group" let-row="row">
+      {{ row.group?.name || '—' }}
+    </ng-template>
+
+    <ng-template appDataCell="contacts" let-row="row">
+      <span class="dt-num">{{ row.contacts?.length ?? 0 }}</span>
+    </ng-template>
+
+    <ng-template appDataCell="createdAt" let-value>
+      {{ value | date: 'MMM d, y' }}
+    </ng-template>
+  </app-data-table>
+</div>
+
+<app-dialog title="Add Lead" [show]="showAddDialog()" size="md" (close)="showAddDialog.set(false)">
+  <div class="add-lead-form">
+    <app-input label="Company name" [required]="true" [(ngModel)]="newLead.companyName" [ngModelOptions]="{ standalone: true }"></app-input>
+    <app-input label="Website" [(ngModel)]="newLead.website" [ngModelOptions]="{ standalone: true }"></app-input>
+    <app-input label="Phone" [(ngModel)]="newLead.phone" [ngModelOptions]="{ standalone: true }"></app-input>
+    <div class="form-row">
+      <app-input label="City" [(ngModel)]="newLead.city" [ngModelOptions]="{ standalone: true }"></app-input>
+      <app-input label="State" [(ngModel)]="newLead.state" [ngModelOptions]="{ standalone: true }"></app-input>
+    </div>
+    <app-input label="Industry" [(ngModel)]="newLead.industry" [ngModelOptions]="{ standalone: true }"></app-input>
+    <app-select label="Group" [options]="groupOptions" [(ngModel)]="newLead.groupId" [ngModelOptions]="{ standalone: true }"></app-select>
+  </div>
+
+  <div dialog-footer>
+    <app-button variant="ghost" (clicked)="showAddDialog.set(false)">Cancel</app-button>
+    <app-button variant="primary" [loading]="savingLead()" [disabled]="!newLead.companyName.trim()" (clicked)="submitNewLead()">Create Lead</app-button>
+  </div>
+</app-dialog>

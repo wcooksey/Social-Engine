@@ -1,0 +1,626 @@
+<div class="settings-page">
+  <div class="page-header">
+    <h1>Settings</h1>
+    <p class="subtitle">Your profile, organization guardrails, and integrations</p>
+  </div>
+
+  @if (currentUser(); as user) {
+    <app-card padding="lg" class="section-card">
+      <h3>Profile</h3>
+      <div class="form-row">
+        <app-input label="First name" [ngModel]="user.firstName" [ngModelOptions]="{ standalone: true }" [disabled]="true"></app-input>
+        <app-input label="Last name" [ngModel]="user.lastName" [ngModelOptions]="{ standalone: true }" [disabled]="true"></app-input>
+      </div>
+      <app-input label="Email" [ngModel]="user.email" [ngModelOptions]="{ standalone: true }" [disabled]="true"></app-input>
+
+      <div class="kill-switch-row notify-row">
+        <div class="kill-switch-label">
+          <span class="label-title">Email me alerts &amp; daily digest</span>
+          <span class="label-sub">Get email notifications for important activity plus a once-a-day summary of what the Engine did.</span>
+        </div>
+        <app-switch [ngModel]="notifyByEmail" (valueChange)="toggleNotifyByEmail()" [disabled]="savingNotifyByEmail" [ngModelOptions]="{ standalone: true }"></app-switch>
+      </div>
+    </app-card>
+
+    @if (user.organization) {
+      <app-card padding="lg" class="section-card">
+        <h3>Organization</h3>
+        <app-input label="Organization name" [ngModel]="user.organization.name" [ngModelOptions]="{ standalone: true }" [disabled]="true"></app-input>
+
+        <div class="guardrails">
+          <div class="guardrail-row">
+            <app-input label="Daily send cap" type="number" [(ngModel)]="dailySendCap" [ngModelOptions]="{ standalone: true }"></app-input>
+          </div>
+          <div class="form-row">
+            <app-input label="Quiet hours start" type="time" [(ngModel)]="quietHoursStart" [ngModelOptions]="{ standalone: true }"></app-input>
+            <app-input label="Quiet hours end" type="time" [(ngModel)]="quietHoursEnd" [ngModelOptions]="{ standalone: true }"></app-input>
+          </div>
+
+          <div class="kill-switch-row">
+            <div class="kill-switch-label">
+              <span class="label-title">Engine active</span>
+              <span class="label-sub">Pause to halt all autonomous research, outreach, and follow-ups immediately.</span>
+            </div>
+            <app-switch [ngModel]="engineActive" (valueChange)="toggleEngine()" [ngModelOptions]="{ standalone: true }"></app-switch>
+          </div>
+
+          <div class="kill-switch-row">
+            <div class="kill-switch-label">
+              <span class="label-title">Autonomous social DMs</span>
+              <span class="label-sub">Let the browser agent send direct messages on social platforms. Off keeps DMs as drafts for approval (recommended — automated DMs can violate platform terms).</span>
+            </div>
+            <app-switch [ngModel]="socialAutonomy" (valueChange)="toggleSocialAutonomy()" [ngModelOptions]="{ standalone: true }"></app-switch>
+          </div>
+
+          <div class="guardrails-actions">
+            <app-button variant="primary" [loading]="savingGuardrails" (clicked)="saveGuardrails()">Save Guardrails</app-button>
+          </div>
+        </div>
+      </app-card>
+    }
+  }
+
+  <app-card padding="lg" class="section-card">
+    <h3>Engine model</h3>
+    <p class="engine-model-description">The AI model powering the Engine. If a provider has an outage, the Engine automatically fails over to the next configured provider.</p>
+
+    <div class="engine-model-row">
+      <app-select
+        label="Active model"
+        [options]="engineModelOptions()"
+        [(ngModel)]="engineModelSelection"
+        [ngModelOptions]="{ standalone: true }"
+        [disabled]="loadingModels"
+        [showPlaceholderOption]="false">
+      </app-select>
+    </div>
+
+    <div class="engine-model-actions">
+      <app-button variant="primary" [loading]="savingEngineModel" [disabled]="!engineModelSelection || loadingModels" (clicked)="saveEngineModel()">Save</app-button>
+    </div>
+  </app-card>
+
+  <app-card padding="lg" class="section-card">
+    <h3>Appearance</h3>
+    <div class="theme-row">
+      <span>Theme</span>
+      <div class="theme-toggle-wrapper">
+        <app-theme-toggle></app-theme-toggle>
+      </div>
+    </div>
+  </app-card>
+
+  <app-card padding="lg" class="section-card">
+    <div class="card-header-row">
+      <h3>Booking links</h3>
+      <app-button variant="secondary" size="sm" icon="bi-plus-lg" (clicked)="openCreateBookingLink()">New link</app-button>
+    </div>
+    <p class="integrations-intro">
+      Share a public link and let prospects self-book a time on your calendar. Each link has its own availability, duration,
+      and buffer. Creating or editing links requires an owner or admin role.
+    </p>
+
+    @if (loadingBookingLinks) {
+      <p class="loading-hint">Loading booking links…</p>
+    } @else if (bookingLinks.length === 0) {
+      <p class="loading-hint">No booking links yet. Create one to start taking self-serve bookings.</p>
+    } @else {
+      <div class="booking-links-list">
+        @for (link of bookingLinks; track link.id) {
+          <div class="booking-link-row">
+            <div class="booking-link-info">
+              <div class="booking-link-title-row">
+                <span class="booking-link-title">{{ link.title }}</span>
+                <app-badge [variant]="link.active ? 'success' : 'neutral'" size="sm">{{ link.active ? 'Active' : 'Paused' }}</app-badge>
+              </div>
+              <div class="booking-link-meta">
+                <span><i class="bi bi-clock"></i> {{ link.durationMinutes }} min</span>
+                <span><i class="bi bi-calendar-week"></i> {{ availabilitySummary(link) }}</span>
+                <span><i class="bi bi-globe"></i> {{ link.timezone }}</span>
+              </div>
+              <div class="booking-link-url">
+                <a [href]="link.url" target="_blank" rel="noopener">{{ link.url }}</a>
+                <button type="button" class="copy-btn" (click)="copyBookingLink(link)" title="Copy link">
+                  <i [class]="copiedBookingLinkId === link.id ? 'bi bi-check2' : 'bi bi-clipboard'"></i>
+                  {{ copiedBookingLinkId === link.id ? 'Copied' : 'Copy' }}
+                </button>
+              </div>
+            </div>
+            <div class="booking-link-actions">
+              <app-switch
+                [ngModel]="link.active"
+                (valueChange)="toggleBookingLinkActive(link)"
+                [disabled]="togglingBookingLinkId === link.id"
+                [ngModelOptions]="{ standalone: true }">
+              </app-switch>
+              <app-button variant="ghost" size="sm" (clicked)="openEditBookingLink(link)">Edit</app-button>
+              <app-button
+                variant="danger"
+                size="sm"
+                [loading]="deletingBookingLinkId === link.id"
+                (clicked)="deleteBookingLink(link)">
+                Delete
+              </app-button>
+            </div>
+          </div>
+        }
+      </div>
+    }
+  </app-card>
+
+  <app-card padding="lg" class="section-card">
+    <h3>Import leads (CSV)</h3>
+    <p class="integrations-intro">
+      Paste CSV text or choose a <code>.csv</code> file to bulk-create leads and contacts. Optionally drop them into a group.
+    </p>
+
+    <div class="csv-import">
+      <div class="textarea-field">
+        <label>CSV data</label>
+        <textarea
+          rows="8"
+          class="csv-textarea"
+          [(ngModel)]="csvText"
+          [ngModelOptions]="{ standalone: true }"
+          placeholder="company,website,email,firstName,lastName,phone,title,city,state,industry&#10;Acme Inc,acme.com,jane@acme.com,Jane,Doe,555-0100,CEO,Austin,TX,Software"></textarea>
+        <p class="field-hint">
+          Supported columns: company/companyName, website, email, firstName, lastName, phone, title, city, state, industry.
+        </p>
+      </div>
+
+      <div class="csv-controls">
+        <label class="file-picker">
+          <input type="file" accept=".csv,text/csv" (change)="onCsvFileSelected($event)" />
+          <span class="file-picker-btn"><i class="bi bi-upload"></i> Choose .csv file</span>
+          @if (csvFileName) {
+            <span class="file-name">{{ csvFileName }}</span>
+          }
+        </label>
+        <div class="group-name-field">
+          <app-input
+            label="Group name (optional)"
+            placeholder="e.g. Q3 Prospects"
+            [(ngModel)]="csvGroupName"
+            [ngModelOptions]="{ standalone: true }">
+          </app-input>
+        </div>
+      </div>
+
+      <div class="csv-actions">
+        <app-button
+          variant="primary"
+          [loading]="importingCsv"
+          [disabled]="!csvText.trim()"
+          (clicked)="importCsv()">
+          Import leads
+        </app-button>
+      </div>
+
+      @if (importResult) {
+        <div class="import-result">
+          <div class="import-summary">
+            <span class="import-stat"><strong>{{ importResult.total }}</strong> rows</span>
+            <span class="import-stat"><strong>{{ importResult.created }}</strong> created</span>
+            <span class="import-stat"><strong>{{ importResult.updated }}</strong> updated</span>
+            <span class="import-stat"><strong>{{ importResult.contactsCreated }}</strong> contacts</span>
+            <span class="import-stat"><strong>{{ importResult.skipped }}</strong> skipped</span>
+          </div>
+          @if (importResult.errors.length > 0) {
+            <div class="import-errors">
+              <span class="import-errors-title">{{ importResult.errors.length }} error(s):</span>
+              <ul>
+                @for (err of importResult.errors.slice(0, 5); track $index) {
+                  <li>Row {{ err.row }}: {{ err.error }}</li>
+                }
+              </ul>
+              @if (importResult.errors.length > 5) {
+                <span class="import-errors-more">…and {{ importResult.errors.length - 5 }} more.</span>
+              }
+            </div>
+          }
+        </div>
+      }
+    </div>
+  </app-card>
+
+  <app-card padding="lg" class="section-card">
+    <h3>Test channels</h3>
+    <p class="integrations-intro">
+      Send a real test message to yourself on each channel to confirm your providers work. These use your configured
+      providers and may incur provider costs.
+    </p>
+
+    @if (loadingTestStatus) {
+      <p class="loading-hint">Loading channel status…</p>
+    } @else {
+      <div class="test-channels">
+        <div class="test-channel-section">
+          <span class="test-channel-label">Email</span>
+          <div class="test-channel-row">
+            <div class="test-channel-input">
+              <app-input
+                type="email"
+                placeholder="you@example.com"
+                [(ngModel)]="testEmailTo"
+                [ngModelOptions]="{ standalone: true }"
+                [disabled]="!testStatus?.email">
+              </app-input>
+            </div>
+            <app-button
+              variant="primary"
+              [loading]="sendingTestEmail"
+              [disabled]="!testStatus?.email || !testEmailTo.trim()"
+              (clicked)="sendTestEmail()">
+              Send test email
+            </app-button>
+          </div>
+          @if (!testStatus?.email) {
+            <p class="field-hint">Configure email in Integrations.</p>
+          }
+        </div>
+
+        <div class="test-channel-section">
+          <span class="test-channel-label">Phone</span>
+          <div class="test-channel-row">
+            <div class="test-channel-input">
+              <app-input
+                type="tel"
+                placeholder="+15551234567"
+                [(ngModel)]="testPhoneTo"
+                [ngModelOptions]="{ standalone: true }"
+                [disabled]="!testStatus?.sms && !testStatus?.voice">
+              </app-input>
+            </div>
+            <app-button
+              variant="primary"
+              [loading]="sendingTestSms"
+              [disabled]="!testStatus?.sms || !testPhoneTo.trim()"
+              (clicked)="sendTestSms()">
+              Send test SMS
+            </app-button>
+            <app-button
+              variant="secondary"
+              [loading]="placingTestCall"
+              [disabled]="!testStatus?.voice || !testPhoneTo.trim()"
+              (clicked)="placeTestCall()">
+              Place test call
+            </app-button>
+          </div>
+          @if (!testStatus?.sms) {
+            <p class="field-hint">Configure Twilio (SMS) in Integrations.</p>
+          }
+          @if (!testStatus?.voice) {
+            <p class="field-hint">Configure Vapi (voice) in Integrations.</p>
+          }
+        </div>
+
+        <div class="test-channel-section">
+          <span class="test-channel-label">Social DM</span>
+          @if (testStatus && testStatus.socialPlatforms.length > 0) {
+            <div class="test-dm-fields">
+              <div class="form-row">
+                <app-select
+                  label="Platform"
+                  [options]="testDmPlatformOptions()"
+                  [(ngModel)]="testDmPlatform"
+                  [ngModelOptions]="{ standalone: true }"
+                  [showPlaceholderOption]="false">
+                </app-select>
+                <app-input
+                  label="Profile URL"
+                  placeholder="https://instagram.com/yourhandle"
+                  [(ngModel)]="testDmProfileUrl"
+                  [ngModelOptions]="{ standalone: true }">
+                </app-input>
+              </div>
+              <app-input
+                label="Message (optional)"
+                placeholder="Test DM from the Engine"
+                [(ngModel)]="testDmMessage"
+                [ngModelOptions]="{ standalone: true }">
+              </app-input>
+              <div class="test-dm-actions">
+                <app-button
+                  variant="primary"
+                  [loading]="sendingTestDm"
+                  [disabled]="!testDmProfileUrl.trim()"
+                  (clicked)="sendTestDm()">
+                  Send test DM
+                </app-button>
+              </div>
+            </div>
+          } @else {
+            <p class="field-hint">Connect a social account below to test DMs.</p>
+          }
+        </div>
+      </div>
+    }
+  </app-card>
+
+  <app-card padding="lg" class="section-card">
+    <h3>Integrations &amp; API keys</h3>
+    <p class="integrations-intro">
+      Each account configures its own keys here. Values are resolved from what you save first, then any server environment
+      variable as a fallback. Secrets are stored encrypted and never shown again once saved.
+    </p>
+
+    @if (loadingSettings) {
+      <p class="loading-hint">Loading integrations…</p>
+    } @else {
+      @for (grp of settingGroups(); track grp.group) {
+        <div class="settings-group">
+          <div class="settings-group-header">
+            <div class="settings-group-icon"><i [class]="'bi ' + grp.icon"></i></div>
+            <div>
+              <span class="settings-group-name">{{ grp.name }}</span>
+              <p class="settings-group-description">{{ grp.description }}</p>
+            </div>
+          </div>
+
+          <div class="settings-fields">
+            @for (setting of grp.settings; track setting.key) {
+              <div class="setting-row">
+                <div class="setting-label-col">
+                  <span class="setting-label">{{ setting.label }}</span>
+                  <app-badge [variant]="settingStatusVariant(setting)" size="sm">{{ settingStatusLabel(setting) }}</app-badge>
+                </div>
+                <div class="setting-input-col">
+                  <app-input
+                    [type]="setting.secret ? 'password' : 'text'"
+                    [(ngModel)]="settingEdits[setting.key]"
+                    [ngModelOptions]="{ standalone: true }"
+                    [placeholder]="setting.secret ? (setting.configured ? 'Set — leave blank to keep' : (setting.placeholder || 'Enter value')) : (setting.placeholder || 'Enter value')">
+                  </app-input>
+                </div>
+                <div class="setting-actions">
+                  <app-button
+                    variant="primary"
+                    size="sm"
+                    [loading]="savingSettingKey === setting.key"
+                    (clicked)="saveSetting(setting)">
+                    Save
+                  </app-button>
+                  @if (setting.source === 'org') {
+                    <app-button
+                      variant="ghost"
+                      size="sm"
+                      [disabled]="savingSettingKey === setting.key"
+                      (clicked)="clearSetting(setting)">
+                      Clear
+                    </app-button>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+      }
+    }
+  </app-card>
+
+  @if (isSuperAdmin()) {
+    <app-card padding="lg" class="section-card">
+      <h3>Platform (super admin)</h3>
+      <p class="integrations-intro">
+        These knobs apply across every organization on this deployment. Concurrency changes take effect within seconds;
+        the worker poll interval applies after the next restart.
+      </p>
+
+      @if (loadingPlatform) {
+        <p class="loading-hint">Loading platform settings…</p>
+      } @else {
+        <div class="settings-fields">
+          @for (setting of platformSettings(); track setting.key) {
+            <div class="setting-row">
+              <div class="setting-label-col">
+                <span class="setting-label">{{ setting.label }}</span>
+                <app-badge variant="neutral" size="sm">default {{ setting.default }}</app-badge>
+              </div>
+              <div class="setting-input-col">
+                <app-input
+                  type="number"
+                  [(ngModel)]="platformEdits[setting.key]"
+                  [ngModelOptions]="{ standalone: true }">
+                </app-input>
+              </div>
+              <div class="setting-actions">
+                <app-button
+                  variant="primary"
+                  size="sm"
+                  [loading]="savingPlatformKey === setting.key"
+                  (clicked)="savePlatformSetting(setting)">
+                  Save
+                </app-button>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </app-card>
+  }
+
+  <app-card padding="lg" class="section-card">
+    <h3>Connected social accounts</h3>
+    <p class="social-accounts-description">
+      Connect a social account once and the Engine's browser agent stays logged in for every lead — no per-lead login.
+      On your own computer, run this one command (installs nothing permanent), log in normally in the window that opens, then close it:
+      <br />
+      <code>npx playwright&#64;latest codegen --save-storage=session.json https://www.instagram.com</code>
+      <br />
+      Swap the URL for the platform you're connecting. Then open the generated <code>session.json</code>, copy everything, and paste it below.
+      It's your live login — treat it like a password; it's stored encrypted.
+    </p>
+
+    @if (!encryptionConfigured()) {
+      <div class="encryption-warning">
+        <i class="bi bi-exclamation-triangle"></i>
+        <span>Server encryption key not configured — set APP_ENCRYPTION_KEY to connect accounts.</span>
+      </div>
+    }
+
+    <div class="social-accounts-grid">
+      @for (card of socialPlatforms; track card.platform) {
+        <div class="social-account-card" *ngIf="accountFor(card.platform) as account; else notConnectedCard">
+          <div class="social-account-icon"><i [class]="'bi ' + card.icon"></i></div>
+          <div class="social-account-body">
+            <div class="social-account-header">
+              <span class="social-account-name">{{ card.name }}</span>
+              <app-badge [variant]="statusVariant(account)" size="sm">{{ statusLabel(account) }}</app-badge>
+            </div>
+            @if (account.lastValidatedAt) {
+              <p class="social-account-meta">Last validated {{ relativeTime(account.lastValidatedAt) }}</p>
+            }
+            <div class="social-account-actions">
+              <app-button
+                variant="secondary"
+                size="sm"
+                [disabled]="!encryptionConfigured()"
+                (clicked)="openConnectDialog(card)">
+                Update
+              </app-button>
+              <app-button
+                variant="ghost"
+                size="sm"
+                [loading]="testingAccountId === account.id"
+                (clicked)="testAccount(account)">
+                Test
+              </app-button>
+              <app-button
+                variant="danger"
+                size="sm"
+                [loading]="disconnectingAccountId === account.id"
+                (clicked)="disconnectAccount(account)">
+                Disconnect
+              </app-button>
+            </div>
+          </div>
+        </div>
+        <ng-template #notConnectedCard>
+          <div class="social-account-card">
+            <div class="social-account-icon"><i [class]="'bi ' + card.icon"></i></div>
+            <div class="social-account-body">
+              <div class="social-account-header">
+                <span class="social-account-name">{{ card.name }}</span>
+                <app-badge variant="neutral" size="sm">Not connected</app-badge>
+              </div>
+              <div class="social-account-actions">
+                <app-button
+                  variant="secondary"
+                  size="sm"
+                  [disabled]="!encryptionConfigured()"
+                  (clicked)="openConnectDialog(card)">
+                  Connect
+                </app-button>
+              </div>
+            </div>
+          </div>
+        </ng-template>
+      }
+    </div>
+  </app-card>
+</div>
+
+<app-dialog
+  [title]="'Connect ' + (connectTarget?.name ?? '')"
+  [show]="showConnectDialog"
+  size="md"
+  (close)="closeConnectDialog()">
+  <div class="connect-account-form">
+    <div class="textarea-field">
+      <label>Session JSON</label>
+      <textarea
+        rows="10"
+        class="storage-state-input"
+        [(ngModel)]="connectStorageState"
+        [ngModelOptions]="{ standalone: true }"
+        placeholder="Paste the contents of session.json here..."></textarea>
+      <p class="field-hint">Generate it with <code>npx playwright&#64;latest codegen --save-storage=session.json &lt;platform login URL&gt;</code>, log in, close the window, then paste the file's contents. This is your live login — stored encrypted.</p>
+    </div>
+  </div>
+
+  <div dialog-footer>
+    <app-button variant="ghost" (clicked)="closeConnectDialog()">Cancel</app-button>
+    <app-button
+      variant="primary"
+      [loading]="savingConnect"
+      [disabled]="!connectStorageState.trim()"
+      (clicked)="submitConnect()">
+      Save
+    </app-button>
+  </div>
+</app-dialog>
+
+<app-dialog
+  [title]="editingBookingLink ? 'Edit booking link' : 'New booking link'"
+  [show]="showBookingDialog"
+  size="lg"
+  (close)="closeBookingDialog()">
+  <div class="booking-link-form">
+    <app-input
+      label="Title"
+      [required]="true"
+      placeholder="e.g. 30-minute intro call"
+      [(ngModel)]="bookingForm.title"
+      [ngModelOptions]="{ standalone: true }">
+    </app-input>
+
+    <div class="textarea-field">
+      <label>Description</label>
+      <textarea
+        rows="3"
+        placeholder="What this meeting is about (shown to the prospect)."
+        [(ngModel)]="bookingForm.description"
+        [ngModelOptions]="{ standalone: true }"></textarea>
+    </div>
+
+    <div class="form-row">
+      <app-input
+        label="Duration (minutes)"
+        type="number"
+        [(ngModel)]="bookingForm.durationMinutes"
+        [ngModelOptions]="{ standalone: true }">
+      </app-input>
+      <app-input
+        label="Buffer (minutes)"
+        type="number"
+        [(ngModel)]="bookingForm.bufferMinutes"
+        [ngModelOptions]="{ standalone: true }">
+      </app-input>
+    </div>
+
+    <app-input
+      label="Timezone"
+      placeholder="e.g. America/Chicago"
+      [(ngModel)]="bookingForm.timezone"
+      [ngModelOptions]="{ standalone: true }">
+    </app-input>
+
+    <div class="availability-editor">
+      <span class="availability-title">Weekly availability</span>
+      @for (day of bookingAvailability; track day.weekday) {
+        <div class="availability-row" [class.availability-row--off]="!day.enabled">
+          <div class="availability-day">
+            <app-switch [(ngModel)]="day.enabled" [ngModelOptions]="{ standalone: true }"></app-switch>
+            <span class="availability-day-label">{{ day.label }}</span>
+          </div>
+          <div class="availability-times">
+            <input type="time" [(ngModel)]="day.start" [ngModelOptions]="{ standalone: true }" [disabled]="!day.enabled" />
+            <span class="availability-dash">–</span>
+            <input type="time" [(ngModel)]="day.end" [ngModelOptions]="{ standalone: true }" [disabled]="!day.enabled" />
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+
+  <div dialog-footer>
+    <app-button variant="ghost" (clicked)="closeBookingDialog()">Cancel</app-button>
+    <app-button
+      variant="primary"
+      [loading]="savingBookingLink"
+      [disabled]="!bookingForm.title.trim()"
+      (clicked)="saveBookingLink()">
+      {{ editingBookingLink ? 'Save changes' : 'Create link' }}
+    </app-button>
+  </div>
+</app-dialog>

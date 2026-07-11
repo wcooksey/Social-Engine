@@ -1,0 +1,164 @@
+<div class="experiments-page">
+  <div class="page-header">
+    <div>
+      <h1>Experiments</h1>
+      <p class="subtitle">Split-test your outreach — the Engine tracks which messages get replies</p>
+    </div>
+    <app-button variant="primary" icon="bi-plus-lg" (clicked)="openCreate()">New experiment</app-button>
+  </div>
+
+  @if (loading()) {
+    <div class="loading-state">
+      <span class="spinner"></span>
+      <p>Loading experiments...</p>
+    </div>
+  } @else if (experiments().length) {
+    <div class="experiments-list">
+      @for (experiment of experiments(); track experiment.id) {
+        <app-card padding="lg" class="experiment-card">
+          <div class="experiment-header">
+            <div class="experiment-title">
+              <h3>{{ experiment.name }}</h3>
+              <div class="badge-row">
+                <app-badge [variant]="channelBadgeVariant(experiment.channel)" size="sm">{{ experiment.channel }}</app-badge>
+                <app-badge [variant]="statusBadgeVariant(experiment.status)" size="sm">{{ experiment.status }}</app-badge>
+              </div>
+            </div>
+
+            <div class="experiment-actions">
+              @if (experiment.status !== 'COMPLETED') {
+                <app-button
+                  variant="secondary"
+                  size="sm"
+                  [loading]="updatingId() === experiment.id"
+                  (clicked)="toggleStatus(experiment)">
+                  {{ experiment.status === 'ACTIVE' ? 'Pause' : 'Resume' }}
+                </app-button>
+                <app-button
+                  variant="ghost"
+                  size="sm"
+                  [loading]="updatingId() === experiment.id"
+                  (clicked)="conclude(experiment)">
+                  Conclude
+                </app-button>
+              }
+            </div>
+          </div>
+
+          @if (experiment.goal) {
+            <p class="experiment-goal">{{ experiment.goal }}</p>
+          }
+
+          <div class="variants-section">
+            <div class="variants-heading">Variant results</div>
+            <div class="variants-list">
+              @for (variant of experiment.variants; track variant.id) {
+                <div class="variant-row">
+                  <div class="variant-label-row">
+                    <span class="variant-label">{{ variant.label }}</span>
+                    @if (isWinner(experiment, variant)) {
+                      <app-badge variant="success" size="xs">Winner</app-badge>
+                    } @else if (isLeading(experiment, variant)) {
+                      <app-badge variant="info" size="xs">Leading</app-badge>
+                    }
+                  </div>
+                  <p class="variant-content">{{ variant.content }}</p>
+
+                  @if (variant.sends > 0) {
+                    <div class="variant-bar-row">
+                      <div class="bar-track">
+                        <div class="bar-fill" [style.width]="barWidth(variant)"></div>
+                      </div>
+                      <span class="variant-rate">{{ formatRate(variant) }}</span>
+                    </div>
+                    <div class="variant-stats">
+                      {{ variant.sends }} sends &middot; {{ variant.responses }} responses
+                    </div>
+                  } @else {
+                    <div class="variant-no-data">No data yet</div>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+        </app-card>
+      }
+    </div>
+  } @else {
+    <div class="empty-state">
+      <i class="bi bi-bar-chart"></i>
+      <p>No experiments yet. Create a split test to see which message gets the most replies.</p>
+      <app-button variant="primary" icon="bi-plus-lg" (clicked)="openCreate()">New experiment</app-button>
+    </div>
+  }
+</div>
+
+<app-dialog title="New Experiment" [show]="showDialog()" size="lg" (close)="showDialog.set(false)">
+  <div class="experiment-form">
+    <app-input label="Name" [required]="true" [(ngModel)]="form.name" [ngModelOptions]="{ standalone: true }"></app-input>
+
+    <div class="form-row">
+      <app-select
+        label="Channel"
+        [showPlaceholderOption]="false"
+        [options]="channelOptions"
+        [(ngModel)]="form.channel"
+        [ngModelOptions]="{ standalone: true }">
+      </app-select>
+
+      <app-input
+        label="Goal"
+        placeholder="What counts as a response?"
+        [(ngModel)]="form.goal"
+        [ngModelOptions]="{ standalone: true }">
+      </app-input>
+    </div>
+
+    <div class="field">
+      <div class="variants-form-header">
+        <label>Variants</label>
+        <app-button variant="ghost" size="sm" icon="bi-plus-lg" (clicked)="addVariant()">Add variant</app-button>
+      </div>
+
+      <div class="variant-rows">
+        @for (variant of form.variants; track $index) {
+          <div class="variant-row-form">
+            <div class="variant-row-form-header">
+              <span class="variant-row-index">Variant {{ $index + 1 }}</span>
+              @if (form.variants.length > 2) {
+                <button type="button" class="icon-btn icon-btn--danger" (click)="removeVariant($index)" title="Remove variant">
+                  <i class="bi bi-trash"></i>
+                </button>
+              }
+            </div>
+            <app-input
+              label="Label"
+              placeholder="e.g. Direct ask"
+              [(ngModel)]="variant.label"
+              [ngModelOptions]="{ standalone: true }">
+            </app-input>
+            <div class="textarea-field">
+              <label>Content</label>
+              <textarea
+                rows="3"
+                [(ngModel)]="variant.content"
+                [ngModelOptions]="{ standalone: true }"
+                placeholder="Message content for this variant"></textarea>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+
+  <div dialog-footer>
+    <app-button variant="ghost" (clicked)="showDialog.set(false)">Cancel</app-button>
+    <app-button
+      variant="primary"
+      [loading]="saving()"
+      [disabled]="!isFormValid()"
+      (clicked)="submit()">
+      Create Experiment
+    </app-button>
+  </div>
+</app-dialog>

@@ -1,0 +1,262 @@
+import { prisma } from '../config/database';
+import { config } from '../config/environment';
+import { decrypt, encrypt, isEncryptionConfigured } from '../utils/encryption';
+
+/**
+ * DB-backed settings with env fallback. Each account configures its own
+ * integration keys in the app (stored encrypted); the platform-wide knobs are
+ * super-admin only. Resolution precedence: DB value -> env var -> default.
+ */
+
+export interface OrgSettingDef {
+  key: string; // canonical name, matches the env var name for clarity
+  label: string;
+  group: 'ai' | 'search' | 'email' | 'sms' | 'voice';
+  secret: boolean;
+  placeholder?: string;
+}
+
+// Registry of org-configurable settings (drives the Settings UI + resolution).
+export const ORG_SETTING_DEFS: OrgSettingDef[] = [
+  { key: 'ANTHROPIC_API_KEY', label: 'Anthropic (Claude) API key', group: 'ai', secret: true },
+  { key: 'OPENAI_API_KEY', label: 'OpenAI API key', group: 'ai', secret: true },
+  { key: 'GEMINI_API_KEY', label: 'Google Gemini API key', group: 'ai', secret: true },
+  { key: 'XAI_API_KEY', label: 'xAI (Grok) API key', group: 'ai', secret: true },
+  { key: 'DEEPSEEK_API_KEY', label: 'DeepSeek API key', group: 'ai', secret: true },
+
+  { key: 'SEARCH_API_KEY', label: 'Web search API key', group: 'search', secret: true },
+  { key: 'SEARCH_API_PROVIDER', label: 'Search provider', group: 'search', secret: false, placeholder: 'brave' },
+  { key: 'GOOGLE_PLACES_API_KEY', label: 'Google Places API key (lead sourcing)', group: 'search', secret: true },
+  { key: 'APOLLO_API_KEY', label: 'Apollo API key (contact enrichment)', group: 'search', secret: true },
+
+  { key: 'MAILGUN_API_KEY', label: 'Mailgun API key', group: 'email', secret: true },
+  { key: 'MAILGUN_DOMAIN', label: 'Mailgun domain', group: 'email', secret: false },
+
+  { key: 'TWILIO_ACCOUNT_SID', label: 'Twilio Account SID', group: 'sms', secret: false },
+  { key: 'TWILIO_AUTH_TOKEN', label: 'Twilio Auth Token', group: 'sms', secret: true },
+  { key: 'TWILIO_FROM_NUMBER', label: 'Twilio from number', group: 'sms', secret: false, placeholder: '+1...' },
+
+  { key: 'VAPI_API_KEY', label: 'Vapi API key', group: 'voice', secret: true },
+  { key: 'VAPI_PHONE_NUMBER_ID', label: 'Vapi phone number ID', group: 'voice', secret: false },
+  { key: 'VAPI_WEBHOOK_SECRET', label: 'Vapi webhook secret', group: 'voice', secret: true },
+  { key: 'VAPI_ASSISTANT_MODEL', label: 'Vapi assistant model', group: 'voice', secret: false, placeholder: 'gpt-4o' },
+  { key: 'VAPI_VOICE_PROVIDER', label: 'Vapi voice provider', group: 'voice', secret: false, placeholder: '11labs' },
+  { key: 'VAPI_VOICE_ID', label: 'Vapi voice ID', group: 'voice', secret: false, placeholder: 'burt' },
+];
+
+const ORG_DEF_BY_KEY = new Map(ORG_SETTING_DEFS.map((d) => [d.key, d]));
+
+// Platform (super-admin) settings.
+export interface PlatformSettingDef {
+  key: string;
+  label: string;
+  type: 'number';
+  default: number;
+  min: number;
+  max: number;
+}
+export const PLATFORM_SETTING_DEFS: PlatformSettingDef[] = [
+  { key: 'ENGINE_MAX_ITERATIONS', label: 'Engine max iterations per run', type: 'number', default: config.engine.maxIterations, min: 1, max: 200 },
+  { key: 'ENGINE_WORKER_CONCURRENCY', label: 'Concurrent agents (global)', type: 'number', default: config.engine.workerConcurrency, min: 1, max: 64 },
+  { key: 'ENGINE_ORG_CONCURRENCY', label: 'Concurrent agents per organization', type: 'number', default: config.engine.orgConcurrency, min: 1, max: 32 },
+  { key: 'ENGINE_WORKER_INTERVAL_MS', label: 'Worker poll interval (ms)', type: 'number', default: config.engine.workerIntervalMs, min: 1000, max: 600000 },
+];
+
+// --- Raw value resolution -------------------------------------------------
+
+async function rawOrgValue(organizationId: string, key: string): Promise<string | undefined> {
+  const row = await prisma.orgSetting.findUnique({
+    where: { organizationId_key: { organizationId, key } },
+  });
+  if (!row) return undefined;
+  if (row.isSecret) {
+    try {
+      return decrypt(row.value);
+    } catch {
+      return undefined;
+    }
+  }
+  return row.value;
+}
+
+/** Resolve one org setting: DB -> env -> undefined. */
+export async function resolveOrg(organizationId: string, key: string): Promise<string> {
+  const db = await rawOrgValue(organizationId, key);
+  if (db !== undefined && db !== '') return db;
+  return process.env[key] || '';
+}
+
+// --- Typed resolved config for consumers ----------------------------------
+
+export interface ResolvedOrgConfig {
+  providerKeys: {
+    anthropic: string;
+    openai: string;
+    google: string;
+    xai: string;
+    deepseek: string;
+  };
+  search: { apiKey: string; provider: string; googlePlacesApiKey: string; apolloApiKey: string };
+  mailgun: { apiKey: string; domain: string };
+  twilio: { accountSid: string; authToken: string; fromNumber: string };
+  vapi: {
+    apiKey: string;
+    phoneNumberId: string;
+    webhookSecret: string;
+    assistantModel: string;
+    voiceProvider: string;
+    voiceId: string;
+  };
+}
+
+export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgConfig> {
+  const g = (key: string) => resolveOrg(organizationId, key);
+  const [
+    anthropic, openai, gemini, xai, deepseek,
+    searchKey, searchProvider, placesKey, apolloKey,
+    mgKey, mgDomain,
+    twSid, twToken, twFrom,
+    vpKey, vpPhone, vpSecret, vpModel, vpVoiceProvider, vpVoiceId,
+  ] = await Promise.all([
+    g('ANTHROPIC_API_KEY'), g('OPENAI_API_KEY'), g('GEMINI_API_KEY'), g('XAI_API_KEY'), g('DEEPSEEK_API_KEY'),
+    g('SEARCH_API_KEY'), g('SEARCH_API_PROVIDER'), g('GOOGLE_PLACES_API_KEY'), g('APOLLO_API_KEY'),
+    g('MAILGUN_API_KEY'), g('MAILGUN_DOMAIN'),
+    g('TWILIO_ACCOUNT_SID'), g('TWILIO_AUTH_TOKEN'), g('TWILIO_FROM_NUMBER'),
+    g('VAPI_API_KEY'), g('VAPI_PHONE_NUMBER_ID'), g('VAPI_WEBHOOK_SECRET'),
+    g('VAPI_ASSISTANT_MODEL'), g('VAPI_VOICE_PROVIDER'), g('VAPI_VOICE_ID'),
+  ]);
+  return {
+    providerKeys: { anthropic, openai, google: gemini, xai, deepseek },
+    search: { apiKey: searchKey, provider: searchProvider || 'brave', googlePlacesApiKey: placesKey, apolloApiKey: apolloKey },
+    mailgun: { apiKey: mgKey, domain: mgDomain },
+    twilio: { accountSid: twSid, authToken: twToken, fromNumber: twFrom },
+    vapi: {
+      apiKey: vpKey,
+      phoneNumberId: vpPhone,
+      webhookSecret: vpSecret,
+      assistantModel: vpModel || 'gpt-4o',
+      voiceProvider: vpVoiceProvider || '11labs',
+      voiceId: vpVoiceId || 'burt',
+    },
+  };
+}
+
+// --- Mutations ------------------------------------------------------------
+
+export async function setOrgSetting(organizationId: string, key: string, value: string): Promise<void> {
+  const def = ORG_DEF_BY_KEY.get(key);
+  if (!def) throw new Error(`Unknown setting: ${key}`);
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    await prisma.orgSetting.deleteMany({ where: { organizationId, key } });
+    return;
+  }
+  if (def.secret && !isEncryptionConfigured()) {
+    throw new Error('APP_ENCRYPTION_KEY is not configured — cannot store secret settings.');
+  }
+  const stored = def.secret ? encrypt(trimmed) : trimmed;
+  await prisma.orgSetting.upsert({
+    where: { organizationId_key: { organizationId, key } },
+    create: { organizationId, key, value: stored, isSecret: def.secret },
+    update: { value: stored, isSecret: def.secret },
+  });
+}
+
+/** Masked view for the UI — never returns secret values, only whether set + source. */
+export async function listOrgSettings(organizationId: string) {
+  const rows = await prisma.orgSetting.findMany({ where: { organizationId } });
+  const byKey = new Map(rows.map((r) => [r.key, r]));
+  return ORG_SETTING_DEFS.map((def) => {
+    const row = byKey.get(def.key);
+    const envValue = process.env[def.key] || '';
+    const setInDb = !!row;
+    const source = setInDb ? 'org' : envValue ? 'env' : 'unset';
+    return {
+      key: def.key,
+      label: def.label,
+      group: def.group,
+      secret: def.secret,
+      placeholder: def.placeholder,
+      source,
+      configured: setInDb || !!envValue,
+      // Non-secret values can be shown; secrets never are.
+      value: def.secret ? undefined : setInDb ? row!.value : envValue || undefined,
+    };
+  });
+}
+
+// --- Platform settings ----------------------------------------------------
+
+export async function getPlatformNumber(key: string, fallback: number): Promise<number> {
+  const row = await prisma.platformSetting.findUnique({ where: { key } });
+  if (row) {
+    const n = parseInt(row.value, 10);
+    if (!isNaN(n)) return n;
+  }
+  const env = process.env[key];
+  if (env) {
+    const n = parseInt(env, 10);
+    if (!isNaN(n)) return n;
+  }
+  return fallback;
+}
+
+export interface PlatformEngineConfig {
+  maxIterations: number;
+  workerConcurrency: number;
+  orgConcurrency: number;
+  workerIntervalMs: number;
+}
+
+let platformCache: { at: number; value: PlatformEngineConfig } | null = null;
+
+export async function getPlatformEngineConfig(): Promise<PlatformEngineConfig> {
+  if (platformCache && Date.now() - platformCache.at < 10000) return platformCache.value;
+  const [maxIterations, workerConcurrency, orgConcurrency, workerIntervalMs] = await Promise.all([
+    getPlatformNumber('ENGINE_MAX_ITERATIONS', config.engine.maxIterations),
+    getPlatformNumber('ENGINE_WORKER_CONCURRENCY', config.engine.workerConcurrency),
+    getPlatformNumber('ENGINE_ORG_CONCURRENCY', config.engine.orgConcurrency),
+    getPlatformNumber('ENGINE_WORKER_INTERVAL_MS', config.engine.workerIntervalMs),
+  ]);
+  const value = { maxIterations, workerConcurrency, orgConcurrency, workerIntervalMs };
+  platformCache = { at: Date.now(), value };
+  return value;
+}
+
+export async function listPlatformSettings() {
+  const rows = await prisma.platformSetting.findMany();
+  const byKey = new Map(rows.map((r) => [r.key, r]));
+  return PLATFORM_SETTING_DEFS.map((def) => {
+    const row = byKey.get(def.key);
+    const envValue = process.env[def.key];
+    return {
+      key: def.key,
+      label: def.label,
+      type: def.type,
+      value: row ? parseInt(row.value, 10) : envValue ? parseInt(envValue, 10) : def.default,
+      source: row ? 'platform' : envValue ? 'env' : 'default',
+      default: def.default,
+    };
+  });
+}
+
+export async function setPlatformSetting(key: string, value: string): Promise<void> {
+  const def = PLATFORM_SETTING_DEFS.find((d) => d.key === key);
+  if (!def) throw new Error(`Unknown platform setting: ${key}`);
+  const n = parseInt(value, 10);
+  if (isNaN(n)) throw new Error('Value must be a number');
+  if (n < def.min || n > def.max) {
+    throw new Error(`${def.label} must be between ${def.min} and ${def.max}`);
+  }
+  await prisma.platformSetting.upsert({
+    where: { key },
+    create: { key, value: String(n) },
+    update: { value: String(n) },
+  });
+  platformCache = null;
+}
+
+export function isSuperAdmin(email: string | undefined): boolean {
+  const su = config.superAdminEmail;
+  return !!su && !!email && email.toLowerCase() === su.toLowerCase();
+}

@@ -1,0 +1,200 @@
+@import '../../../assets/styles/variables';
+@import '../../../assets/styles/mixins';
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-md;
+  margin-bottom: $spacing-lg;
+  flex-wrap: wrap;
+
+  .subtitle {
+    color: var(--text-secondary);
+    margin-top: $spacing-xs;
+  }
+}
+
+.loading-state,
+.empty-state {
+  @include flex-center;
+  flex-direction: column;
+  gap: $spacing-md;
+  padding: $spacing-2xl;
+  color: var(--text-secondary);
+  text-align: center;
+
+  i {
+    font-size: 2rem;
+    color: var(--text-tertiary);
+  }
+}
+
+.empty-example {
+  max-width: 480px;
+  font-style: italic;
+  color: var(--text-tertiary);
+  font-size: $font-size-sm;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border-primary);
+  border-top-color: $primary-blue;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.playbooks-list {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.playbook-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-md;
+}
+
+.playbook-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.playbook-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+
+  h3 {
+    margin: 0;
+  }
+}
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+  margin-top: $spacing-sm;
+}
+
+.playbook-instructions {
+  color: var(--text-secondary);
+  font-size: $font-size-sm;
+  margin-top: $spacing-sm;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-line;
+}
+
+.playbook-actions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: $border-radius-md;
+  border: none;
+  background: var(--border-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  @include flex-center;
+  flex-shrink: 0;
+  transition: all $transition-fast;
+
+  &:hover {
+    background: var(--border-secondary);
+  }
+
+  &--danger:hover {
+    background: var(--error-color);
+    color: white;
+  }
+}
+
+.playbook-form {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: $spacing-md;
+  align-items: start;
+
+  @include responsive($breakpoint-md) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+
+  label {
+    font-size: $font-size-sm;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+}
+
+.active-field {
+  justify-content: center;
+}
+
+.textarea-field {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+
+  label {
+    font-size: $font-size-sm;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  textarea {
+    width: 100%;
+    padding: $spacing-sm $spacing-md;
+    font-family: $font-family-primary;
+    font-size: $font-size-base;
+    color: var(--text-primary);
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-secondary);
+    border-radius: $border-radius-md;
+    resize: vertical;
+
+    &:focus {
+      outline: none;
+      border-color: $primary-blue;
+      box-shadow: 0 0 0 3px rgba(66, 93, 185, 0.1);
+    }
+  }
+}
+
+.instructions-input {
+  font-family: $font-family-mono;
+  font-size: $font-size-sm;
+  line-height: 1.5;
+}
+
+.footer-spacer {
+  flex: 1;
+}
