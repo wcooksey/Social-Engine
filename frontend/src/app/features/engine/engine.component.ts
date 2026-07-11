@@ -7,11 +7,12 @@ import { ToastService } from '../../core/services/toast.service';
 import { VoiceService } from '../../core/services/voice.service';
 import { ModelPickerComponent } from './model-picker/model-picker.component';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
+import { ChatAmbientComponent } from '../../shared/components/chat-ambient/chat-ambient.component';
 
 @Component({
   selector: 'app-engine',
   standalone: true,
-  imports: [CommonModule, FormsModule, ModelPickerComponent, MarkdownPipe],
+  imports: [CommonModule, FormsModule, ModelPickerComponent, MarkdownPipe, ChatAmbientComponent],
   templateUrl: './engine.component.html',
   styleUrl: './engine.component.scss'
 })

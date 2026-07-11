@@ -10,11 +10,12 @@ import { InputComponent } from '../../shared/components/input/input.component';
 import { SelectComponent, SelectOption } from '../../shared/components/select/select.component';
 import { BadgeComponent, BadgeVariant } from '../../shared/components/badge/badge.component';
 import { ButtonComponent } from '../../shared/components/button/button.component';
+import { ChatAmbientComponent } from '../../shared/components/chat-ambient/chat-ambient.component';
 
 @Component({
   selector: 'app-inbox',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, InputComponent, SelectComponent, BadgeComponent, ButtonComponent],
+  imports: [CommonModule, FormsModule, RouterLink, InputComponent, SelectComponent, BadgeComponent, ButtonComponent, ChatAmbientComponent],
   templateUrl: './inbox.component.html',
   styleUrl: './inbox.component.scss'
 })

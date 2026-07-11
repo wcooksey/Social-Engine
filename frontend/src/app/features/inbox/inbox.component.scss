@@ -189,6 +189,7 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  position: relative;
 }
 
 .thread-header {
@@ -198,6 +199,8 @@
   padding: $spacing-md $spacing-lg;
   border-bottom: 1px solid var(--border-primary);
   flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .back-btn {
@@ -264,6 +267,8 @@
   flex-direction: column;
   gap: $spacing-md;
   padding: $spacing-lg;
+  position: relative;
+  z-index: 1;
 }
 
 // ============================================
@@ -313,9 +318,11 @@
     }
 
     [data-theme="light"] & {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      border: none;
       box-shadow:
-        0 10px 25px -8px rgba($primary-blue, 0.45),
-        0 4px 10px -4px rgba($primary-blue, 0.25);
+        0 10px 25px -8px rgba(37, 99, 235, 0.45),
+        0 4px 10px -4px rgba(37, 99, 235, 0.25);
     }
   }
 
@@ -422,6 +429,8 @@
   gap: $spacing-sm;
   padding: $spacing-md $spacing-lg;
   border-top: 1px solid var(--border-primary);
+  position: relative;
+  z-index: 1;
 }
 
 .composer-input {
@@ -467,6 +476,8 @@
   color: var(--text-tertiary);
   font-size: $font-size-sm;
   font-style: italic;
+  position: relative;
+  z-index: 1;
 }
 
 // ---------- Shared states ----------

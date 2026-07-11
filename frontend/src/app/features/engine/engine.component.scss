@@ -132,6 +132,8 @@
   margin-bottom: $spacing-xs;
   border-bottom: 1px solid var(--border-primary);
   flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .engine-topbar-title {
@@ -160,6 +162,7 @@
   text-align: center;
   padding: $spacing-2xl $spacing-lg;
   position: relative;
+  z-index: 1;
   overflow: hidden;
 }
 
@@ -239,6 +242,8 @@
   flex-direction: column;
   gap: $spacing-md;
   padding: $spacing-md $spacing-xs $spacing-lg;
+  position: relative;
+  z-index: 1;
 }
 
 .thread-loading {
@@ -320,9 +325,11 @@
       }
 
       [data-theme="light"] & {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        border: none;
         box-shadow:
-          0 10px 25px -8px rgba($primary-blue, 0.45),
-          0 4px 10px -4px rgba($primary-blue, 0.25);
+          0 10px 25px -8px rgba(37, 99, 235, 0.45),
+          0 4px 10px -4px rgba(37, 99, 235, 0.25);
       }
     }
   }
@@ -548,6 +555,8 @@
 // ---- Input bar ----
 .input-bar {
   padding: $spacing-md $spacing-xs 0;
+  position: relative;
+  z-index: 1;
 }
 
 .listening-hint {

@@ -81,6 +81,7 @@
     } @else {
     @if (selectedConversation(); as convo) {
       <div class="thread">
+        <app-chat-ambient></app-chat-ambient>
         <div class="thread-header">
           <button type="button" class="back-btn" (click)="backToList()">
             <i class="bi bi-arrow-left"></i>
