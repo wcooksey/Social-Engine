@@ -176,7 +176,7 @@
   background: radial-gradient(circle, rgba($primary-blue, 0.16) 0%, transparent 70%);
   pointer-events: none;
 
-  [data-theme="light"] &,
+  :host-context([data-theme="light"]) &,
   :host-context([data-theme="light"]) & {
     background: radial-gradient(circle, rgba($primary-blue, 0.08) 0%, transparent 70%);
   }
@@ -241,7 +241,8 @@
   display: flex;
   flex-direction: column;
   gap: $spacing-md;
-  padding: $spacing-md $spacing-xs $spacing-lg;
+  // Inner padding so bubbles don't touch the chat-window edges.
+  padding: $spacing-lg $spacing-lg $spacing-xl;
   position: relative;
   z-index: 1;
 }
@@ -285,7 +286,7 @@
       }
 
       // Light mode: ceramic white bubble with soft shadow
-      [data-theme="light"] & {
+      :host-context([data-theme="light"]) & {
         background: #FFFFFF;
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
@@ -324,7 +325,7 @@
         color: #FFFFFF;
       }
 
-      [data-theme="light"] & {
+      :host-context([data-theme="light"]) & {
         background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
         border: none;
         box-shadow:
@@ -380,7 +381,7 @@
       color: white;
       border: 1px solid rgba($primary-blue, 0.4);
 
-      [data-theme="light"] & {
+      :host-context([data-theme="light"]) & {
         background: rgba($primary-blue, 0.1);
         color: $primary-blue;
         border: 1px solid rgba($primary-blue, 0.2);
@@ -392,7 +393,7 @@
       color: $secondary-orange;
       border: 1px solid rgba($secondary-orange, 0.4);
 
-      [data-theme="light"] & {
+      :host-context([data-theme="light"]) & {
         background: rgba($secondary-orange, 0.1);
         color: darken($secondary-orange, 12%);
         border: 1px solid rgba($secondary-orange, 0.2);
@@ -424,7 +425,7 @@
     background: rgba($primary-blue, 0.7);
     animation: lead-typing-wave 1.4s ease-in-out infinite;
 
-    [data-theme="light"] & {
+    :host-context([data-theme="light"]) & {
       background: $primary-blue;
     }
 
@@ -554,7 +555,8 @@
 
 // ---- Input bar ----
 .input-bar {
-  padding: $spacing-md $spacing-xs 0;
+  // Breathing room around the input bubble on all sides.
+  padding: $spacing-md $spacing-md $spacing-md;
   position: relative;
   z-index: 1;
 }
@@ -584,9 +586,10 @@
 
 .input-shell {
   display: flex;
-  align-items: flex-end;
+  // Vertically center the text/buttons with the input (was bottom-aligned).
+  align-items: center;
   gap: $spacing-sm;
-  padding: $spacing-sm;
+  padding: $spacing-xs $spacing-sm;
   border-radius: $border-radius-xl;
   background: var(--bg-card);
   border: 1px solid var(--border-secondary);

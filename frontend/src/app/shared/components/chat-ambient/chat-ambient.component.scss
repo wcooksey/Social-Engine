@@ -15,7 +15,7 @@
   overflow: hidden;
   background: linear-gradient(135deg, rgba(26, 26, 26, 0.95) 0%, rgba(31, 29, 27, 0.95) 100%);
 
-  [data-theme="light"] & {
+  :host-context([data-theme="light"]) & {
     background: #f3f6f9;
 
     // Faint static grid for light mode
@@ -49,7 +49,7 @@
   animation: chat-grid-move 20s linear infinite;
   pointer-events: none;
 
-  [data-theme="light"] & {
+  :host-context([data-theme="light"]) & {
     display: none;
   }
 }
@@ -63,7 +63,7 @@
   height: 100%;
   pointer-events: none;
 
-  [data-theme="light"] & {
+  :host-context([data-theme="light"]) & {
     display: none;
   }
 

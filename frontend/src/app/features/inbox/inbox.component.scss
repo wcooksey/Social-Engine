@@ -317,7 +317,7 @@
       color: rgba(255, 255, 255, 0.85);
     }
 
-    [data-theme="light"] & {
+    :host-context([data-theme="light"]) & {
       background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
       border: none;
       box-shadow:
@@ -346,7 +346,7 @@
     }
 
     // Light mode: ceramic white bubble with soft shadow
-    [data-theme="light"] & {
+    :host-context([data-theme="light"]) & {
       background: #FFFFFF;
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
@@ -401,7 +401,7 @@
     color: var(--text-secondary);
   }
 
-  [data-theme="light"] & {
+  :host-context([data-theme="light"]) & {
     background: rgba(255, 255, 255, 0.7);
     border: 1px dashed rgba(0, 0, 0, 0.2);
     color: var(--text-secondary);
