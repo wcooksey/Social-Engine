@@ -11,12 +11,26 @@ const PLATFORM_ENUM: Record<PlatformKey, 'LINKEDIN' | 'FACEBOOK' | 'INSTAGRAM' |
   x: 'X',
 };
 
-/** Home URL + a substring that only appears when logged OUT (login wall). */
-const PLATFORM_PROBE: Record<PlatformKey, { url: string; loggedOutSignal: RegExp }> = {
-  linkedin: { url: 'https://www.linkedin.com/feed/', loggedOutSignal: /\/(login|uas\/login|checkpoint)/i },
-  facebook: { url: 'https://www.facebook.com/', loggedOutSignal: /login|log in to facebook/i },
-  instagram: { url: 'https://www.instagram.com/', loggedOutSignal: /\/accounts\/login/i },
-  x: { url: 'https://x.com/home', loggedOutSignal: /\/(login|i\/flow\/login)/i },
+/**
+ * Home URL + signals that appear only on a login wall. `url` is matched against
+ * the FINAL url (a redirect to /login is the reliable logged-out signal). `text`
+ * is an optional match against page body for sites that render a login splash at
+ * the same url without redirecting (Facebook). Text patterns are kept tight — a
+ * bare "login" matches all over a logged-IN page and produces false "expired".
+ */
+const PLATFORM_PROBE: Record<PlatformKey, { url: string; loggedOutUrl: RegExp; loggedOutText?: RegExp }> = {
+  linkedin: { url: 'https://www.linkedin.com/feed/', loggedOutUrl: /\/(login|uas\/login|checkpoint|authwall)/i },
+  facebook: {
+    url: 'https://www.facebook.com/',
+    loggedOutUrl: /login\.php|\/checkpoint|\/login\//i,
+    loggedOutText: /log in to facebook|log into facebook|create new account/i,
+  },
+  instagram: {
+    url: 'https://www.instagram.com/',
+    loggedOutUrl: /\/accounts\/login/i,
+    loggedOutText: /log in to instagram|sign up to see/i,
+  },
+  x: { url: 'https://x.com/home', loggedOutUrl: /\/(login|i\/flow\/login)/i },
 };
 
 export function toPlatformEnum(platform: PlatformKey) {
@@ -120,7 +134,9 @@ export async function validateAccount(accountId: string, organizationId: string)
   try {
     await session.open({ storageState: state });
     const obs = await session.goto(probe.url);
-    const loggedOut = probe.loggedOutSignal.test(obs.url) || probe.loggedOutSignal.test(obs.text);
+    const loggedOut =
+      probe.loggedOutUrl.test(obs.url) ||
+      (!!probe.loggedOutText && probe.loggedOutText.test(obs.text));
     // Refresh cookies while we're here to extend the session.
     const refreshed = await session.exportState();
     await session.close();
