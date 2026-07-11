@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { roleMiddleware } from '../middleware/auth.middleware';
 import { prisma } from '../config/database';
+import { config } from '../config/environment';
 import { getOrgConfig } from '../services/settings.service';
 import * as channels from '../services/channels.service';
 import { buildCallSystemPrompt } from '../engine/prompts';
@@ -119,6 +120,9 @@ router.post(
         firstMessage: `Hi! This is a test call from ${org?.name || 'your Social Engine'}. I'm just confirming the voice setup works — do you have a quick second?`,
         voicemailMessage: `Hi, this is a test call from ${org?.name || 'your Social Engine'} confirming the voice channel works. No action needed — have a great day!`,
         metadata: { organizationId: req.user!.organizationId, test: 'true' },
+        ...(cfg.vapi.webhookSecret
+          ? { server: { url: `${config.appPublicUrl}/api/webhooks/vapi`, secret: cfg.vapi.webhookSecret } }
+          : {}),
       },
       cfg.vapi
     );

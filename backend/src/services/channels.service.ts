@@ -157,6 +157,10 @@ export async function placeVapiCall(
     /** Spoken if the call lands in voicemail (detection enabled when set). */
     voicemailMessage?: string;
     metadata: Record<string, string>;
+    /** Where Vapi should POST the end-of-call report, with a shared secret
+     *  (sent as the X-Vapi-Secret header). Set per-call so no Vapi dashboard
+     *  Server URL config is needed. */
+    server?: { url: string; secret: string };
   },
   creds: VoiceCreds
 ): Promise<SendResult> {
@@ -181,6 +185,13 @@ export async function placeVapiCall(
             messages: [{ role: 'system', content: opts.systemPrompt }],
           },
           voice: { provider: creds.voiceProvider, voiceId: creds.voiceId },
+          ...(opts.server
+            ? {
+                server: { url: opts.server.url, secret: opts.server.secret },
+                // Only need the end-of-call report delivered to our webhook.
+                serverMessages: ['end-of-call-report'],
+              }
+            : {}),
           ...(opts.voicemailMessage
             ? {
                 voicemailMessage: opts.voicemailMessage,

@@ -1456,6 +1456,11 @@ const executors: Record<string, ToolExecutor> = {
           agentRunId: ctx.runId,
           ...(input.campaignId ? { campaignId: input.campaignId } : {}),
         },
+        // Tell Vapi to POST the end-of-call report to our webhook — no Vapi
+        // dashboard Server URL config needed.
+        ...(orgConfig.vapi.webhookSecret
+          ? { server: { url: `${config.appPublicUrl}/api/webhooks/vapi`, secret: orgConfig.vapi.webhookSecret } }
+          : {}),
       },
       orgConfig.vapi
     );
