@@ -18,6 +18,28 @@ export async function runCadenceSweep(): Promise<number> {
 
   let jobsQueued = 0;
   for (const campaign of campaigns) {
+    // Auto-enrollment: leads that landed in the linked group since the last
+    // sweep enter the campaign mechanically — sourcing flows into outreach
+    // without an agent having to remember to enroll them.
+    if (campaign.autoEnrollGroupId) {
+      const newLeads = await prisma.lead.findMany({
+        where: {
+          groupId: campaign.autoEnrollGroupId,
+          organizationId: campaign.organizationId,
+          doNotContact: false,
+          campaignLeads: { none: { campaignId: campaign.id } },
+        },
+        select: { id: true },
+        take: 500,
+      });
+      if (newLeads.length) {
+        await prisma.campaignLead.createMany({
+          data: newLeads.map((l) => ({ campaignId: campaign.id, leadId: l.id })),
+          skipDuplicates: true,
+        });
+      }
+    }
+
     // Leads that exhausted their touches are done with the sequence.
     await prisma.campaignLead.updateMany({
       where: {

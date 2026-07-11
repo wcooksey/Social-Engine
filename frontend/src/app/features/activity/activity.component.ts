@@ -1,7 +1,7 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AgentService } from '../../core/services/agent.service';
-import { AgentJob, AgentRole, AgentRun } from '../../core/models/agent.model';
+import { AgentJob, AgentRole, AgentRun, AutopilotGoal, AutopilotGoalStatus } from '../../core/models/agent.model';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { BadgeComponent, BadgeVariant } from '../../shared/components/badge/badge.component';
 import { DataTableComponent, DataTableCellDirective, DataTableColumn } from '../../shared/components/data-table';
@@ -24,6 +24,10 @@ export class ActivityComponent implements OnInit {
   jobs = signal<AgentJob[]>([]);
   loadingJobs = signal(true);
 
+  goals = signal<AutopilotGoal[]>([]);
+  loadingGoals = signal(true);
+  updatingGoalId = signal<string | null>(null);
+
   selectedRun = signal<AgentRun | null>(null);
   showRunDialog = signal(false);
   loadingRunDetail = signal(false);
@@ -44,6 +48,7 @@ export class ActivityComponent implements OnInit {
   ngOnInit(): void {
     this.loadRuns();
     this.loadJobs();
+    this.loadGoals();
   }
 
   loadRuns(): void {
@@ -72,6 +77,38 @@ export class ActivityComponent implements OnInit {
       },
       error: () => this.loadingJobs.set(false)
     });
+  }
+
+  loadGoals(): void {
+    this.loadingGoals.set(true);
+    this.agentService.listGoals().subscribe({
+      next: (goals) => {
+        this.goals.set(goals);
+        this.loadingGoals.set(false);
+      },
+      error: () => this.loadingGoals.set(false)
+    });
+  }
+
+  setGoalStatus(goal: AutopilotGoal, status: AutopilotGoalStatus): void {
+    this.updatingGoalId.set(goal.id);
+    this.agentService.setGoalStatus(goal.id, status).subscribe({
+      next: () => {
+        this.updatingGoalId.set(null);
+        this.loadGoals();
+      },
+      error: () => this.updatingGoalId.set(null)
+    });
+  }
+
+  goalBadgeVariant(status: AutopilotGoalStatus): BadgeVariant {
+    switch (status) {
+      case 'ACTIVE': return 'success';
+      case 'PAUSED': return 'warning';
+      case 'COMPLETED': return 'info';
+      case 'CANCELLED': return 'neutral';
+      default: return 'default';
+    }
   }
 
   openRun(run: AgentRun): void {

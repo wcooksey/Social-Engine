@@ -70,3 +70,21 @@ export interface AgentJob {
   lead?: { id: string; companyName: string } | null;
   campaign?: { id: string; name: string } | null;
 }
+
+export type AutopilotGoalStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED';
+
+export interface AutopilotGoal {
+  id: string;
+  name: string;
+  objective: string;
+  role: AgentRole;
+  status: AutopilotGoalStatus;
+  cadenceHours: number;
+  targetLeadCount?: number | null;
+  nextRunAt: string;
+  lastQueuedAt?: string | null;
+  lastResult?: string | null;
+  leadGroup?: { id: string; name: string } | null;
+  campaign?: { id: string; name: string } | null;
+  createdAt: string;
+}

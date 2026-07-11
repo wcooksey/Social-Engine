@@ -128,6 +128,52 @@ router.post(
       return;
     }
 
+    // Engagement events: mark the message opened/clicked and log the first
+    // occurrence on the lead timeline — a warmth signal the SDR agents can
+    // read (get_lead_timeline) to prioritize and time follow-ups.
+    if (event === 'opened' || event === 'clicked') {
+      const messageId = String(data?.message?.headers?.['message-id'] || '').replace(
+        /^<|>$/g,
+        ''
+      );
+      if (!messageId) {
+        res.json({ success: true, data: { ignored: 'no message-id' } });
+        return;
+      }
+      const message = await prisma.message.findFirst({
+        where: { externalId: messageId, direction: 'OUTBOUND' },
+        include: { conversation: { select: { organizationId: true, leadId: true } } },
+      });
+      if (!message) {
+        res.json({ success: true, data: { ignored: 'unknown message' } });
+        return;
+      }
+      // Status only moves forward: sent -> opened -> clicked. Repeat events
+      // (every re-open fires a webhook) neither regress it nor re-log.
+      const firstOfKind =
+        event === 'clicked' ? message.status !== 'clicked' : message.status === 'sent';
+      if (firstOfKind) {
+        await prisma.message.update({
+          where: { id: message.id },
+          data: { status: event },
+        });
+        await prisma.activity.create({
+          data: {
+            organizationId: message.conversation.organizationId,
+            leadId: message.conversation.leadId,
+            type: event === 'clicked' ? 'EMAIL_CLICKED' : 'EMAIL_OPENED',
+            summary:
+              event === 'clicked'
+                ? `Email link clicked by ${recipient}${data?.url ? ` (${String(data.url).slice(0, 120)})` : ''}`
+                : `Email opened by ${recipient}`,
+            payload: { emailEvent: event, recipient, ...(data?.url ? { url: data.url } : {}) },
+          },
+        });
+      }
+      res.json({ success: true, data: { processed: event, firstOfKind } });
+      return;
+    }
+
     const isComplaint = event === 'complained';
     const isHardBounce =
       event === 'failed' && String(data?.severity || '').toLowerCase() === 'permanent';

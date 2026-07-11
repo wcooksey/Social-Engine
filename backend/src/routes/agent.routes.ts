@@ -252,4 +252,44 @@ router.post(
   })
 );
 
+/** Standing Autopilot goals — the mechanically re-queued objectives. */
+router.get(
+  '/goals',
+  asyncHandler(async (req, res) => {
+    const goals = await prisma.autopilotGoal.findMany({
+      where: { organizationId: req.user!.organizationId },
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+      take: 100,
+      include: {
+        leadGroup: { select: { id: true, name: true } },
+        campaign: { select: { id: true, name: true } },
+      },
+    });
+    res.json({ success: true, data: goals });
+  })
+);
+
+router.patch(
+  '/goals/:id',
+  asyncHandler(async (req, res) => {
+    const goal = await prisma.autopilotGoal.findFirst({
+      where: { id: req.params.id, organizationId: req.user!.organizationId },
+    });
+    if (!goal) throw new AppError('Goal not found', 404);
+    const status = req.body?.status as string | undefined;
+    if (!status || !['ACTIVE', 'PAUSED', 'CANCELLED'].includes(status)) {
+      throw new AppError('status must be ACTIVE, PAUSED, or CANCELLED');
+    }
+    const updated = await prisma.autopilotGoal.update({
+      where: { id: goal.id },
+      data: {
+        status: status as never,
+        // Resuming shouldn't wait out a stale clock.
+        ...(status === 'ACTIVE' ? { nextRunAt: new Date() } : {}),
+      },
+    });
+    res.json({ success: true, data: updated });
+  })
+);
+
 export default router;

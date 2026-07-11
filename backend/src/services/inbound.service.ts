@@ -147,6 +147,22 @@ export async function handleInbound(input: InboundMessage): Promise<{
       },
     }));
 
+  // Idempotency: sources that re-deliver (webhook retries, the social inbox
+  // sweep re-reading a thread) pass a stable externalId — ingest it once.
+  if (input.externalId) {
+    const duplicate = await prisma.message.findFirst({
+      where: {
+        conversationId: conversation.id,
+        direction: 'INBOUND',
+        externalId: input.externalId,
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      return { matched: true, leadId, conversationId: conversation.id };
+    }
+  }
+
   await prisma.message.create({
     data: {
       conversationId: conversation.id,
