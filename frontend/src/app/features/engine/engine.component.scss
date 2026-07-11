@@ -247,27 +247,201 @@
   text-align: center;
 }
 
-.message-row {
+// ============================================
+// Chat bubbles — ported from Dealegent
+// ASSISTANT (our AI) = outbound-AI bubble on the LEFT (message-user / message-ai)
+// USER = lead bubble on the RIGHT (message-lead)
+// ============================================
+.message {
   display: flex;
+  margin-bottom: $spacing-sm;
+  @include fade-in($transition-fast);
 
-  &--user {
+  // Our outbound AI messages — LEFT side, glassy dark bubble with blue glow
+  &.message-user {
+    justify-content: flex-start;
+
+    .message-bubble {
+      background: rgba(26, 26, 26, 0.6);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      color: var(--text-primary, #FFFFFF);
+      border: 1px solid rgba($primary-blue, 0.5);
+      border-radius: $border-radius-xl $border-radius-xl $border-radius-xl $border-radius-sm;
+      box-shadow:
+        0 4px 16px rgba($primary-blue, 0.15),
+        0 0 15px rgba($primary-blue, 0.1);
+      position: relative;
+
+      @include responsive($breakpoint-md) {
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        background: rgba(26, 26, 26, 0.95);
+      }
+
+      // Light mode: ceramic white bubble with soft shadow
+      [data-theme="light"] & {
+        background: #FFFFFF;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid #e2e8f0;
+        color: var(--text-primary);
+        box-shadow:
+          0 4px 16px -4px rgba(0, 0, 0, 0.08),
+          0 2px 6px -2px rgba(0, 0, 0, 0.04);
+      }
+    }
+  }
+
+  // User (lead) messages — RIGHT side, blue gradient with white text
+  &.message-lead {
     justify-content: flex-end;
+
+    .message-bubble {
+      background: linear-gradient(135deg, rgba($primary-blue, 0.95) 0%, rgba(darken($primary-blue, 10%), 0.95) 100%);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      color: #FFFFFF;
+      border: 1px solid rgba($primary-blue, 0.4);
+      border-radius: $border-radius-xl $border-radius-xl $border-radius-sm $border-radius-xl;
+      box-shadow:
+        0 4px 16px rgba($primary-blue, 0.25),
+        0 0 20px rgba($primary-blue, 0.15);
+      position: relative;
+
+      @include responsive($breakpoint-md) {
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+      }
+
+      .message-content,
+      .message-text {
+        color: #FFFFFF;
+      }
+
+      [data-theme="light"] & {
+        box-shadow:
+          0 10px 25px -8px rgba($primary-blue, 0.45),
+          0 4px 10px -4px rgba($primary-blue, 0.25);
+      }
+    }
   }
 }
 
 .message-bubble {
   max-width: 70%;
-  background: var(--bg-tertiary);
-  border-radius: $border-radius-lg;
-  padding: $spacing-md;
+  padding: $spacing-md $spacing-lg;
+  transition: transform $transition-fast, box-shadow $transition-fast;
 
-  &--user {
-    background: rgba($primary-blue, 0.16);
+  &:hover {
+    transform: translateY(-2px);
   }
 
   @include responsive($breakpoint-md) {
-    max-width: 88%;
+    max-width: 85%;
+    padding: $spacing-sm $spacing-md;
   }
+
+  @include responsive($breakpoint-sm) {
+    max-width: 90%;
+    padding: $spacing-sm $spacing-md;
+  }
+}
+
+// ---- Message header + sender badges (ported from Dealegent) ----
+.message-header {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-xs;
+
+  .sender-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: $font-size-xs;
+    font-weight: $font-weight-medium;
+
+    i {
+      font-size: $font-size-xs;
+    }
+
+    &.ai-badge {
+      background: rgba($primary-blue, 0.2);
+      color: white;
+      border: 1px solid rgba($primary-blue, 0.4);
+
+      [data-theme="light"] & {
+        background: rgba($primary-blue, 0.1);
+        color: $primary-blue;
+        border: 1px solid rgba($primary-blue, 0.2);
+      }
+    }
+
+    &.human-badge {
+      background: rgba($secondary-orange, 0.2);
+      color: $secondary-orange;
+      border: 1px solid rgba($secondary-orange, 0.4);
+
+      [data-theme="light"] & {
+        background: rgba($secondary-orange, 0.1);
+        color: darken($secondary-orange, 12%);
+        border: 1px solid rgba($secondary-orange, 0.2);
+      }
+    }
+  }
+}
+
+// Outbound header sits at the left; lead header aligns to the right edge
+.message-header-outbound {
+  flex-direction: row;
+}
+
+.message-lead .message-header {
+  flex-direction: row-reverse;
+}
+
+// ---- Typing indicator (three bouncing dots) ----
+.lead-typing-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0 6px;
+
+  .lead-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: rgba($primary-blue, 0.7);
+    animation: lead-typing-wave 1.4s ease-in-out infinite;
+
+    [data-theme="light"] & {
+      background: $primary-blue;
+    }
+
+    &:nth-child(1) { animation-delay: 0s; }
+    &:nth-child(2) { animation-delay: 0.15s; }
+    &:nth-child(3) { animation-delay: 0.3s; }
+  }
+}
+
+@keyframes lead-typing-wave {
+  0%, 50%, 100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  25% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
+}
+
+.message-text {
+  font-size: $font-size-sm;
+  line-height: 1.5;
+  word-wrap: break-word;
 }
 
 .message-content {

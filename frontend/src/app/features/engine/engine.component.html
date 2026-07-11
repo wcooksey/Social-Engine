@@ -51,8 +51,25 @@
           <p class="thread-loading">Loading conversation...</p>
         }
         @for (message of messages(); track message.id) {
-          <div class="message-row" [class.message-row--user]="message.role === 'user'">
-            <div class="message-bubble" [class.message-bubble--user]="message.role === 'user'">
+          <div
+            class="message"
+            [class.message-user]="message.role === 'assistant'"
+            [class.message-ai]="message.role === 'assistant'"
+            [class.message-lead]="message.role === 'user'">
+            <div class="message-bubble">
+              @if (message.role === 'assistant') {
+                <div class="message-header message-header-outbound">
+                  <span class="sender-badge ai-badge">
+                    <i class="bi bi-robot"></i> AI
+                  </span>
+                </div>
+              } @else {
+                <div class="message-header">
+                  <span class="sender-badge human-badge">
+                    <i class="bi bi-person-fill"></i> You
+                  </span>
+                </div>
+              }
               @if (message.toolEvents && message.toolEvents.length) {
                 <div class="tool-chips">
                   @for (event of message.toolEvents; track $index) {
@@ -64,9 +81,15 @@
                 </div>
               }
               @if (message.role === 'user') {
-                <p class="message-content">{{ message.content }}</p>
+                <p class="message-content message-text">{{ message.content }}</p>
+              } @else if (message.streaming && !message.content) {
+                <div class="lead-typing-dots">
+                  <span class="lead-dot"></span>
+                  <span class="lead-dot"></span>
+                  <span class="lead-dot"></span>
+                </div>
               } @else {
-                <div class="message-content message-content--rich" [innerHTML]="message.content | markdown"></div>
+                <div class="message-content message-content--rich message-text" [innerHTML]="message.content | markdown"></div>
                 @if (message.streaming) {<span class="cursor-blink"></span>}
               }
             </div>
