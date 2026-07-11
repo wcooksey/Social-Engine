@@ -1880,28 +1880,69 @@ const executors: Record<string, ToolExecutor> = {
   },
 
   create_playbook: async (input, ctx) => {
+    const name = String(input.name || '').trim();
+    const instructions = String(input.instructions || '').trim();
+    if (!name) throw new Error('A playbook name is required.');
+    if (!instructions) throw new Error('Playbook instructions are required.');
+
+    const LEAD_STATUSES = ['NEW', 'RESEARCHING', 'CONTACTED', 'ENGAGED', 'INTERESTED', 'NOT_INTERESTED', 'CUSTOMER', 'ARCHIVED'];
+    const VALID_CHANNELS = ['ALL', 'EMAIL', 'SMS', 'VOICE'];
+    const channel = VALID_CHANNELS.includes(input.channel) ? input.channel : 'ALL';
+
+    // Resolve the scope target defensively — a slightly-off scope/target from
+    // the model must NOT crash the create; fall back to GLOBAL and note it.
+    let scope: string = ['GLOBAL', 'GROUP', 'CAMPAIGN', 'LEAD_STATUS'].includes(input.scope) ? input.scope : 'GLOBAL';
     let groupId: string | undefined;
-    if (input.scope === 'GROUP' && input.groupName) {
-      const group = await prisma.leadGroup.upsert({
-        where: { organizationId_name: { organizationId: ctx.organizationId, name: input.groupName } },
-        create: { organizationId: ctx.organizationId, name: input.groupName },
-        update: {},
-      });
-      groupId = group.id;
+    let campaignId: string | undefined;
+    let leadStatus: string | undefined;
+    const notes: string[] = [];
+
+    if (scope === 'GROUP') {
+      const groupName = String(input.groupName || '').trim();
+      if (input.groupId) {
+        const g = await prisma.leadGroup.findFirst({ where: { id: input.groupId, organizationId: ctx.organizationId }, select: { id: true } });
+        if (g) groupId = g.id;
+      }
+      if (!groupId && groupName) {
+        const g = await prisma.leadGroup.upsert({
+          where: { organizationId_name: { organizationId: ctx.organizationId, name: groupName } },
+          create: { organizationId: ctx.organizationId, name: groupName },
+          update: {},
+        });
+        groupId = g.id;
+      }
+      if (!groupId) { scope = 'GLOBAL'; notes.push('no valid group given — made it a global playbook'); }
+    } else if (scope === 'CAMPAIGN') {
+      if (input.campaignId) {
+        const c = await prisma.campaign.findFirst({ where: { id: input.campaignId, organizationId: ctx.organizationId }, select: { id: true } });
+        if (c) campaignId = c.id;
+      }
+      if (!campaignId) { scope = 'GLOBAL'; notes.push('no valid campaign given — made it a global playbook'); }
+    } else if (scope === 'LEAD_STATUS') {
+      const st = String(input.leadStatus || '').toUpperCase();
+      if (LEAD_STATUSES.includes(st)) leadStatus = st;
+      else { scope = 'GLOBAL'; notes.push(`"${input.leadStatus}" is not a valid lead status — made it a global playbook`); }
     }
+
     const playbook = await prisma.playbook.create({
       data: {
         organizationId: ctx.organizationId,
-        name: input.name,
-        instructions: input.instructions,
-        scope: input.scope || 'GLOBAL',
+        name,
+        instructions,
+        scope: scope as never,
         groupId,
-        campaignId: input.scope === 'CAMPAIGN' ? input.campaignId : undefined,
-        leadStatus: input.scope === 'LEAD_STATUS' ? (input.leadStatus as never) : undefined,
-        channel: input.channel || 'ALL',
+        campaignId,
+        leadStatus: leadStatus as never,
+        channel: channel as never,
       },
     });
-    return { playbookId: playbook.id, name: playbook.name };
+    return {
+      playbookId: playbook.id,
+      name: playbook.name,
+      scope: playbook.scope,
+      channel: playbook.channel,
+      ...(notes.length ? { note: notes.join('; ') } : {}),
+    };
   },
 
   set_playbook_active: async (input, ctx) => {
