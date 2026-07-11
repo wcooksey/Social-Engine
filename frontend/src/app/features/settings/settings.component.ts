@@ -176,7 +176,7 @@ export class SettingsComponent implements OnInit {
   engineModelSelection: string | null = null;
 
   engineModelOptions = computed<SelectOption[]>(() =>
-    this.modelsService.models().map(model => ({
+    this.modelsService.modelOptionsWithCurrent().map(model => ({
       label: model.configured ? `${model.label} — ${model.providerLabel}` : `${model.label} — ${model.providerLabel} (needs API key)`,
       value: model.id,
       // Selectable even without a key — the user gets told to add it. Blocking

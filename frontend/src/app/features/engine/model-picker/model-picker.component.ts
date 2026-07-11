@@ -21,7 +21,7 @@ export class ModelPickerComponent implements OnInit {
   private toast = inject(ToastService);
   private elementRef = inject(ElementRef<HTMLElement>);
 
-  models = this.modelsService.models;
+  models = this.modelsService.modelOptionsWithCurrent;
   currentModelId = this.modelsService.currentModel;
   currentOption = this.modelsService.currentModelOption;
   loaded = this.modelsService.loaded;

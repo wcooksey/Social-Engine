@@ -3,6 +3,29 @@ import { Observable, tap } from 'rxjs';
 import { ApiService } from './api.service';
 import { ModelOption, ModelProvider, ModelsResponse } from '../models/model.model';
 
+/** Best-effort provider inference from a model id prefix (for uncatalogued ids). */
+function providerFromId(id: string): ModelProvider {
+  const s = id.toLowerCase();
+  if (s.startsWith('claude-')) return 'anthropic';
+  if (s.startsWith('gpt-') || s.startsWith('o1') || s.startsWith('o3') || s.startsWith('o4')) return 'openai';
+  if (s.startsWith('gemini-')) return 'google';
+  if (s.startsWith('grok-')) return 'xai';
+  if (s.startsWith('deepseek-')) return 'deepseek';
+  return 'anthropic';
+}
+
+const PROVIDER_LABELS: Record<ModelProvider, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  google: 'Google',
+  xai: 'xAI',
+  deepseek: 'DeepSeek',
+};
+
+function providerLabelFromId(id: string): string {
+  return PROVIDER_LABELS[providerFromId(id)];
+}
+
 /**
  * AI model catalog for the Engine, plus the org's currently active model.
  * `currentModel` is kept in sync locally after every load/set so the rest of
@@ -25,7 +48,31 @@ export class ModelsService {
   readonly currentModelOption = computed<ModelOption | null>(() => {
     const id = this._currentModel();
     if (!id) return null;
-    return this._models().find(m => m.id === id) ?? null;
+    const found = this._models().find(m => m.id === id);
+    if (found) return found;
+    // The saved model isn't in the current catalog (e.g. a deprecated id saved
+    // before a model upgrade). Synthesize a display option from the id so the
+    // picker shows the real value instead of dead-ending on "Select model".
+    return {
+      id,
+      label: id,
+      provider: providerFromId(id),
+      providerLabel: providerLabelFromId(id),
+      configured: false,
+    };
+  });
+
+  /**
+   * Options for a <select>: the catalog plus, if the active model was dropped
+   * from the catalog, a synthetic entry so the current value stays selectable.
+   */
+  readonly modelOptionsWithCurrent = computed<ModelOption[]>(() => {
+    const models = this._models();
+    const current = this.currentModelOption();
+    if (current && !models.some(m => m.id === current.id)) {
+      return [current, ...models];
+    }
+    return models;
   });
 
   getModels(): Observable<ModelsResponse> {
@@ -38,9 +85,10 @@ export class ModelsService {
     );
   }
 
-  setModel(id: string): Observable<unknown> {
-    return this.api.patch('/api/organizations/mine', { engineModel: id }).pipe(
-      tap(() => this._currentModel.set(id))
+  setModel(id: string): Observable<{ engineModel?: string | null } | unknown> {
+    return this.api.patch<{ engineModel?: string | null }>('/api/organizations/mine', { engineModel: id }).pipe(
+      // Trust the value the server actually stored, not just what we sent.
+      tap(org => this._currentModel.set((org && org.engineModel) || id))
     );
   }
 
