@@ -15,7 +15,7 @@
   } @else if (campaigns().length) {
     <div class="campaigns-grid">
       @for (campaign of campaigns(); track campaign.id) {
-        <app-card padding="lg" class="campaign-card">
+        <app-card padding="lg" class="campaign-card" (click)="openCampaign(campaign)">
           <div class="campaign-header">
             <h3>{{ campaign.name }}</h3>
             <app-badge [variant]="statusBadgeVariant(campaign.status)" size="sm">{{ campaign.status }}</app-badge>

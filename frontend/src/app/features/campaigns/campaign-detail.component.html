@@ -1,0 +1,142 @@
+@if (loading()) {
+  <div class="loading-state">
+    <span class="spinner"></span>
+    <p>Loading campaign...</p>
+  </div>
+} @else {
+@if (campaign(); as c) {
+  <div class="campaign-detail-page">
+    <div class="page-header">
+      <div>
+        <a routerLink="/campaigns" class="back-link"><i class="bi bi-arrow-left"></i> Campaigns</a>
+        <h1>{{ c.name }}</h1>
+        <p class="subtitle">
+          <app-badge [variant]="statusBadgeVariant(c.status)" size="sm">{{ c.status }}</app-badge>
+          <app-badge variant="neutral" size="sm">{{ c.mode.replace('_', ' ') }}</app-badge>
+          <span class="meta-text">
+            {{ c.channels.join(' · ') }} · touch every {{ c.followUpCadenceDays }}d · max {{ c.maxTouches }} touches
+            @if (c.autoEnrollGroup) { · auto-enrolls "{{ c.autoEnrollGroup.name }}" }
+          </span>
+        </p>
+      </div>
+      <div class="header-actions">
+        @if (c.status === 'ACTIVE') {
+          <app-button variant="ghost" icon="bi-pause-fill" [loading]="updatingStatus()" (clicked)="setStatus('PAUSED')">Pause</app-button>
+        } @else if (c.status === 'DRAFT' || c.status === 'PAUSED') {
+          <app-button variant="primary" icon="bi-play-fill" [loading]="updatingStatus()" (clicked)="setStatus('ACTIVE')">
+            {{ c.status === 'DRAFT' ? 'Activate' : 'Resume' }}
+          </app-button>
+        }
+      </div>
+    </div>
+
+    @if (c.offer) {
+      <app-card padding="lg" class="section-card">
+        <h3>Offer</h3>
+        <p class="offer-text">{{ c.offer }}</p>
+      </app-card>
+    }
+
+    <app-card padding="lg" class="section-card">
+      <h3>Enrolled Leads ({{ c.leadCount }})</h3>
+      @if (c.status !== 'ACTIVE') {
+        <p class="section-subtitle warn">
+          <i class="bi bi-exclamation-triangle"></i>
+          This campaign is {{ c.status }} — no touches (or auto-enrollment) happen until it's ACTIVE.
+        </p>
+      }
+      <app-data-table
+        [columns]="leadColumns"
+        [rows]="c.campaignLeads || []"
+        [clickableRows]="true"
+        emptyText="No leads enrolled yet — add them from the Leads page or ask the Engine."
+        (rowClick)="goToLead($event)">
+
+        <ng-template appDataCell="companyName" let-row="row">
+          <span class="dt-strong">{{ row.lead.companyName }}</span>
+          @if (row.lead.doNotContact) {
+            <app-badge variant="error" size="xs">DNC</app-badge>
+          }
+        </ng-template>
+
+        <ng-template appDataCell="pipeline" let-row="row">
+          <app-badge [variant]="pipelineBadgeVariant(row.lead.status)" size="sm">{{ row.lead.status }}</app-badge>
+        </ng-template>
+
+        <ng-template appDataCell="sequence" let-row="row">
+          <app-badge [variant]="sequenceBadgeVariant(row.status)" size="sm">{{ row.status.replace('_', ' ') }}</app-badge>
+        </ng-template>
+
+        <ng-template appDataCell="touches" let-row="row">
+          <span class="dt-num">{{ row.touchCount }}/{{ c.maxTouches }}</span>
+        </ng-template>
+
+        <ng-template appDataCell="lastTouchAt" let-row="row">
+          {{ row.lastTouchAt ? (row.lastTouchAt | date: 'MMM d, h:mm a') : '—' }}
+        </ng-template>
+
+        <ng-template appDataCell="nextTouchAt" let-row="row">
+          @if (row.status === 'PENDING' || row.status === 'IN_SEQUENCE') {
+            {{ row.nextTouchAt ? (row.nextTouchAt | date: 'MMM d, h:mm a') : 'next sweep' }}
+          } @else {
+            —
+          }
+        </ng-template>
+      </app-data-table>
+    </app-card>
+
+    <app-card padding="lg" class="section-card">
+      <h3>Campaign Activity</h3>
+      <p class="section-subtitle">Every send, reply, call, and status change on this campaign, newest first.</p>
+      @if (loadingActivity()) {
+        <p class="empty-text">Loading activity...</p>
+      } @else if (activities().length) {
+        <ul class="timeline">
+          @for (activity of activities(); track activity.id) {
+            <li class="timeline-item">
+              <div class="timeline-icon"><i [class]="'bi ' + activityIcon(activity.type)"></i></div>
+              <div class="timeline-content">
+                <span class="timeline-summary">
+                  @if (activity.lead) {
+                    <a [routerLink]="['/leads', activity.lead.id]" class="lead-link">{{ activity.lead.companyName }}</a> —
+                  }
+                  {{ activity.summary }}
+                </span>
+                <span class="timeline-time">{{ relativeTime(activity.createdAt) }}</span>
+              </div>
+            </li>
+          }
+        </ul>
+        @if (activityTotalPages > 1 || activityPage > 1) {
+          <div class="list-pager">
+            <button
+              type="button"
+              class="list-pager__btn"
+              [disabled]="activityPage <= 1 || loadingActivity()"
+              (click)="goToActivityPage(activityPage - 1)"
+              aria-label="Previous page">
+              <i class="bi bi-chevron-left"></i>
+            </button>
+            <span class="list-pager__label">Page {{ activityPage }} of {{ activityTotalPages }}</span>
+            <button
+              type="button"
+              class="list-pager__btn"
+              [disabled]="activityPage >= activityTotalPages || loadingActivity()"
+              (click)="goToActivityPage(activityPage + 1)"
+              aria-label="Next page">
+              <i class="bi bi-chevron-right"></i>
+            </button>
+          </div>
+        }
+      } @else {
+        <p class="empty-text">Nothing has happened on this campaign yet. Once it's ACTIVE, sends and replies will appear here.</p>
+      }
+    </app-card>
+  </div>
+} @else {
+  <div class="empty-state">
+    <i class="bi bi-megaphone"></i>
+    <p>Campaign not found.</p>
+  </div>
+}
+}

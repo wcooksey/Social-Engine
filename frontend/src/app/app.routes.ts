@@ -57,6 +57,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/campaigns/campaigns.component').then(m => m.CampaignsComponent)
       },
       {
+        path: 'campaigns/:id',
+        loadComponent: () => import('./features/campaigns/campaign-detail.component').then(m => m.CampaignDetailComponent)
+      },
+      {
         path: 'playbooks',
         loadComponent: () => import('./features/playbooks/playbooks.component').then(m => m.PlaybooksComponent)
       },

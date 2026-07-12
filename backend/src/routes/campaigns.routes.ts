@@ -47,15 +47,54 @@ router.get(
       where: { id: req.params.id, organizationId: req.user!.organizationId },
       include: {
         _count: { select: { campaignLeads: true } },
+        autoEnrollGroup: { select: { id: true, name: true } },
         campaignLeads: {
-          include: { lead: { select: { id: true, companyName: true, status: true, city: true, state: true } } },
+          include: {
+            lead: {
+              select: {
+                id: true,
+                companyName: true,
+                status: true,
+                city: true,
+                state: true,
+                doNotContact: true,
+              },
+            },
+          },
           orderBy: { createdAt: 'desc' },
-          take: 100,
+          take: 200,
         },
       },
     });
     if (!campaign) throw new AppError('Campaign not found', 404);
     res.json({ success: true, data: serialize(campaign as never) });
+  })
+);
+
+/** Everything that has happened on this campaign, newest first (paginated). */
+router.get(
+  '/:id/activity',
+  asyncHandler(async (req, res) => {
+    const campaign = await prisma.campaign.findFirst({
+      where: { id: req.params.id, organizationId: req.user!.organizationId },
+      select: { id: true },
+    });
+    if (!campaign) throw new AppError('Campaign not found', 404);
+
+    const page = Math.max(1, parseInt((req.query.page as string) || '1', 10));
+    const pageSize = 25;
+    const where = { campaignId: campaign.id };
+    const [activities, total] = await Promise.all([
+      prisma.activity.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: { lead: { select: { id: true, companyName: true } } },
+      }),
+      prisma.activity.count({ where }),
+    ]);
+    res.json({ success: true, data: { activities, total, page, pageSize } });
   })
 );
 
