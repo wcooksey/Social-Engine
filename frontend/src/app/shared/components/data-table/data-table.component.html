@@ -64,7 +64,8 @@
           <td
             *ngFor="let col of visibleColumns"
             [class]="col.cellClass || ''"
-            [style.text-align]="col.align || 'left'">
+            [style.text-align]="col.align || 'left'"
+            [attr.data-label]="col.header">
             <ng-container *ngIf="templateFor(col.key) as tpl; else defaultCell">
               <ng-container
                 *ngTemplateOutlet="tpl; context: { $implicit: cellValue(row, col.key), row: row, index: i }">

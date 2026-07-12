@@ -1,0 +1,214 @@
+@import '../../../assets/styles/variables';
+@import '../../../assets/styles/mixins';
+
+.campaign-detail-page {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-lg;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-md;
+  flex-wrap: wrap;
+
+  h1 {
+    margin: $spacing-xs 0;
+  }
+
+  .subtitle {
+    display: flex;
+    align-items: center;
+    gap: $spacing-sm;
+    flex-wrap: wrap;
+    color: var(--text-secondary);
+  }
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+  text-decoration: none;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+}
+
+.meta-text {
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+}
+
+.header-actions {
+  display: flex;
+  gap: $spacing-sm;
+  flex-shrink: 0;
+}
+
+.section-card {
+  h3 {
+    margin-bottom: $spacing-md;
+  }
+}
+
+.section-subtitle {
+  margin: -8px 0 $spacing-md;
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+
+  &.warn {
+    color: $warning-yellow;
+
+    i {
+      margin-right: 4px;
+    }
+  }
+}
+
+.offer-text {
+  font-size: $font-size-sm;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
+.loading-state,
+.empty-state {
+  @include flex-center;
+  flex-direction: column;
+  gap: $spacing-md;
+  padding: $spacing-2xl;
+  color: var(--text-secondary);
+  text-align: center;
+
+  i {
+    font-size: 2rem;
+  }
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border-primary);
+  border-top-color: $primary-blue;
+  border-radius: 50%;
+  animation: campaign-detail-spin 0.7s linear infinite;
+}
+
+@keyframes campaign-detail-spin {
+  to { transform: rotate(360deg); }
+}
+
+.empty-text {
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+}
+
+// Activity timeline (mirrors the lead-detail timeline look)
+.timeline {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.timeline-item {
+  display: flex;
+  gap: $spacing-sm;
+}
+
+.timeline-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: $primary-blue;
+  @include flex-center;
+  flex-shrink: 0;
+  font-size: $font-size-sm;
+}
+
+.timeline-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.timeline-summary {
+  font-size: $font-size-sm;
+}
+
+.lead-link {
+  color: $primary-blue;
+  text-decoration: none;
+  font-weight: $font-weight-semibold;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.timeline-time {
+  font-size: $font-size-xs;
+  color: var(--text-tertiary);
+}
+
+.list-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-sm;
+  padding-top: $spacing-md;
+}
+
+.list-pager__label {
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.list-pager__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--bg-secondary);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+}
+
+// ---------- Mobile ----------
+@include responsive($breakpoint-md) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .header-actions {
+    width: 100%;
+  }
+
+  .subtitle {
+    .meta-text {
+      display: block;
+      margin-top: $spacing-xs;
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import { Component, OnInit, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { CampaignsService, CampaignInput } from '../../core/services/campaigns.service';
@@ -50,10 +51,14 @@ export class CampaignsComponent implements OnInit {
     maxTouches: 5
   };
 
-  constructor(private campaignsService: CampaignsService, private toast: ToastService) {}
+  constructor(private campaignsService: CampaignsService, private toast: ToastService, private router: Router) {}
 
   ngOnInit(): void {
     this.load();
+  }
+
+  openCampaign(campaign: Campaign): void {
+    this.router.navigate(['/campaigns', campaign.id]);
   }
 
   load(): void {

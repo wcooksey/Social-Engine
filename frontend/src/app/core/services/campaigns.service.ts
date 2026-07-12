@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
-import { Campaign, CampaignChannel, CampaignMode } from '../models/campaign.model';
+import { Campaign, CampaignActivityPage, CampaignChannel, CampaignMode } from '../models/campaign.model';
 
 export interface CampaignInput {
   name: string;
@@ -30,5 +30,9 @@ export class CampaignsService {
 
   update(id: string, input: Partial<CampaignInput> & { status?: string }): Observable<Campaign> {
     return this.api.patch<Campaign>(`/api/campaigns/${id}`, input);
+  }
+
+  getActivity(id: string, page = 1): Observable<CampaignActivityPage> {
+    return this.api.get<CampaignActivityPage>(`/api/campaigns/${id}/activity`, { page });
   }
 }

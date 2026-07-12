@@ -156,6 +156,88 @@
   color: var(--text-secondary);
 }
 
+// ---------- Mobile: stack rows into labeled cards ----------
+// Below md the horizontal scroll becomes a swipe-fest, so each row turns into
+// a card and each cell shows its column header as an inline label. Cells opt
+// out with a `hide-on-mobile` cellClass when the label would be redundant.
+@include responsive($breakpoint-md) {
+  .data-table-wrapper {
+    border: none;
+    background: transparent;
+    overflow-x: visible;
+  }
+
+  .data-table {
+    min-width: 0 !important;
+
+    thead {
+      // Header row is meaningless once cells carry their own labels.
+      display: none;
+    }
+
+    tbody,
+    tbody tr,
+    tbody td {
+      display: block;
+      width: 100%;
+    }
+
+    tbody tr {
+      border: 1px solid var(--border-primary);
+      border-radius: $border-radius-md;
+      background: var(--bg-primary);
+      padding: $spacing-xs $spacing-sm;
+      margin-bottom: $spacing-sm;
+
+      &:last-child td {
+        border-bottom: none;
+      }
+    }
+
+    tbody td {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: $spacing-md;
+      text-align: right !important;
+      white-space: normal;
+      border-bottom: 1px solid var(--border-primary);
+      padding: $spacing-sm 2px;
+
+      &:last-child {
+        border-bottom: none;
+      }
+
+      // Column header, injected before the cell content.
+      &::before {
+        content: attr(data-label);
+        font-size: 0.65rem;
+        font-weight: $font-weight-semibold;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        text-align: left;
+        flex-shrink: 0;
+      }
+
+      // A cell with no data-label (or explicitly hidden) drops the label slot.
+      &:not([data-label])::before,
+      &.hide-label-on-mobile::before {
+        content: none;
+      }
+    }
+
+    // Selection checkbox column stays inline, no label.
+    .data-table__select-col {
+      justify-content: flex-start;
+
+      &::before {
+        content: none;
+      }
+    }
+  }
+}
+
 // Pagination footer
 .data-table__pager {
   display: flex;
