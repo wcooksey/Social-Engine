@@ -187,3 +187,27 @@
     cursor: default;
   }
 }
+
+// ---------- Mobile ----------
+@include responsive($breakpoint-md) {
+  .job-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .job-content {
+    // Keep icon + content on the first line, let badges wrap under.
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .job-objective {
+    word-break: break-word;
+  }
+
+  .job-badges {
+    flex-wrap: wrap;
+    width: 100%;
+    padding-left: calc(28px + #{$spacing-md}); // align under the content column
+  }
+}

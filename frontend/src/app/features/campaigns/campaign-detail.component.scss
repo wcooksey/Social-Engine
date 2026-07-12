@@ -193,3 +193,22 @@
     cursor: default;
   }
 }
+
+// ---------- Mobile ----------
+@include responsive($breakpoint-md) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .header-actions {
+    width: 100%;
+  }
+
+  .subtitle {
+    .meta-text {
+      display: block;
+      margin-top: $spacing-xs;
+    }
+  }
+}
