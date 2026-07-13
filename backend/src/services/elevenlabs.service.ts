@@ -63,6 +63,24 @@ async function elFetch<T = any>(
   return (await res.json()) as T;
 }
 
+/**
+ * ElevenLabs rejects tool schemas where any property lacks a description
+ * ("Must set one of: description, dynamic_variable, ..."), while our engine
+ * schemas leave self-explanatory fields bare. Recursively fill in fallbacks.
+ */
+function describeSchema(schema: unknown, fallback: string): unknown {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return schema;
+  const out: Record<string, any> = { ...(schema as Record<string, any>) };
+  if (!out.description) out.description = fallback;
+  if (out.properties && typeof out.properties === 'object') {
+    out.properties = Object.fromEntries(
+      Object.entries(out.properties).map(([key, value]) => [key, describeSchema(value, key)])
+    );
+  }
+  if (out.items) out.items = describeSchema(out.items, `${fallback} item`);
+  return out;
+}
+
 /** Every engine tool, expressed as an ElevenLabs client-tool config. */
 function buildClientToolConfigs(): Record<string, unknown>[] {
   return engineTools.map((t) => ({
@@ -71,7 +89,7 @@ function buildClientToolConfigs(): Record<string, unknown>[] {
     description: (t.description ?? '').slice(0, 950),
     expects_response: true,
     response_timeout_secs: TOOL_TIMEOUT_SECS,
-    parameters: t.input_schema,
+    parameters: describeSchema(t.input_schema, t.name),
   }));
 }
 
@@ -146,15 +164,23 @@ export async function ensureVoiceAgent(organizationId: string): Promise<{ agentI
   if (!state || state.toolsHash !== toolsHash) {
     // (Re)create the full tool set. Chunked so we don't burst-fire ~55 calls.
     const toolIds: string[] = [];
-    const chunkSize = 10;
-    for (let i = 0; i < toolConfigs.length; i += chunkSize) {
-      const chunk = toolConfigs.slice(i, i + chunkSize);
-      const created = await Promise.all(
-        chunk.map((tool_config) =>
-          elFetch<{ id: string }>(apiKey, '/v1/convai/tools', { method: 'POST', body: { tool_config } })
-        )
+    try {
+      const chunkSize = 10;
+      for (let i = 0; i < toolConfigs.length; i += chunkSize) {
+        const chunk = toolConfigs.slice(i, i + chunkSize);
+        const created = await Promise.all(
+          chunk.map((tool_config) =>
+            elFetch<{ id: string }>(apiKey, '/v1/convai/tools', { method: 'POST', body: { tool_config } })
+          )
+        );
+        toolIds.push(...created.map((c) => c.id));
+      }
+    } catch (err) {
+      // Don't leave a half-created tool set orphaned in the workspace.
+      await Promise.allSettled(
+        toolIds.map((id) => elFetch(apiKey, `/v1/convai/tools/${id}`, { method: 'DELETE' }))
       );
-      toolIds.push(...created.map((c) => c.id));
+      throw err;
     }
     state = { agentId: state?.agentId ?? '', toolIds, toolsHash };
   }
