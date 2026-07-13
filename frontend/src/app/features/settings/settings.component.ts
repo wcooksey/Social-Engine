@@ -36,7 +36,7 @@ const GROUP_META: Record<OrgSettingGroup, { name: string; icon: string; descript
   search: { name: 'Web search', icon: 'bi-search', description: 'Powers the Engine\'s web research for prospecting and enrichment.' },
   email: { name: 'Email (Mailgun)', icon: 'bi-envelope', description: 'Send outbound email touches and receive replies through Mailgun.' },
   sms: { name: 'SMS (Twilio)', icon: 'bi-chat-dots', description: 'Send and receive SMS follow-ups via Twilio.' },
-  voice: { name: 'Voice (Vapi)', icon: 'bi-telephone', description: 'Place AI-driven voice calls via Vapi.' }
+  voice: { name: 'Voice', icon: 'bi-telephone', description: 'Vapi places AI phone calls to leads; ElevenLabs powers the Engine\'s live voice conversation mode.' }
 };
 
 const GROUP_ORDER: OrgSettingGroup[] = ['ai', 'search', 'email', 'sms', 'voice'];

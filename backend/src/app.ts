@@ -30,6 +30,7 @@ import settingsRoutes from './routes/settings.routes';
 import socialAccountsRoutes from './routes/social-accounts.routes';
 import testRoutes from './routes/test.routes';
 import vapiWebhookRoutes from './routes/webhooks.vapi.routes';
+import voiceRoutes from './routes/voice.routes';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -76,6 +77,7 @@ app.use('/api/campaigns', apiRateLimit, authMiddleware, campaignsRoutes);
 app.use('/api/calendar', apiRateLimit, authMiddleware, calendarRoutes);
 app.use('/api/agent', apiRateLimit, authMiddleware, agentRoutes);
 app.use('/api/engine', apiRateLimit, authMiddleware, engineRoutes);
+app.use('/api/voice', apiRateLimit, authMiddleware, voiceRoutes);
 app.use('/api/organizations', apiRateLimit, authMiddleware, organizationsRoutes);
 app.use('/api/models', apiRateLimit, authMiddleware, modelsRoutes);
 app.use('/api/playbooks', apiRateLimit, authMiddleware, playbooksRoutes);

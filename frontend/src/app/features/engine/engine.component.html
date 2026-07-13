@@ -101,7 +101,19 @@
     }
 
     <div class="input-bar">
-      @if (voiceService.listening()) {
+      @if (voiceAgent.status() !== 'idle') {
+        <div class="voice-session-pill" [class.voice-session-pill--speaking]="voiceAgent.mode() === 'speaking'">
+          <span class="listening-dot"></span>
+          @if (voiceAgent.status() === 'connecting') {
+            Connecting voice&hellip;
+          } @else if (voiceAgent.mode() === 'speaking') {
+            Engine is speaking&hellip;
+          } @else {
+            Listening — just talk
+          }
+          <button type="button" class="voice-end-btn" (click)="toggleVoiceAgent()">End</button>
+        </div>
+      } @else if (voiceService.listening()) {
         <div class="listening-hint">
           <span class="listening-dot"></span>
           Listening&hellip;
@@ -116,24 +128,35 @@
           [(ngModel)]="draft"
           (keydown)="handleKeydown($event)">
         </textarea>
-        <button
-          type="button"
-          class="icon-btn mic-btn"
-          [class.mic-btn--active]="voiceService.listening()"
-          [disabled]="!micSupported"
-          [attr.title]="micSupported ? (voiceService.listening() ? 'Stop listening' : 'Speak to the Engine') : 'Voice input not supported in this browser'"
-          (click)="toggleMic()">
-          <i class="bi" [class.bi-mic-fill]="voiceService.listening()" [class.bi-mic]="!voiceService.listening()"></i>
-        </button>
-        <button
-          type="button"
-          class="icon-btn tts-btn"
-          [class.tts-btn--active]="voiceService.ttsEnabled()"
-          [disabled]="!ttsSupported"
-          [attr.title]="ttsSupported ? (voiceService.ttsEnabled() ? 'Spoken replies on — click to mute' : 'Spoken replies off — click to enable') : 'Spoken replies not supported in this browser'"
-          (click)="toggleTts()">
-          <i class="bi" [class.bi-volume-up-fill]="voiceService.ttsEnabled()" [class.bi-volume-mute]="!voiceService.ttsEnabled()"></i>
-        </button>
+        @if (voiceAgent.available()) {
+          <button
+            type="button"
+            class="icon-btn voice-agent-btn"
+            [class.voice-agent-btn--active]="voiceAgent.status() !== 'idle'"
+            [attr.title]="voiceAgent.status() === 'idle' ? 'Start a live voice conversation with the Engine' : 'End the voice conversation'"
+            (click)="toggleVoiceAgent()">
+            <i class="bi" [class.bi-soundwave]="voiceAgent.status() !== 'idle'" [class.bi-mic]="voiceAgent.status() === 'idle'"></i>
+          </button>
+        } @else {
+          <button
+            type="button"
+            class="icon-btn mic-btn"
+            [class.mic-btn--active]="voiceService.listening()"
+            [disabled]="!micSupported"
+            [attr.title]="micSupported ? (voiceService.listening() ? 'Stop listening' : 'Speak to the Engine') : 'Voice input not supported in this browser'"
+            (click)="toggleMic()">
+            <i class="bi" [class.bi-mic-fill]="voiceService.listening()" [class.bi-mic]="!voiceService.listening()"></i>
+          </button>
+          <button
+            type="button"
+            class="icon-btn tts-btn"
+            [class.tts-btn--active]="voiceService.ttsEnabled()"
+            [disabled]="!ttsSupported"
+            [attr.title]="ttsSupported ? (voiceService.ttsEnabled() ? 'Spoken replies on — click to mute' : 'Spoken replies off — click to enable') : 'Spoken replies not supported in this browser'"
+            (click)="toggleTts()">
+            <i class="bi" [class.bi-volume-up-fill]="voiceService.ttsEnabled()" [class.bi-volume-mute]="!voiceService.ttsEnabled()"></i>
+          </button>
+        }
         <button class="send-btn" [disabled]="!draft.trim() || sending()" (click)="send()">
           @if (sending()) {
             <i class="bi bi-hourglass-split"></i>

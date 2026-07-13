@@ -42,6 +42,10 @@ export const ORG_SETTING_DEFS: OrgSettingDef[] = [
   { key: 'VAPI_ASSISTANT_MODEL', label: 'Vapi assistant model', group: 'voice', secret: false, placeholder: 'gpt-4o' },
   { key: 'VAPI_VOICE_PROVIDER', label: 'Vapi voice provider', group: 'voice', secret: false, placeholder: '11labs' },
   { key: 'VAPI_VOICE_ID', label: 'Vapi voice ID', group: 'voice', secret: false, placeholder: 'burt' },
+
+  { key: 'ELEVENLABS_API_KEY', label: 'ElevenLabs API key (Engine voice mode)', group: 'voice', secret: true },
+  { key: 'ELEVENLABS_VOICE_ID', label: 'ElevenLabs voice ID', group: 'voice', secret: false, placeholder: 'blank = default voice' },
+  { key: 'ELEVENLABS_LLM', label: 'ElevenLabs agent model', group: 'voice', secret: false, placeholder: 'claude-sonnet-4-5' },
 ];
 
 const ORG_DEF_BY_KEY = new Map(ORG_SETTING_DEFS.map((d) => [d.key, d]));
@@ -107,6 +111,7 @@ export interface ResolvedOrgConfig {
     voiceProvider: string;
     voiceId: string;
   };
+  elevenlabs: { apiKey: string; voiceId: string; llm: string };
 }
 
 export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgConfig> {
@@ -117,6 +122,7 @@ export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgC
     mgKey, mgDomain,
     twSid, twToken, twFrom,
     vpKey, vpPhone, vpSecret, vpModel, vpVoiceProvider, vpVoiceId,
+    elKey, elVoiceId, elLlm,
   ] = await Promise.all([
     g('ANTHROPIC_API_KEY'), g('OPENAI_API_KEY'), g('GEMINI_API_KEY'), g('XAI_API_KEY'), g('DEEPSEEK_API_KEY'),
     g('SEARCH_API_KEY'), g('SEARCH_API_PROVIDER'), g('GOOGLE_PLACES_API_KEY'), g('APOLLO_API_KEY'),
@@ -124,6 +130,7 @@ export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgC
     g('TWILIO_ACCOUNT_SID'), g('TWILIO_AUTH_TOKEN'), g('TWILIO_FROM_NUMBER'),
     g('VAPI_API_KEY'), g('VAPI_PHONE_NUMBER_ID'), g('VAPI_WEBHOOK_SECRET'),
     g('VAPI_ASSISTANT_MODEL'), g('VAPI_VOICE_PROVIDER'), g('VAPI_VOICE_ID'),
+    g('ELEVENLABS_API_KEY'), g('ELEVENLABS_VOICE_ID'), g('ELEVENLABS_LLM'),
   ]);
   return {
     providerKeys: { anthropic, openai, google: gemini, xai, deepseek },
@@ -138,6 +145,7 @@ export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgC
       voiceProvider: vpVoiceProvider || '11labs',
       voiceId: vpVoiceId || 'burt',
     },
+    elevenlabs: { apiKey: elKey, voiceId: elVoiceId, llm: elLlm || 'claude-sonnet-4-5' },
   };
 }
 
