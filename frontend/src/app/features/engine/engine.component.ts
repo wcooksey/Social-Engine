@@ -1,10 +1,12 @@
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Subscription } from 'rxjs';
 import { EngineService } from '../../core/services/engine.service';
 import { EngineChatSummary, EngineMessage, EngineToolEvent } from '../../core/models/engine.model';
 import { ToastService } from '../../core/services/toast.service';
 import { VoiceService } from '../../core/services/voice.service';
+import { VoiceAgentEvent, VoiceAgentService } from '../../core/services/voice-agent.service';
 import { ModelPickerComponent } from './model-picker/model-picker.component';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 import { ChatAmbientComponent } from '../../shared/components/chat-ambient/chat-ambient.component';
@@ -48,18 +50,121 @@ export class EngineComponent implements OnInit, OnDestroy {
     return this.chats().find(c => c.id === id)?.title || 'New conversation';
   });
 
-  constructor(private engineService: EngineService, private toast: ToastService, protected voiceService: VoiceService) {
+  /** id of the in-progress assistant bubble built from live voice events. */
+  private pendingVoiceMessageId: string | null = null;
+  private voiceEventsSub?: Subscription;
+
+  constructor(
+    private engineService: EngineService,
+    private toast: ToastService,
+    protected voiceService: VoiceService,
+    protected voiceAgent: VoiceAgentService
+  ) {
     this.micSupported = this.voiceService.isSupported();
     this.ttsSupported = this.voiceService.isSpeechSynthesisSupported();
   }
 
   ngOnInit(): void {
     this.loadChats();
+    this.voiceAgent.checkAvailability();
+    this.voiceEventsSub = this.voiceAgent.events$.subscribe((event) => this.onVoiceAgentEvent(event));
   }
 
   ngOnDestroy(): void {
+    this.voiceEventsSub?.unsubscribe();
+    void this.voiceAgent.stop();
     this.voiceService.stopListening();
     this.voiceService.cancelSpeech();
+  }
+
+  // --- Live voice mode (ElevenLabs agent) ---------------------------------
+
+  async toggleVoiceAgent(): Promise<void> {
+    if (this.voiceAgent.status() === 'active' || this.voiceAgent.status() === 'connecting') {
+      await this.voiceAgent.stop();
+      return;
+    }
+    // A voice session is its own conversation — clear the thread for the live transcript.
+    this.startNewChat();
+    await this.voiceAgent.start();
+  }
+
+  private onVoiceAgentEvent(event: VoiceAgentEvent): void {
+    switch (event.type) {
+      case 'user':
+        this.pendingVoiceMessageId = null;
+        this.messages.update((list) => [
+          ...list,
+          { id: `voice-user-${Date.now()}`, role: 'user', content: event.text, createdAt: new Date().toISOString() },
+        ]);
+        break;
+      case 'agent': {
+        const pendingId = this.pendingVoiceMessageId;
+        this.pendingVoiceMessageId = null;
+        this.messages.update((list) => {
+          const idx = pendingId ? list.findIndex((m) => m.id === pendingId) : -1;
+          if (idx !== -1) {
+            const next = [...list];
+            next[idx] = { ...next[idx], content: event.text, streaming: false };
+            return next;
+          }
+          return [
+            ...list,
+            { id: `voice-agent-${Date.now()}`, role: 'assistant', content: event.text, createdAt: new Date().toISOString() },
+          ];
+        });
+        break;
+      }
+      case 'tool': {
+        const toolEvent: EngineToolEvent = { toolName: event.toolName, input: event.input };
+        this.messages.update((list) => {
+          const idx = this.pendingVoiceMessageId
+            ? list.findIndex((m) => m.id === this.pendingVoiceMessageId)
+            : -1;
+          if (idx !== -1) {
+            const next = [...list];
+            next[idx] = { ...next[idx], toolEvents: [...(next[idx].toolEvents || []), toolEvent] };
+            return next;
+          }
+          const id = `voice-tools-${Date.now()}`;
+          this.pendingVoiceMessageId = id;
+          return [
+            ...list,
+            { id, role: 'assistant', content: '', createdAt: new Date().toISOString(), toolEvents: [toolEvent], streaming: true },
+          ];
+        });
+        break;
+      }
+      case 'tool_done':
+        this.messages.update((list) => {
+          const idx = this.pendingVoiceMessageId
+            ? list.findIndex((m) => m.id === this.pendingVoiceMessageId)
+            : -1;
+          if (idx === -1) return list;
+          const toolEvents = [...(list[idx].toolEvents || [])];
+          for (let i = toolEvents.length - 1; i >= 0; i--) {
+            if (toolEvents[i].toolName === event.toolName && !toolEvents[i].summary) {
+              toolEvents[i] = {
+                ...toolEvents[i],
+                summary: `${event.toolName} — ${event.isError ? 'failed' : 'done'}`,
+              };
+              break;
+            }
+          }
+          const next = [...list];
+          next[idx] = { ...next[idx], toolEvents };
+          return next;
+        });
+        break;
+      case 'ended':
+        this.pendingVoiceMessageId = null;
+        this.loadChats();
+        break;
+      case 'error':
+        this.toast.error(event.message || 'Voice session error');
+        break;
+    }
+    this.scrollToBottom();
   }
 
   loadChats(): void {

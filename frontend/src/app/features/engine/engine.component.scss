@@ -689,3 +689,53 @@
   background: rgba($primary-blue, 0.14);
   border-color: rgba($primary-blue, 0.3);
 }
+
+// --- Live voice mode (ElevenLabs agent) -----------------------------------
+
+.voice-agent-btn--active {
+  color: white;
+  background: $primary-blue;
+  border-color: $primary-blue;
+  animation: mic-pulse 1.4s ease-in-out infinite;
+
+  &:hover:not(:disabled) {
+    color: white;
+    border-color: $primary-blue;
+  }
+}
+
+.voice-session-pill {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  padding: 0 $spacing-md $spacing-xs;
+  color: $error-red;
+  font-size: $font-size-xs;
+  font-weight: 500;
+
+  &--speaking {
+    color: $primary-blue;
+
+    .listening-dot {
+      background: $primary-blue;
+    }
+  }
+}
+
+.voice-end-btn {
+  margin-left: $spacing-xs;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: $font-size-xs;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: $error-red;
+    border-color: $error-red;
+  }
+}
