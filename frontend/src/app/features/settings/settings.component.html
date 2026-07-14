@@ -443,13 +443,22 @@
     <h3>Connected social accounts</h3>
     <p class="social-accounts-description">
       Connect a social account once and the Engine's browser agent stays logged in for every lead — no per-lead login.
-      On your own computer, run this one command (installs nothing permanent), log in normally in the window that opens, then close it:
-      <br />
-      <code>npx playwright&#64;latest codegen --save-storage=session.json https://www.instagram.com</code>
-      <br />
-      Swap the URL for the platform you're connecting. Then open the generated <code>session.json</code>, copy everything, and paste it below.
-      It's your live login — treat it like a password; it's stored encrypted.
+      The easiest way is <strong>Log in with browser</strong>: a login window opens right here, you sign in (including any 2FA),
+      and the session is saved on our server — the same place the agents run, which keeps it from being flagged or expiring quickly.
+      Sessions are re-checked automatically and you'll be alerted here if one ever needs a fresh login.
+      Your login is stored encrypted and treated like a password.
     </p>
+    <details class="social-accounts-advanced">
+      <summary>Advanced: paste a captured session instead</summary>
+      <p class="social-accounts-description">
+        On your own computer, run this one command (installs nothing permanent), log in normally in the window that opens, then close it:
+        <br />
+        <code>npx playwright&#64;latest codegen --save-storage=session.json https://www.instagram.com</code>
+        <br />
+        Swap the URL for the platform you're connecting. Then open the generated <code>session.json</code>, copy everything, and use <strong>Paste session</strong> below.
+        Note: a session captured on your machine may be flagged by the platform because it's replayed from a different location — logging in with the browser above is more reliable.
+      </p>
+    </details>
 
     @if (!encryptionConfigured()) {
       <div class="encryption-warning">
@@ -472,11 +481,18 @@
             }
             <div class="social-account-actions">
               <app-button
+                variant="primary"
+                size="sm"
+                [disabled]="!encryptionConfigured()"
+                (clicked)="openLoginDialog(card)">
+                Log in with browser
+              </app-button>
+              <app-button
                 variant="secondary"
                 size="sm"
                 [disabled]="!encryptionConfigured()"
                 (clicked)="openConnectDialog(card)">
-                Update
+                Paste session
               </app-button>
               <app-button
                 variant="ghost"
@@ -505,11 +521,18 @@
               </div>
               <div class="social-account-actions">
                 <app-button
+                  variant="primary"
+                  size="sm"
+                  [disabled]="!encryptionConfigured()"
+                  (clicked)="openLoginDialog(card)">
+                  Log in with browser
+                </app-button>
+                <app-button
                   variant="secondary"
                   size="sm"
                   [disabled]="!encryptionConfigured()"
                   (clicked)="openConnectDialog(card)">
-                  Connect
+                  Paste session
                 </app-button>
               </div>
             </div>
@@ -546,6 +569,69 @@
       [disabled]="!connectStorageState.trim()"
       (clicked)="submitConnect()">
       Save
+    </app-button>
+  </div>
+</app-dialog>
+
+<app-dialog
+  [title]="'Log in to ' + (loginTarget?.name ?? '')"
+  [show]="showLoginDialog"
+  size="xl"
+  (close)="closeLoginDialog()">
+  <div class="interactive-login">
+    <p class="field-hint interactive-login-hint">
+      This is a real browser running on our server. Click and type in the view below to log in — complete any 2FA as normal.
+      When you reach your home feed, press <strong>I'm logged in</strong> to save the session.
+    </p>
+
+    @if (loginStarting) {
+      <div class="interactive-login-loading">
+        <i class="bi bi-arrow-repeat spin"></i>
+        <span>Opening the login page…</span>
+      </div>
+    } @else if (loginFrame) {
+      <div class="interactive-login-stage">
+        <img
+          class="interactive-login-frame"
+          [src]="'data:image/jpeg;base64,' + loginFrame.imageBase64"
+          [class.busy]="loginBusy"
+          (click)="onLoginImageClick($event)"
+          alt="Login page — click and type to sign in" />
+        @if (loginBusy) {
+          <div class="interactive-login-overlay"><i class="bi bi-arrow-repeat spin"></i></div>
+        }
+      </div>
+      <p class="interactive-login-url">{{ loginFrame.url }}</p>
+
+      <div class="interactive-login-controls">
+        <input
+          class="interactive-login-input"
+          type="text"
+          [(ngModel)]="loginTypeText"
+          [ngModelOptions]="{ standalone: true }"
+          (keyup.enter)="sendLoginType()"
+          [disabled]="loginBusy"
+          placeholder="Click a field above, then type here and press Send" />
+        <app-button variant="secondary" size="sm" [disabled]="loginBusy || !loginTypeText" (clicked)="sendLoginType()">Send</app-button>
+        <app-button variant="ghost" size="sm" [disabled]="loginBusy" (clicked)="sendLoginKey('Enter')">Enter</app-button>
+        <app-button variant="ghost" size="sm" [disabled]="loginBusy" (clicked)="sendLoginKey('Tab')">Tab</app-button>
+        <app-button variant="ghost" size="sm" [disabled]="loginBusy" (clicked)="sendLoginKey('Backspace')">⌫</app-button>
+      </div>
+    } @else {
+      <div class="interactive-login-loading">
+        <span>Couldn't open the login window. Close this and try again.</span>
+      </div>
+    }
+  </div>
+
+  <div dialog-footer>
+    <app-button variant="ghost" (clicked)="closeLoginDialog()">Cancel</app-button>
+    <app-button
+      variant="primary"
+      [loading]="loginFinishing"
+      [disabled]="!loginFrame || loginBusy"
+      (clicked)="finishLogin()">
+      I'm logged in
     </app-button>
   </div>
 </app-dialog>

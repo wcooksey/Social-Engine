@@ -6,6 +6,7 @@ import { runCadenceSweep } from '../services/campaign-cadence.service';
 import { runAutopilotSweep, recordGoalJobOutcome } from '../services/autopilot.service';
 import { notify } from '../services/notification.service';
 import { runSocialInboxSweeps } from './social-inbox.service';
+import { runSocialSessionKeepalive } from '../services/social-account.service';
 import { AgentRole } from './roles';
 
 const MAX_ATTEMPTS = 3;
@@ -179,6 +180,9 @@ async function runTimeSweeps(): Promise<void> {
     await runDigestSweepIfDue();
     // Reads connected social DM inboxes for replies (hourly per account).
     await runSocialInboxSweeps();
+    // Re-validates stored social logins (12-hourly per account) — rotating the
+    // cookies keeps sessions alive, and the org is notified if one expires.
+    await runSocialSessionKeepalive();
   } catch (err) {
     console.error('Time sweep error:', err instanceof Error ? err.message : err);
   }

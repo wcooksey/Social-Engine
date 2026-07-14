@@ -2,7 +2,10 @@ import { Injectable, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { ApiService } from './api.service';
 import {
+  CompleteInteractiveLoginResponse,
   ConnectSocialAccountResponse,
+  InteractiveLoginFrame,
+  InteractiveLoginInput,
   SocialAccount,
   SocialAccountsResponse,
   SocialPlatformParam,
@@ -47,5 +50,27 @@ export class SocialAccountsService {
 
   disconnect(id: string): Observable<unknown> {
     return this.api.delete(`/api/social-accounts/${id}`);
+  }
+
+  // --- Interactive (in-app) login: a server-side browser streamed as screenshots ---
+
+  startInteractiveLogin(platform: SocialPlatformParam, label?: string): Observable<InteractiveLoginFrame> {
+    return this.api.post<InteractiveLoginFrame>('/api/social-accounts/interactive', { platform, label });
+  }
+
+  getInteractiveFrame(id: string): Observable<InteractiveLoginFrame> {
+    return this.api.get<InteractiveLoginFrame>(`/api/social-accounts/interactive/${id}`);
+  }
+
+  sendInteractiveInput(id: string, input: InteractiveLoginInput): Observable<InteractiveLoginFrame> {
+    return this.api.post<InteractiveLoginFrame>(`/api/social-accounts/interactive/${id}/input`, input);
+  }
+
+  completeInteractiveLogin(id: string): Observable<CompleteInteractiveLoginResponse> {
+    return this.api.post<CompleteInteractiveLoginResponse>(`/api/social-accounts/interactive/${id}/complete`);
+  }
+
+  cancelInteractiveLogin(id: string): Observable<unknown> {
+    return this.api.delete(`/api/social-accounts/interactive/${id}`);
   }
 }

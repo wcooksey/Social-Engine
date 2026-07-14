@@ -166,6 +166,44 @@ export class BrowserSession {
     return this.observe();
   }
 
+  /**
+   * Raw input primitives for the interactive login flow, where a human (not the
+   * LLM) drives the page through streamed screenshots. Coordinates are in
+   * viewport pixels (1280x900 — the newContext viewport above).
+   */
+  async clickAt(x: number, y: number): Promise<void> {
+    const page = this.requirePage();
+    await page.mouse.click(x, y);
+    await page.waitForTimeout(600);
+  }
+
+  async typeText(text: string): Promise<void> {
+    const page = this.requirePage();
+    await page.keyboard.type(text, { delay: 25 });
+  }
+
+  async pressKey(key: string): Promise<void> {
+    const page = this.requirePage();
+    await page.keyboard.press(key);
+    await page.waitForTimeout(600);
+  }
+
+  async scrollBy(deltaY: number): Promise<void> {
+    const page = this.requirePage();
+    await page.mouse.wheel(0, deltaY);
+    await page.waitForTimeout(300);
+  }
+
+  currentUrl(): string {
+    return this.requirePage().url();
+  }
+
+  /** Readable body text of the current page (for logged-in/out detection). */
+  async pageText(): Promise<string> {
+    const page = this.requirePage();
+    return page.evaluate(() => (document.body?.innerText || '').slice(0, 6000)).catch(() => '');
+  }
+
   async screenshotBase64(): Promise<string> {
     const page = this.requirePage();
     // JPEG at modest quality: ~10x smaller than PNG, plenty for a live view.

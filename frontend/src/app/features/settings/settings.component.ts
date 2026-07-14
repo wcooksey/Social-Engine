@@ -1,4 +1,4 @@
-import { Component, OnInit, computed } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
@@ -9,7 +9,7 @@ import { ModelsService } from '../../core/services/models.service';
 import { SettingsService } from '../../core/services/settings.service';
 import { OrgSetting, OrgSettingGroup, PlatformSetting } from '../../core/models/settings.model';
 import { SocialAccountsService } from '../../core/services/social-accounts.service';
-import { SocialAccount, SocialPlatform, SocialPlatformParam } from '../../core/models/social-account.model';
+import { InteractiveLoginFrame, InteractiveLoginInput, SocialAccount, SocialPlatform, SocialPlatformParam } from '../../core/models/social-account.model';
 import { BookingLinksService } from '../../core/services/booking-links.service';
 import { Availability, BookingLink, BookingLinkInput } from '../../core/models/booking-link.model';
 import { LeadsService, ImportResult } from '../../core/services/leads.service';
@@ -136,7 +136,7 @@ function availabilityFromRows(rows: DayAvailabilityRow[]): Availability {
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.scss'
 })
-export class SettingsComponent implements OnInit {
+export class SettingsComponent implements OnInit, OnDestroy {
   currentUser = computed(() => this.authService.currentUser());
 
   dailySendCap = 200;
@@ -203,6 +203,17 @@ export class SettingsComponent implements OnInit {
   savingConnect = false;
   testingAccountId: string | null = null;
   disconnectingAccountId: string | null = null;
+
+  // Interactive (in-app) login: a server-side browser streamed as screenshots.
+  showLoginDialog = false;
+  loginTarget: SocialPlatformCard | null = null;
+  loginId: string | null = null;
+  loginFrame: InteractiveLoginFrame | null = null;
+  loginStarting = false;
+  loginBusy = false;
+  loginFinishing = false;
+  loginTypeText = '';
+  private loginPollTimer: ReturnType<typeof setInterval> | null = null;
 
   // Email notifications
   notifyByEmail = true;
@@ -298,6 +309,10 @@ export class SettingsComponent implements OnInit {
     if (this.isSuperAdmin()) {
       this.loadPlatformSettings();
     }
+  }
+
+  ngOnDestroy(): void {
+    this.stopLoginPolling();
   }
 
   loadOrgSettings(): void {
@@ -482,6 +497,134 @@ export class SettingsComponent implements OnInit {
         this.toast.error(message);
       }
     });
+  }
+
+  // --- Interactive (in-app) login ---
+
+  /**
+   * Open the "log in through the app" dialog: the server opens the platform's
+   * login page in its own browser and we stream it here. The user logs in
+   * (2FA included) right in this window, and the session is saved server-side —
+   * born on the same IP/browser the agents use, so it doesn't get flagged.
+   */
+  openLoginDialog(card: SocialPlatformCard): void {
+    this.loginTarget = card;
+    this.loginId = null;
+    this.loginFrame = null;
+    this.loginTypeText = '';
+    this.showLoginDialog = true;
+    this.loginStarting = true;
+    this.socialAccountsService.startInteractiveLogin(card.param).subscribe({
+      next: frame => {
+        this.loginStarting = false;
+        this.loginId = frame.id;
+        this.loginFrame = frame;
+        this.startLoginPolling();
+      },
+      error: (err) => {
+        this.loginStarting = false;
+        const message = err?.error?.error?.message || err?.error?.message || 'Failed to open the login window';
+        this.toast.error(message);
+        this.showLoginDialog = false;
+        this.loginTarget = null;
+      }
+    });
+  }
+
+  // Refresh the screenshot on a timer so the page updates without user input.
+  private startLoginPolling(): void {
+    this.stopLoginPolling();
+    this.loginPollTimer = setInterval(() => {
+      if (!this.loginId || this.loginBusy || this.loginFinishing) return;
+      this.socialAccountsService.getInteractiveFrame(this.loginId).subscribe({
+        next: frame => { this.loginFrame = frame; },
+        error: () => {}
+      });
+    }, 2000);
+  }
+
+  private stopLoginPolling(): void {
+    if (this.loginPollTimer) {
+      clearInterval(this.loginPollTimer);
+      this.loginPollTimer = null;
+    }
+  }
+
+  // Translate a click on the rendered screenshot to viewport coordinates.
+  onLoginImageClick(event: MouseEvent): void {
+    if (!this.loginId || !this.loginFrame || this.loginBusy) return;
+    const img = event.currentTarget as HTMLImageElement;
+    const rect = img.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = ((event.clientX - rect.left) / rect.width) * this.loginFrame.viewport.width;
+    const y = ((event.clientY - rect.top) / rect.height) * this.loginFrame.viewport.height;
+    this.sendLoginInput({ type: 'click', x: Math.round(x), y: Math.round(y) });
+  }
+
+  sendLoginType(): void {
+    const text = this.loginTypeText;
+    if (!text) return;
+    this.sendLoginInput({ type: 'type', text }, () => { this.loginTypeText = ''; });
+  }
+
+  sendLoginKey(key: string): void {
+    this.sendLoginInput({ type: 'press', key });
+  }
+
+  private sendLoginInput(input: InteractiveLoginInput, onDone?: () => void): void {
+    if (!this.loginId || this.loginBusy) return;
+    this.loginBusy = true;
+    this.socialAccountsService.sendInteractiveInput(this.loginId, input).subscribe({
+      next: frame => {
+        this.loginBusy = false;
+        this.loginFrame = frame;
+        onDone?.();
+      },
+      error: (err) => {
+        this.loginBusy = false;
+        const message = err?.error?.error?.message || err?.error?.message || 'Action failed — the login window may have expired';
+        this.toast.error(message);
+      }
+    });
+  }
+
+  finishLogin(): void {
+    if (!this.loginId || this.loginFinishing) return;
+    this.loginFinishing = true;
+    this.socialAccountsService.completeInteractiveLogin(this.loginId).subscribe({
+      next: res => {
+        this.loginFinishing = false;
+        if (res.connected) {
+          this.toast.success(`Connected ${this.loginTarget?.name ?? 'account'}`);
+          this.closeLoginDialog();
+          this.loadSocialAccounts();
+        } else {
+          if (res.frame) this.loginFrame = res.frame;
+          this.toast.warning('Not logged in yet — finish the login (including any 2FA), then try again');
+        }
+      },
+      error: (err) => {
+        this.loginFinishing = false;
+        const message = err?.error?.error?.message || err?.error?.message || 'Failed to save the session';
+        this.toast.error(message);
+      }
+    });
+  }
+
+  closeLoginDialog(): void {
+    this.stopLoginPolling();
+    const id = this.loginId;
+    if (id) {
+      // Best-effort: release the server-side browser.
+      this.socialAccountsService.cancelInteractiveLogin(id).subscribe({ error: () => {} });
+    }
+    this.showLoginDialog = false;
+    this.loginTarget = null;
+    this.loginId = null;
+    this.loginFrame = null;
+    this.loginBusy = false;
+    this.loginFinishing = false;
+    this.loginTypeText = '';
   }
 
   testAccount(account: SocialAccount): void {

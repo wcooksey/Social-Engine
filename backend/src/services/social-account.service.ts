@@ -1,6 +1,7 @@
 import { prisma } from '../config/database';
 import { decrypt, encrypt } from '../utils/encryption';
 import { BrowserSession } from '../engine/browser/browser.service';
+import { notify } from './notification.service';
 
 export type PlatformKey = 'linkedin' | 'facebook' | 'instagram' | 'x';
 
@@ -33,8 +34,30 @@ const PLATFORM_PROBE: Record<PlatformKey, { url: string; loggedOutUrl: RegExp; l
   x: { url: 'https://x.com/home', loggedOutUrl: /\/(login|i\/flow\/login)/i },
 };
 
+/** Login pages for the interactive connect flow. */
+export const PLATFORM_LOGIN_URLS: Record<PlatformKey, string> = {
+  linkedin: 'https://www.linkedin.com/login',
+  facebook: 'https://www.facebook.com/login',
+  instagram: 'https://www.instagram.com/accounts/login/',
+  x: 'https://x.com/i/flow/login',
+};
+
 export function toPlatformEnum(platform: PlatformKey) {
   return PLATFORM_ENUM[platform];
+}
+
+export function fromPlatformEnum(platform: string): PlatformKey {
+  return (Object.keys(PLATFORM_ENUM) as PlatformKey[]).find((k) => PLATFORM_ENUM[k] === platform)!;
+}
+
+/**
+ * Navigate an open session to the platform's home and check the logged-out
+ * signals. Shared by validation and the interactive login flow.
+ */
+export async function probeLoggedOut(session: BrowserSession, platform: PlatformKey): Promise<boolean> {
+  const probe = PLATFORM_PROBE[platform];
+  const obs = await session.goto(probe.url);
+  return probe.loggedOutUrl.test(obs.url) || (!!probe.loggedOutText && probe.loggedOutText.test(obs.text));
 }
 
 /** Load a connected session's storageState object for the browser to reuse. */
@@ -117,10 +140,7 @@ export async function validateAccount(accountId: string, organizationId: string)
   });
   if (!account) return false;
 
-  const platform = (Object.keys(PLATFORM_ENUM) as PlatformKey[]).find(
-    (k) => PLATFORM_ENUM[k] === account.platform
-  )!;
-  const probe = PLATFORM_PROBE[platform];
+  const platform = fromPlatformEnum(account.platform);
 
   let state: Record<string, unknown>;
   try {
@@ -133,10 +153,7 @@ export async function validateAccount(accountId: string, organizationId: string)
   const session = new BrowserSession();
   try {
     await session.open({ storageState: state });
-    const obs = await session.goto(probe.url);
-    const loggedOut =
-      probe.loggedOutUrl.test(obs.url) ||
-      (!!probe.loggedOutText && probe.loggedOutText.test(obs.text));
+    const loggedOut = await probeLoggedOut(session, platform);
     // Refresh cookies while we're here to extend the session.
     const refreshed = await session.exportState();
     await session.close();
@@ -157,5 +174,48 @@ export async function validateAccount(accountId: string, organizationId: string)
       data: { status: 'ERROR', lastValidatedAt: new Date() },
     });
     return false;
+  }
+}
+
+// Re-validate each connected session on this cadence. Validation itself
+// refreshes the cookies (platforms rotate them on use), so this sweep is what
+// keeps a login alive between agent runs instead of letting it idle out.
+const KEEPALIVE_INTERVAL_MS = 12 * 60 * 60 * 1000;
+// Bound each sweep — the worker calls this every few minutes, so a backlog
+// drains quickly without ever holding many browsers open at once.
+const KEEPALIVE_BATCH = 3;
+
+/**
+ * Keep-alive sweep: validate CONNECTED accounts whose last check is stale.
+ * A session that fails validation flips to EXPIRED/ERROR (so it won't be
+ * re-checked or silently used) and the org is notified to reconnect — the
+ * in-app "pause and log in" moment that replaces a mid-run login wall.
+ */
+export async function runSocialSessionKeepalive(): Promise<void> {
+  const cutoff = new Date(Date.now() - KEEPALIVE_INTERVAL_MS);
+  const stale = await prisma.socialAccount.findMany({
+    where: {
+      status: 'CONNECTED',
+      OR: [{ lastValidatedAt: null }, { lastValidatedAt: { lt: cutoff } }],
+    },
+    orderBy: { lastValidatedAt: { sort: 'asc', nulls: 'first' } },
+    take: KEEPALIVE_BATCH,
+    select: { id: true, organizationId: true, platform: true, label: true },
+  });
+
+  for (const account of stale) {
+    const live = await validateAccount(account.id, account.organizationId).catch(() => false);
+    if (!live) {
+      const platform = fromPlatformEnum(account.platform);
+      await notify({
+        organizationId: account.organizationId,
+        type: 'SYSTEM',
+        title: `${platform.charAt(0).toUpperCase() + platform.slice(1)} session expired — reconnect needed`,
+        body:
+          `The stored ${platform} login (${account.label}) is no longer valid, so browser agents can't use it. ` +
+          'Open Settings → Connected social accounts and use "Connect via browser" to log in again.',
+        emailAlert: true,
+      }).catch(() => undefined);
+    }
   }
 }
