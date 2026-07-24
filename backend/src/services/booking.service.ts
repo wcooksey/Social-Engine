@@ -258,7 +258,7 @@ export async function book(input: BookInput): Promise<{ eventId: string; startIs
       start,
       end,
       organizerName: org?.name,
-      organizerEmail: `noreply@${orgConfig.mailgun.domain}`,
+      organizerEmail: channels.senderAddress(orgConfig.mailgun),
       attendeeEmail: email,
       attendeeName: name,
     });
