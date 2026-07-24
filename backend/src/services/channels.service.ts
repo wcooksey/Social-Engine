@@ -14,6 +14,8 @@ export interface SendResult {
 export interface EmailCreds {
   apiKey: string;
   domain: string;
+  /** Sender address; blank falls back to noreply@<domain>. Must be on the domain. */
+  fromEmail?: string;
 }
 export interface SmsCreds {
   accountSid: string;
@@ -34,6 +36,12 @@ export interface VoiceCreds {
 
 export function isEmailConfigured(creds: EmailCreds): boolean {
   return !!(creds.apiKey && creds.domain);
+}
+
+/** Sender address for a set of email creds (configured address, else noreply@domain). */
+export function senderAddress(creds: EmailCreds): string {
+  const configured = creds.fromEmail?.trim();
+  return configured || `noreply@${creds.domain}`;
 }
 
 export interface IcsAttachment {
@@ -57,7 +65,7 @@ export interface SendEmailOptions {
 export async function sendEmail(opts: SendEmailOptions, creds: EmailCreds): Promise<SendResult> {
   if (!isEmailConfigured(creds)) return { sent: false, error: 'Email channel not configured' };
 
-  const from = `${opts.fromName || 'Social Engine'} <noreply@${creds.domain}>`;
+  const from = `${opts.fromName || 'Social Engine'} <${senderAddress(creds)}>`;
 
   // Multipart form so we can attach an .ics calendar invite alongside the text.
   const form = new FormData();
