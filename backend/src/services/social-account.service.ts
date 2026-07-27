@@ -60,6 +60,63 @@ export async function loadStorageState(
   }
 }
 
+export interface LoadedAccount {
+  id: string;
+  label: string;
+  storageState: Record<string, unknown>;
+  /** Account-pinned egress proxy, if one is configured. */
+  proxyUrl?: string;
+}
+
+/**
+ * Load a specific account by id, with its session and proxy decrypted. The
+ * prospecting pipeline works account-first (a prospect is pinned to the account
+ * that will message them), where the older platform-first lookup can't say
+ * which of several logins it returned.
+ */
+export async function loadAccountById(
+  accountId: string,
+  organizationId: string
+): Promise<LoadedAccount | null> {
+  const account = await prisma.socialAccount.findFirst({
+    where: { id: accountId, organizationId },
+  });
+  if (!account || account.status !== 'CONNECTED') return null;
+  try {
+    return {
+      id: account.id,
+      label: account.label,
+      storageState: JSON.parse(decrypt(account.encryptedState)),
+      ...(account.encryptedProxy ? { proxyUrl: decrypt(account.encryptedProxy) } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Persist a refreshed session against a specific account id. */
+export async function saveStateForAccount(
+  accountId: string,
+  state: Record<string, unknown>
+): Promise<void> {
+  await prisma.socialAccount.update({
+    where: { id: accountId },
+    data: { encryptedState: encrypt(JSON.stringify(state)), lastUsedAt: new Date() },
+  });
+}
+
+/** Set (or clear) the account-pinned egress proxy. Stored encrypted — it usually carries credentials. */
+export async function setAccountProxy(
+  accountId: string,
+  organizationId: string,
+  proxyUrl: string | null
+): Promise<void> {
+  await prisma.socialAccount.updateMany({
+    where: { id: accountId, organizationId },
+    data: { encryptedProxy: proxyUrl ? encrypt(proxyUrl) : null },
+  });
+}
+
 /**
  * Persist a refreshed storageState back after a browser run. Platforms rotate
  * cookies on use, so saving after each run keeps the login alive for weeks —

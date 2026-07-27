@@ -55,6 +55,9 @@ model Organization {
   notifications Notification[]
   coverageCells CoverageCell[]
   autopilotGoals AutopilotGoal[]
+  socialSources  SocialSource[]
+  socialProspects SocialProspect[]
+  socialSendLogs SocialSendLog[]
 }
 
 model User {
@@ -113,6 +116,7 @@ model LeadGroup {
   coverageCells CoverageCell[]
   autoEnrollCampaigns Campaign[]
   autopilotGoals      AutopilotGoal[]
+  socialSources       SocialSource[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -194,6 +198,7 @@ model Lead {
   campaignLeads CampaignLead[]
   agentJobs     AgentJob[]
   calendarEvents CalendarEvent[]
+  socialProspects SocialProspect[]
 
   @@unique([organizationId, domain])
   @@index([organizationId, status])
@@ -662,11 +667,165 @@ model SocialAccount {
   // Last time the inbound DM sweep read this account's inbox for replies.
   lastInboxSweepAt DateTime?
 
+  // --- Sending limits -----------------------------------------------------
+  // The real constraint on social outreach is this account's standing with the
+  // platform, not the org's email cap — so limits live here, per account.
+  // Cold DMs to non-followers are the throttled category; published community
+  // numbers put a warm account near 50-150/day total but only ~10-40 cold, and
+  // a fresh account far below that. Defaults are deliberately timid.
+  dailyDmCap   Int @default(20)
+  hourlyDmCap  Int @default(4)
+  // Warmup ramp: caps scale from a fraction of the target up to full over this
+  // many days from the account's first send, so a new login doesn't open at 20.
+  warmupDays   Int @default(21)
+  warmupStartedAt DateTime?
+  // Set when a block/checkpoint is seen. No sends happen while this is future.
+  cooldownUntil   DateTime?
+  lastBlockKind   String?
+  lastBlockAt     DateTime?
+  // Account-pinned egress proxy (encrypted). A social account that appears
+  // from a different datacenter IP each run gets checkpointed quickly.
+  encryptedProxy  String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  prospects SocialProspect[]
+  sendLogs  SocialSendLog[]
+
   @@unique([organizationId, platform, label])
   @@index([organizationId])
+}
+
+// ============================================
+// SOCIAL PROSPECTING (follower harvest -> DM)
+// ============================================
+
+enum SocialSourceKind {
+  FOLLOWERS
+  FOLLOWING
+  POST_LIKERS
+  POST_COMMENTERS
+}
+
+enum SocialSourceStatus {
+  PENDING
+  HARVESTING
+  PAUSED
+  EXHAUSTED // walked to the end of the list
+  FAILED
+}
+
+/// A list being mined for prospects — e.g. "the followers of @tampacoffee".
+/// Harvesting is resumable: `cursor` records how far the walk got, and the
+/// unique handle constraint on SocialProspect absorbs any overlap when a run
+/// restarts mid-list, so an imperfect cursor can never produce a duplicate DM.
+model SocialSource {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  groupId        String?
+  group          LeadGroup?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  platform  SocialPlatform
+  kind      SocialSourceKind   @default(FOLLOWERS)
+  handle    String             // the account whose list we're walking, e.g. "tampacoffee"
+  sourceUrl String
+  status    SocialSourceStatus @default(PENDING)
+
+  /// Last handle seen in the walk — where the next run resumes from.
+  cursor         String?
+  harvestedCount Int    @default(0)
+  /// Natural-language filter applied by the batched qualifier, e.g.
+  /// "independent coffee shop owners in the Tampa area".
+  qualifyPrompt  String?
+  /// Message template for this source's prospects. {{name}} is substituted.
+  messageTemplate String?
+
+  lastRunAt DateTime?
+  lastError String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  prospects SocialProspect[]
+
+  @@unique([organizationId, platform, handle, kind])
+  @@index([organizationId, status])
+}
+
+enum SocialProspectStatus {
+  NEW        // harvested, not yet judged
+  QUALIFIED  // passed the filter, eligible for a DM
+  REJECTED   // failed the filter — never DM'd
+  DM_QUEUED  // claimed by a drain worker, send in flight
+  DM_SENT
+  REPLIED
+  FAILED
+  SKIPPED    // private/no DM button/etc.
+}
+
+/// One harvested person. The unique constraint on (org, platform, handle) is
+/// what makes the whole pipeline idempotent — re-harvesting the same list, or
+/// two sources sharing followers, collapses into upserts instead of a second DM.
+model SocialProspect {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceId       String?
+  source         SocialSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  /// The account that will send (and did send) to this prospect. Pinned at
+  /// qualify time so one person is never approached from two identities.
+  accountId      String?
+  account        SocialAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  /// Set once a prospect converts into a real lead worth working.
+  leadId         String?
+  lead           Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  platform    SocialPlatform
+  handle      String
+  profileUrl  String
+  displayName String?
+  bio         String?
+  followerCount Int?
+  isBusiness  Boolean? // platform-declared business/professional account
+
+  status        SocialProspectStatus @default(NEW)
+  qualifyReason String?              // why the filter accepted or rejected
+  dmSentAt      DateTime?
+  dmBody        String?
+  attempts      Int      @default(0)
+  lastError     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, platform, handle])
+  @@index([organizationId, status])
+  @@index([sourceId, status])
+  @@index([accountId, dmSentAt])
+}
+
+/// Append-only ledger of every social message sent, per account. This is the
+/// single source the rate limiter counts — deriving caps from prospects alone
+/// would miss lead DMs, and vice versa.
+model SocialSendLog {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  accountId      String
+  account        SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  platform   SocialPlatform
+  /// "lead" or "prospect" — which pipeline the send came from.
+  targetType String
+  targetId   String
+  succeeded  Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+
+  @@index([accountId, createdAt])
+  @@index([organizationId, createdAt])
 }
 
 // ============================================

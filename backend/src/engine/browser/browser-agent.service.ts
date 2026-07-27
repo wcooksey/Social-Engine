@@ -1,12 +1,15 @@
 import { config } from '../../config/environment';
 import { estimateCostUsd, ProviderKeys } from '../llm/catalog';
 import { llmService, LlmMessage, LlmToolDefinition } from '../llm/llm.service';
+import { BlockSignal, describeBlock } from './block-detector';
 import { BrowserSession, PageObservation } from './browser.service';
 
 export interface BrowserAgentResult {
-  status: 'completed' | 'max_steps' | 'failed';
+  status: 'completed' | 'max_steps' | 'failed' | 'blocked';
   summary: string;
   finalUrl?: string;
+  /** Set when the platform showed a block/checkpoint and the run was aborted. */
+  block?: BlockSignal;
   /** Structured data the agent chose to return (profiles, contacts, etc.). */
   data?: unknown;
   steps: number;
@@ -26,6 +29,10 @@ export interface BrowserAgentOptions {
   allowSend: boolean;
   /** Pre-authenticated session (cookies + localStorage) to start logged in. */
   storageState?: Record<string, unknown>;
+  /** Account-pinned egress proxy, so a social session keeps a stable IP. */
+  proxyUrl?: string;
+  /** Called when the platform shows a block/checkpoint, before the run aborts. */
+  onBlock?: (signal: BlockSignal) => Promise<void> | void;
   /** Called with the refreshed session after the run, to keep the login alive. */
   persistState?: (state: Record<string, unknown>) => Promise<void>;
   onStep?: (note: string) => void;
@@ -45,25 +52,26 @@ const BROWSER_TOOLS: LlmToolDefinition[] = [
   },
   {
     name: 'click',
-    description: 'Click the interactive element with the given index from the current observation.',
+    description:
+      'Click the interactive element with the given ref from the MOST RECENT observation. Refs are invalidated by every action — never reuse one from an earlier step.',
     inputSchema: {
       type: 'object',
-      properties: { index: { type: 'number' } },
-      required: ['index'],
+      properties: { ref: { type: 'number' } },
+      required: ['ref'],
     },
   },
   {
     name: 'type',
     description:
-      'Type text into the input/textarea with the given index. Set submit=true to press Enter after (e.g. to run a search or send a message).',
+      'Type text into the input/textarea with the given ref from the MOST RECENT observation. Set submit=true to press Enter after (e.g. to run a search or send a message).',
     inputSchema: {
       type: 'object',
       properties: {
-        index: { type: 'number' },
+        ref: { type: 'number' },
         text: { type: 'string' },
         submit: { type: 'boolean' },
       },
-      required: ['index', 'text'],
+      required: ['ref', 'text'],
     },
   },
   {
@@ -90,7 +98,7 @@ function renderObservation(obs: PageObservation): string {
       return `[${e.index}] <${e.tag}> ${label}${href}`.trim();
     })
     .join('\n');
-  return `URL: ${obs.url}\nTITLE: ${obs.title}\n\nINTERACTIVE ELEMENTS:\n${els}\n\nPAGE TEXT:\n${obs.text}`;
+  return `URL: ${obs.url}\nTITLE: ${obs.title}\n\nINTERACTIVE ELEMENTS (number in brackets is the ref):\n${els}\n\nPAGE TEXT:\n${obs.text}`;
 }
 
 /**
@@ -111,7 +119,8 @@ Objective: ${opts.objective}
 
 ## How you work
 - You see each page as its URL, title, a numbered list of interactive elements, and the page's readable text.
-- Act by calling goto / click / type. Reference elements by their index from the LATEST observation only (indices change every step).
+- Act by calling goto / click / type. Reference elements by their ref from the LATEST observation only — refs are re-assigned every step, so a ref from an earlier step points at the wrong element or nothing at all.
+- If an action reports that a ref no longer exists, the page changed: read the new element list and pick a ref from it. Never guess a ref.
 - To search or send a message, type into the field then set submit=true to press Enter, OR click the dedicated button.
 - Work efficiently: you have at most ${maxSteps} steps. Don't re-read pages you've seen.
 - When done (or blocked), call finish with a clear summary and any data you found (profile URLs, names, titles, whether a message was sent).
@@ -141,7 +150,10 @@ Objective: ${opts.objective}
   };
 
   try {
-    await session.open({ storageState: opts.storageState });
+    await session.open({
+      ...(opts.storageState ? { storageState: opts.storageState } : {}),
+      ...(opts.proxyUrl ? { proxyUrl: opts.proxyUrl } : {}),
+    });
 
     for (let step = 0; step < maxSteps; step++) {
       const response = await llmService.chatWithFailover(
@@ -204,21 +216,42 @@ Objective: ${opts.objective}
           if (call.name === 'goto') {
             obs = await session.goto((call.input as { url: string }).url);
           } else if (call.name === 'click') {
-            obs = await session.click((call.input as { index: number }).index);
+            obs = await session.click((call.input as { ref: number }).ref);
           } else if (call.name === 'type') {
-            const i = call.input as { index: number; text: string; submit?: boolean };
+            const i = call.input as { ref: number; text: string; submit?: boolean };
             if (!opts.allowSend && i.submit) {
               // Guard: don't let a submit slip through in research-only mode.
               error =
                 'Submitting is disabled in research-only mode. Gather info and finish instead.';
             } else {
-              obs = await session.type(i.index, i.text, !!i.submit);
+              obs = await session.type(i.ref, i.text, !!i.submit);
             }
           } else {
             error = `Unknown action ${call.name}`;
           }
         } catch (err) {
           error = err instanceof Error ? err.message : 'Action failed';
+        }
+
+        // Hard stop on a platform block. Continuing to click after the platform
+        // has said no is what turns a few-hour action block into a permanent
+        // ban, so this aborts the whole run rather than letting the model try
+        // to "work around" it.
+        if (obs?.block) {
+          const signal = obs.block;
+          note(`BLOCKED: ${describeBlock(signal)}`);
+          if (opts.onBlock) await opts.onBlock(signal);
+          // Don't persist storageState on a block — a checkpointed session is
+          // not a state we want to write back over a known-good login.
+          await session.close();
+          return {
+            status: 'blocked',
+            summary: `Aborted: ${describeBlock(signal)}. The account has been paused; a human needs to review it.`,
+            block: signal,
+            finalUrl: obs.url,
+            steps: step + 1,
+            usage,
+          };
         }
 
         // Live view: push what the browser looks like right now (best-effort;

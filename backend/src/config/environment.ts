@@ -59,6 +59,13 @@ export const config = {
     // Path to a Playwright storageState JSON for pre-authenticated social sessions
     storageStatePath: process.env.BROWSER_STORAGE_STATE || '',
     maxSteps: parseInt(process.env.BROWSER_AGENT_MAX_STEPS || '18', 10),
+    // Headless Chromium is a strong automation signal on Meta properties. Set
+    // BROWSER_HEADLESS=false and run under xvfb for social work; headless is
+    // fine for ordinary web research.
+    headless: process.env.BROWSER_HEADLESS !== 'false',
+    // Browser timezone should match the account's real-world location — a US
+    // account browsing from UTC is an inconsistency detectors look for.
+    timezone: process.env.BROWSER_TIMEZONE || 'America/New_York',
   },
 
   inbound: {

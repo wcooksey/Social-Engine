@@ -20,9 +20,16 @@ import {
   loadStorageState,
   PlatformKey,
   saveStorageState,
+  toPlatformEnum,
 } from '../services/social-account.service';
 import { getOrgConfig } from '../services/settings.service';
 import { sweepSocialInbox } from './social-inbox.service';
+import {
+  AUTOSEND_CONFIDENCE,
+  resolveSocialProfile,
+  sendDmToProfile,
+} from './social-outreach.service';
+import { harvestSource, qualifyNewProspects, drainProspectQueue } from './social-prospecting.service';
 import { sourceBusinesses } from '../services/places.service';
 import * as coverage from '../services/coverage.service';
 import {
@@ -429,9 +436,28 @@ export const engineTools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'resolve_social_profile',
+    description:
+      "Find a person's social profile WITHOUT messaging them (research only, always safe to run). Returns scored candidates with the evidence tying each profile to the target, and saves the best one onto the contact/lead. ALWAYS call this before send_social_dm — that tool refuses to send without a resolved profileUrl, because a cold DM to a misidentified person can't be taken back.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        leadId: { type: 'string', description: 'Lead the person works at (supplies company/domain/location for scoring)' },
+        platform: {
+          type: 'string',
+          enum: ['linkedin', 'facebook', 'instagram', 'x'],
+        },
+        personName: { type: 'string', description: 'Who to find, e.g. "Jane Smith"' },
+        contactId: { type: 'string', description: 'Contact to save the resolved profile URL onto' },
+        extraContext: { type: 'string', description: 'Anything else that helps disambiguate (title, city, known handle)' },
+      },
+      required: ['platform'],
+    },
+  },
+  {
     name: 'send_social_dm',
     description:
-      'Use the browser to find a lead contact on a social platform and send them a direct message / connection request. COLD DM RULE: each lead gets exactly ONE cold DM per platform — the tool refuses repeats unless allowRepeat is set (replies are handled by the inbound loop, not by re-DMing). Requires the org to have social autonomy enabled; otherwise the message is recorded as a draft for human approval. Records a social touch on the lead timeline.',
+      'Send a direct message to an ALREADY-RESOLVED social profile URL (get one from resolve_social_profile first — this tool will not search for a person). COLD DM RULE: each lead gets exactly ONE cold DM per platform; repeats are refused unless allowRepeat is set (replies are handled by the inbound loop, not by re-DMing). Enforces per-account daily/hourly caps, warmup ramps, and platform-block cooldowns deterministically — if the account is capped or cooling down the message is drafted instead. Requires org social autonomy; otherwise it drafts for human approval.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -440,8 +466,11 @@ export const engineTools: Anthropic.Tool[] = [
           type: 'string',
           enum: ['linkedin', 'facebook', 'instagram', 'x'],
         },
-        profileUrl: { type: 'string', description: 'Direct profile URL if known (skips searching)' },
-        personName: { type: 'string', description: 'Who to reach if no profileUrl' },
+        profileUrl: {
+          type: 'string',
+          description: 'REQUIRED to actually send — the exact profile URL from resolve_social_profile. Without it the message is only drafted.',
+        },
+        personName: { type: 'string', description: 'Who the message is for (used on the draft when no profileUrl)' },
         message: { type: 'string', description: 'The DM text to send' },
         allowRepeat: {
           type: 'boolean',
@@ -462,6 +491,69 @@ export const engineTools: Anthropic.Tool[] = [
           type: 'string',
           enum: ['linkedin', 'facebook', 'instagram', 'x'],
         },
+      },
+      required: ['platform'],
+    },
+  },
+  {
+    name: 'create_social_source',
+    description:
+      "Register a follower list to mine for prospects, e.g. the followers of a competitor or a local-interest account. Creates the source; harvesting happens separately and resumably. Instagram and X only — Facebook and LinkedIn don't expose usable follower lists. Set qualifyPrompt to describe who you actually want, or every follower will be accepted.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        platform: { type: 'string', enum: ['instagram', 'x'] },
+        handle: { type: 'string', description: 'Account whose list to walk, without the @' },
+        kind: { type: 'string', enum: ['FOLLOWERS', 'FOLLOWING'], description: 'Default FOLLOWERS' },
+        qualifyPrompt: {
+          type: 'string',
+          description: 'Who counts as a prospect, e.g. "independent coffee shop owners in the Tampa area". Be specific — this is the only thing preventing DMs to irrelevant people.',
+        },
+        messageTemplate: {
+          type: 'string',
+          description: 'DM template for this source. {{name}} is replaced with the prospect\'s first name.',
+        },
+        groupName: { type: 'string', description: 'Optional lead group to associate' },
+      },
+      required: ['platform', 'handle'],
+    },
+  },
+  {
+    name: 'harvest_social_source',
+    description:
+      'Walk a registered follower list and bank the profiles found. Resumable — each call covers a chunk and records where it stopped, so call it repeatedly rather than trying to take a whole list at once. Sends nothing. Returns how many new prospects were added.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        sourceId: { type: 'string' },
+        maxScrolls: { type: 'number', description: 'How far to walk this run (default 25)' },
+      },
+      required: ['sourceId'],
+    },
+  },
+  {
+    name: 'qualify_social_prospects',
+    description:
+      "Judge freshly harvested prospects against the source's qualifyPrompt, in one batched pass. Only QUALIFIED prospects are ever messaged. Run this after harvesting and before draining.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        sourceId: { type: 'string' },
+        limit: { type: 'number', description: 'How many to judge this pass (default 50)' },
+      },
+      required: ['sourceId'],
+    },
+  },
+  {
+    name: 'send_prospect_dms',
+    description:
+      'Drain the qualified-prospect queue: send one DM per prospect, spaced and jittered, until the sending account hits its hourly/daily cap or max is reached. Stops immediately and permanently on any platform block. Requires social autonomy to be enabled. This is a slow tool by design — it deliberately waits between sends.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        platform: { type: 'string', enum: ['instagram', 'x', 'facebook', 'linkedin'] },
+        max: { type: 'number', description: 'Max DMs this run (default 10). The account cap still applies and wins.' },
+        sourceId: { type: 'string', description: 'Restrict to one source' },
       },
       required: ['platform'],
     },
@@ -1679,7 +1771,6 @@ const executors: Record<string, ToolExecutor> = {
     const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
 
     const blocked = await outboundBlockReason(ctx.organizationId, lead);
-    const model = org?.engineModel || config.engine.model;
 
     const recordTouch = async (status: string, summary: string, extra?: Record<string, unknown>) => {
       const conversation =
@@ -1727,49 +1818,208 @@ const executors: Record<string, ToolExecutor> = {
     }
 
     const platform = input.platform as PlatformKey;
-    const storageState = await loadStorageState(ctx.organizationId, platform);
-    if (!storageState) {
+
+    // No resolved profile => no autonomous send. Letting the agent go
+    // hunt for "the decision maker at CompanyName" and message whoever it
+    // lands on is how a cold DM reaches the wrong person, and a DM cannot be
+    // unsent. Resolution is a separate, reversible tool.
+    if (!input.profileUrl) {
       await recordTouch(
         'draft_pending_approval',
-        `${input.platform} DM drafted — no connected ${input.platform} account`
+        `${input.platform} DM drafted — no resolved profile URL`
       );
       return {
         sent: false,
         drafted: true,
-        note: `No connected ${input.platform} account. Connect one in Settings → Social accounts (log in once), then I can send without logging in per lead.`,
+        note: `No profileUrl supplied. Call resolve_social_profile first and pass the profile it returns — this tool will not search for a person and then message whoever it finds. The message is saved as a draft.`,
       };
     }
 
-    const target = input.profileUrl
-      ? `their profile at ${input.profileUrl}`
-      : `${input.personName || 'the decision maker'} at ${lead.companyName}`;
-    const objective = `You are already logged in to ${input.platform}. Find ${target} and send them this direct message, personalized naturally: "${input.message}". Confirm the message was sent.`;
-
-    const orgConfig = await getOrgConfig(ctx.organizationId);
-    const result = await runBrowserAgent({
-      objective,
-      startUrl: input.profileUrl,
-      model,
-      providerKeys: orgConfig.providerKeys,
-      allowSend: true,
-      storageState,
-      persistState: (state) => saveStorageState(ctx.organizationId, platform, state),
-      onStep: (n) => recordBrowserAction(ctx.runId, ctx.organizationId, n),
-      onFrame: (f) => recordBrowserFrame(ctx.runId, ctx.organizationId, f),
+    const result = await sendDmToProfile({
+      organizationId: ctx.organizationId,
+      runId: ctx.runId,
+      platform,
+      profileUrl: input.profileUrl,
+      message: input.message,
+      targetType: 'lead',
+      targetId: lead.id,
     });
-    await attributeBrowserUsage(ctx.runId, result.usage);
+    if (result.usage) await attributeBrowserUsage(ctx.runId, result.usage);
 
-    const success = result.status === 'completed';
+    if (result.status === 'rate_limited' || result.status === 'blocked' || result.status === 'no_account') {
+      await recordTouch(
+        'draft_pending_approval',
+        `${input.platform} DM held: ${result.summary}`.slice(0, 500),
+        { holdReason: result.status }
+      );
+      return {
+        sent: false,
+        drafted: true,
+        reason: result.status,
+        note:
+          result.status === 'blocked'
+            ? `${result.summary} Nothing further will be sent from this account until it clears — do not retry.`
+            : `${result.summary} The DM is saved as a draft; schedule a follow-up rather than retrying now.`,
+        ...(result.retryAt ? { retryAt: result.retryAt.toISOString() } : {}),
+      };
+    }
+
+    const success = result.status === 'sent';
     await recordTouch(
       success ? 'sent' : 'failed',
       `${input.platform} DM ${success ? 'sent' : 'attempt failed'}: ${result.summary}`.slice(0, 500),
-      { browserResult: result.summary, finalUrl: result.finalUrl }
+      { browserResult: result.summary, accountId: result.accountId }
+    );
+    return { sent: success, summary: result.summary };
+  },
+
+  resolve_social_profile: async (input, ctx) => {
+    const platform = input.platform as PlatformKey;
+    const lead = input.leadId ? await requireLead(input.leadId, ctx.organizationId) : null;
+
+    const result = await resolveSocialProfile({
+      organizationId: ctx.organizationId,
+      runId: ctx.runId,
+      platform,
+      ...(input.personName ? { personName: String(input.personName) } : {}),
+      ...(lead ? { leadId: lead.id } : {}),
+      ...(input.extraContext ? { extraContext: String(input.extraContext) } : {}),
+    });
+    await attributeBrowserUsage(ctx.runId, result.usage);
+
+    // Persist a confident match so the person is resolved once, ever.
+    if (result.status === 'resolved' && result.best) {
+      if (input.contactId) {
+        const contact = await prisma.contact.findFirst({
+          where: { id: String(input.contactId), organizationId: ctx.organizationId },
+        });
+        if (contact) {
+          const socials = (contact.socials as Record<string, string> | null) || {};
+          await prisma.contact.update({
+            where: { id: contact.id },
+            data: { socials: { ...socials, [platform]: result.best.profileUrl } },
+          });
+        }
+      } else if (lead) {
+        const socials = (lead.socials as Record<string, string> | null) || {};
+        await prisma.lead.update({
+          where: { id: lead.id },
+          data: { socials: { ...socials, [platform]: result.best.profileUrl } },
+        });
+      }
+    }
+
+    return {
+      status: result.status,
+      best: result.best,
+      candidates: result.candidates,
+      note:
+        result.status === 'resolved'
+          ? 'Confident match, saved. Pass best.profileUrl to send_social_dm.'
+          : result.status === 'ambiguous'
+            ? `Not confident enough to message autonomously (top score ${result.best?.confidence}, threshold ${AUTOSEND_CONFIDENCE}). Gather more identifying detail, or surface the candidates to a human — do NOT pick one and DM it.`
+            : result.status === 'blocked'
+              ? 'The platform blocked this session; the account is paused. Do not retry.'
+              : 'No plausible profile found. Try a different platform or find the person by name on the company website first.',
+    };
+  },
+
+  create_social_source: async (input, ctx) => {
+    const platform = input.platform as PlatformKey;
+    const handle = String(input.handle || '').replace(/^@/, '').trim();
+    if (!handle) throw new Error('handle is required');
+
+    const group = input.groupName
+      ? await prisma.leadGroup.findFirst({
+          where: { organizationId: ctx.organizationId, name: String(input.groupName) },
+        })
+      : null;
+
+    const kind = (input.kind === 'FOLLOWING' ? 'FOLLOWING' : 'FOLLOWERS') as 'FOLLOWERS' | 'FOLLOWING';
+    const sourceUrl =
+      platform === 'instagram'
+        ? `https://www.instagram.com/${handle}/${kind === 'FOLLOWING' ? 'following' : 'followers'}/`
+        : `https://x.com/${handle}/${kind === 'FOLLOWING' ? 'following' : 'verified_followers'}`;
+
+    const source = await prisma.socialSource.upsert({
+      where: {
+        organizationId_platform_handle_kind: {
+          organizationId: ctx.organizationId,
+          platform: toPlatformEnum(platform),
+          handle,
+          kind,
+        },
+      },
+      create: {
+        organizationId: ctx.organizationId,
+        platform: toPlatformEnum(platform),
+        handle,
+        kind,
+        sourceUrl,
+        ...(group ? { groupId: group.id } : {}),
+        ...(input.qualifyPrompt ? { qualifyPrompt: String(input.qualifyPrompt) } : {}),
+        ...(input.messageTemplate ? { messageTemplate: String(input.messageTemplate) } : {}),
+      },
+      update: {
+        ...(input.qualifyPrompt ? { qualifyPrompt: String(input.qualifyPrompt) } : {}),
+        ...(input.messageTemplate ? { messageTemplate: String(input.messageTemplate) } : {}),
+      },
+    });
+
+    return {
+      sourceId: source.id,
+      handle: source.handle,
+      status: source.status,
+      note: source.qualifyPrompt
+        ? 'Source registered. Run harvest_social_source next (repeatedly — it walks in chunks).'
+        : 'Source registered, but with NO qualifyPrompt: every harvested follower will be treated as a prospect. Set one unless you truly mean to message the whole list.',
+    };
+  },
+
+  harvest_social_source: async (input, ctx) => {
+    const result = await harvestSource(ctx.organizationId, String(input.sourceId), {
+      ...(input.maxScrolls ? { maxScrolls: Number(input.maxScrolls) } : {}),
+    });
+    return {
+      status: result.status,
+      profilesSeen: result.found,
+      newProspects: result.added,
+      summary: result.summary,
+      note:
+        result.status === 'exhausted'
+          ? 'Reached the end of this list — no need to harvest it again.'
+          : result.status === 'blocked'
+            ? 'The account is now paused. Do not retry; wait for the cooldown.'
+            : result.status === 'completed'
+              ? 'More of the list remains. Call again to continue from the cursor, then qualify_social_prospects.'
+              : result.summary,
+    };
+  },
+
+  qualify_social_prospects: async (input, ctx) => {
+    const result = await qualifyNewProspects(
+      ctx.organizationId,
+      String(input.sourceId),
+      input.limit ? Number(input.limit) : undefined
     );
     return {
-      sent: success,
-      summary: result.summary,
-      steps: result.steps,
-      ...(result.error ? { error: result.error } : {}),
+      ...result,
+      note: 'Only QUALIFIED prospects are eligible for send_prospect_dms. Rejected ones are never messaged.',
+    };
+  },
+
+  send_prospect_dms: async (input, ctx) => {
+    const platform = input.platform as PlatformKey;
+    const result = await drainProspectQueue(ctx.organizationId, platform, {
+      runId: ctx.runId,
+      ...(input.max ? { max: Number(input.max) } : {}),
+      ...(input.sourceId ? { sourceId: String(input.sourceId) } : {}),
+    });
+    return {
+      ...result,
+      note: result.stoppedBecause
+        ? `Stopped: ${result.stoppedBecause} Schedule a follow-up job to continue later — do not loop on this tool.`
+        : 'Batch complete. Prospects who reply are picked up by the inbound sweep automatically.',
     };
   },
 

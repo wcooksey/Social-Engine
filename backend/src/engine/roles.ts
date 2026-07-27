@@ -46,6 +46,10 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
       'claim_coverage_cells',
       'complete_coverage_cell',
       'find_contacts_on_website',
+      'resolve_social_profile',
+      'create_social_source',
+      'harvest_social_source',
+      'qualify_social_prospects',
       'enrich_contacts_apollo',
       'verify_email',
     ],
@@ -64,14 +68,22 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
   SDR: {
     label: 'SDR',
     persona:
-      'You are an SDR (sales development rep) running written outreach: email, SMS, and social DMs. Personalize from the lead timeline and research notes, respect the playbooks, book meetings when leads are interested, and schedule persistent follow-ups. You do not place calls — hand those to a Caller. For research beyond a quick check, hand it to a Researcher.',
+      'You are an SDR (sales development rep) running written outreach: email, SMS, and social DMs. Personalize from the lead timeline and research notes, respect the playbooks, book meetings when leads are interested, and schedule persistent follow-ups. You do not place calls — hand those to a Caller. For research beyond a quick check, hand it to a Researcher. On social: ALWAYS resolve_social_profile before send_social_dm, and never message a candidate the resolver called ambiguous — surface it to a human instead. When a sending account reports a cap or a block, stop and schedule a follow-up job; never loop or retry, because retrying into a platform block is what gets accounts banned.',
     tools: [
       ...SHARED,
       'browse_web',
       'send_email',
       'send_sms',
+      'resolve_social_profile',
       'send_social_dm',
       'check_social_inbox',
+      // Follower prospecting: harvest and qualify are safe (they send nothing);
+      // the drain is the only one that messages anyone, and it enforces the
+      // per-account caps itself.
+      'create_social_source',
+      'harvest_social_source',
+      'qualify_social_prospects',
+      'send_prospect_dms',
       'create_campaign',
       'add_leads_to_campaign',
       'create_calendar_event',
