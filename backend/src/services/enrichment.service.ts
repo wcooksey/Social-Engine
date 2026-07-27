@@ -204,11 +204,17 @@ export interface EmailVerification {
 function explainValidationFailure(status: number, body: string): EmailVerification {
   const detail = `Mailgun validation ${status}: ${body.slice(0, 300)}`;
   if (status === 401 || status === 403) {
+    // "Insufficient permissions" means the key authenticated but its role does
+    // not cover validation — a different fix from a key that is simply wrong,
+    // because a key's role is fixed at creation and cannot be widened later.
+    const underScoped = /permission|scope|not authorized|insufficient/i.test(body);
     return {
       verdict: 'unavailable',
       reason: 'auth',
       detail,
-      fix: "Mailgun rejected the credentials. Email validation is account-scoped, so it only accepts your private/account Mailgun API key — a domain SENDING key or the public verification key (v3 only) will always fail here, and there is no permission to add to them. Put the account API key in Settings → Integrations. If your Mailgun account is in the EU region, the host must be api.eu.mailgun.net rather than api.mailgun.net.",
+      fix: underScoped
+        ? 'This Mailgun key is valid but lacks the scope for validation, which is an ACCOUNT-level endpoint. A key\'s role is set when it is created and cannot be widened afterwards, so there is no permission to switch on: create a new Mailgun key with account/admin scope (or use the primary account API key) and save it in Settings → Integrations. Domain sending keys and the v3-only public verification key can never reach this endpoint.'
+        : 'Mailgun rejected the credentials outright. Email validation only accepts your private/account Mailgun API key — check the value saved in Settings → Integrations for a typo or a stale key. If your Mailgun account is in the EU region, the host must be api.eu.mailgun.net rather than api.mailgun.net.',
     };
   }
   if (status === 402 || /plan|subscription|credit|upgrade/i.test(body)) {
