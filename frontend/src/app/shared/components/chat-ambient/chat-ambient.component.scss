@@ -7,6 +7,9 @@
   overflow: hidden;
   pointer-events: none;
   z-index: 0;
+  // Follow the host container's corners so this full-bleed background layer
+  // doesn't square off a rounded chat window.
+  border-radius: inherit;
 }
 
 .chat-ambient {

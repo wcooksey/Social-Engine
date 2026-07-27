@@ -120,6 +120,13 @@
   flex-direction: column;
   min-width: 0;
   position: relative;
+  // Same card treatment as the chat list panel beside it, so the chat window
+  // reads as a container rather than bleeding into the page. No overflow:hidden
+  // here — that would clip the model picker's dropdown; the ambient background
+  // inherits this radius instead.
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-lg;
 }
 
 // ---- Top bar ----
@@ -128,12 +135,19 @@
   align-items: center;
   justify-content: space-between;
   gap: $spacing-md;
-  padding-bottom: $spacing-sm;
+  // Horizontal padding matches .input-bar so the title and the model picker
+  // line up with the chat input below instead of touching the card border.
+  padding: $spacing-md $spacing-md $spacing-sm;
   margin-bottom: $spacing-xs;
   border-bottom: 1px solid var(--border-primary);
   flex-shrink: 0;
   position: relative;
-  z-index: 1;
+  // Must outrank .hero / .thread / .input-bar (all z-index 1). As siblings at
+  // the same level those come later in the DOM and would win on paint order,
+  // covering the model picker's dropdown and swallowing its clicks — the
+  // dropdown's own z-index can't help, since this element's stacking context
+  // caps it.
+  z-index: 10;
 }
 
 .engine-topbar-title {
