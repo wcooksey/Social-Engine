@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { Prisma } from '@prisma/client';
+import { AutopilotMetric, Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
 import { config } from '../config/environment';
 import * as channels from '../services/channels.service';
@@ -30,6 +30,13 @@ import {
   crawlSiteForContacts,
   verifyEmail as verifyEmailAddress,
 } from '../services/enrichment.service';
+import {
+  ENRICHMENT_CAPABILITY_VERSION,
+  findEnrichmentTargets,
+  getEnrichmentStats,
+  recomputeLeadEnrichment,
+  recordEnrichmentAttempt,
+} from '../services/lead-enrichment.service';
 import { llmService } from './llm/llm.service';
 import { GUIDE_TOPICS, PLATFORM_GUIDE } from './platform-guide';
 import { recordBrowserAction, recordBrowserFrame } from './live-view.registry';
@@ -38,6 +45,7 @@ import { signToken } from '../utils/signing';
 import { resolveLeadTimezone, localHourIn, isWithinQuietHours } from '../utils/timezone';
 import { runBrowserAgent } from './browser/browser-agent.service';
 import { AgentRole, defaultRoleForJobType } from './roles';
+import { evaluateGoalProgress } from '../services/autopilot.service';
 import { buildCallSystemPrompt } from './prompts';
 import { researchService } from './research.service';
 
@@ -185,7 +193,80 @@ export const engineTools: Anthropic.Tool[] = [
           description:
             'Page number (1-based). Results include total + hasMore — keep paging until hasMore is false when you need the whole list.',
         },
+        maxTier: {
+          type: 'string',
+          enum: ['NONE', 'MINIMAL', 'PARTIAL', 'GOOD', 'RICH'],
+          description:
+            'Enrichment filter: return only leads at or BELOW this quality tier (e.g. PARTIAL = everything that still needs research).',
+        },
+        minTier: {
+          type: 'string',
+          enum: ['NONE', 'MINIMAL', 'PARTIAL', 'GOOD', 'RICH'],
+          description:
+            'Enrichment filter: return only leads at or ABOVE this tier. Use minTier=GOOD to build an outreach list of leads that are actually reachable.',
+        },
+        hasEmail: {
+          type: 'boolean',
+          description: 'true = only leads with at least one usable email; false = only leads with none.',
+        },
+        hasPhone: { type: 'boolean', description: 'Filter on having any usable phone number.' },
       },
+    },
+  },
+  {
+    name: 'get_enrichment_stats',
+    description:
+      "Categorize a lead list by how well enriched it is: how many leads are RICH/GOOD/PARTIAL/MINIMAL/NONE, how many have emails (and how many have none), phone coverage, the most common missing signals, and how many are worth re-running enrichment on. Use this BEFORE planning enrichment or outreach on a group so you work from facts, not guesses.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        groupName: { type: 'string', description: 'Limit to one lead group. Omit for the whole org.' },
+      },
+    },
+  },
+  {
+    name: 'list_enrichment_targets',
+    description:
+      "The enrichment work list: leads that are weak AND still worth another pass, weakest first, each with exactly what it's missing. Leads already enriched well (GOOD/RICH), already worked with the current toolset, opted out, or attempted in the last cooldown window are excluded — so you never burn time or API credits re-researching leads that are already done or already exhausted. ALWAYS use this to pick enrichment work instead of search_leads.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        groupName: { type: 'string' },
+        maxTier: {
+          type: 'string',
+          enum: ['NONE', 'MINIMAL', 'PARTIAL', 'GOOD'],
+          description: 'Work leads at or below this tier. Default PARTIAL.',
+        },
+        limit: { type: 'number', description: 'How many leads to take on (default 25, max 200).' },
+        cooldownHours: {
+          type: 'number',
+          description: 'Skip leads attempted within this many hours (default 24). 0 disables.',
+        },
+        includeAlreadyAttempted: {
+          type: 'boolean',
+          description:
+            'Default false. Set true ONLY when told to re-sweep everything — it returns leads already worked with the current capability set, which usually finds nothing new.',
+        },
+      },
+    },
+  },
+  {
+    name: 'record_enrichment_attempt',
+    description:
+      "Record that you finished an enrichment pass on a lead — call this after trying the enrichment tools on it, whether or not you found anything. This stamps the lead with the capability generation you used so future runs skip it until the platform gains new abilities. Skipping this call means the same dead-end lead gets re-worked forever.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        leadId: { type: 'string' },
+        outcome: {
+          type: 'string',
+          enum: ['improved', 'no_new_data', 'blocked'],
+          description:
+            "'improved' = you saved new contact detail; 'no_new_data' = tried everything, found nothing; 'blocked' = couldn't work it (site down, no domain, missing API key).",
+        },
+        notes: { type: 'string', description: 'Short note for the lead timeline (what you tried).' },
+      },
+      required: ['leadId', 'outcome'],
     },
   },
   {
@@ -730,7 +811,7 @@ export const engineTools: Anthropic.Tool[] = [
   {
     name: 'create_autopilot_goal',
     description:
-      'Create a STANDING goal the platform works mechanically: a sweep re-queues an agent job with this objective every cadenceHours until the goal completes — autonomy that survives failed jobs and forgotten follow-ups. Use for open-ended mandates like "keep sourcing dealerships until the group has 500" or "review campaign performance and tune playbooks weekly". Link a leadGroup + targetLeadCount to auto-complete when the group reaches the target. Prefer this over chains of schedule_followup for anything meant to run for days or weeks.',
+      'Create a STANDING goal the platform works mechanically: a sweep re-queues an agent job with this objective every cadenceHours until the goal completes — autonomy that survives failed jobs and forgotten follow-ups. Use for open-ended mandates like "keep sourcing dealerships until the group has 500" or "review campaign performance and tune playbooks weekly". Link a leadGroup + targetLeadCount to auto-complete when the target is reached, and set targetMetric to match the work: LEAD_COUNT for sourcing, ENRICHED_LEADS or LEADS_WITH_EMAIL for enrichment. Using LEAD_COUNT on an enrichment goal is a mistake — sourcing already satisfied that number, so the goal completes immediately having done nothing (creation refuses it). Prefer this over chains of schedule_followup for anything meant to run for days or weeks.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -750,7 +831,14 @@ export const engineTools: Anthropic.Tool[] = [
         campaignName: { type: 'string', description: 'Campaign this goal relates to (optional)' },
         targetLeadCount: {
           type: 'number',
-          description: 'Auto-complete when the linked group reaches this many leads (optional)',
+          description:
+            'Auto-complete when the linked group reaches this many of whatever targetMetric counts (optional). Omit to run until paused.',
+        },
+        targetMetric: {
+          type: 'string',
+          enum: ['LEAD_COUNT', 'ENRICHED_LEADS', 'LEADS_WITH_EMAIL'],
+          description:
+            'What targetLeadCount counts. LEAD_COUNT = leads in the group (SOURCING goals only). ENRICHED_LEADS = leads enriched to GOOD/RICH, i.e. reachable for outreach. LEADS_WITH_EMAIL = leads with at least one usable email. Default LEAD_COUNT — you MUST override it for enrichment goals, or the target is already met before the goal starts.',
         },
       },
       required: ['name', 'objective'],
@@ -778,6 +866,11 @@ export const engineTools: Anthropic.Tool[] = [
         objective: { type: 'string' },
         cadenceHours: { type: 'number' },
         targetLeadCount: { type: 'number' },
+        targetMetric: {
+          type: 'string',
+          enum: ['LEAD_COUNT', 'ENRICHED_LEADS', 'LEADS_WITH_EMAIL'],
+          description: 'What targetLeadCount counts — switch an enrichment goal off LEAD_COUNT with this.',
+        },
       },
       required: ['goalId'],
     },
@@ -1085,6 +1178,10 @@ const executors: Record<string, ToolExecutor> = {
       status: input.status,
       groupId,
       state: input.state,
+      maxTier: input.maxTier,
+      minTier: input.minTier,
+      hasEmail: typeof input.hasEmail === 'boolean' ? input.hasEmail : undefined,
+      hasPhone: typeof input.hasPhone === 'boolean' ? input.hasPhone : undefined,
       page,
       pageSize,
     });
@@ -1101,7 +1198,99 @@ const executors: Record<string, ToolExecutor> = {
         status: l.status,
         group: l.group?.name,
         contactCount: l.contactCount,
+        // Enrichment quality travels with every result so you can tell at a
+        // glance which leads are reachable and which still need research.
+        enrichmentTier: l.enrichmentTier,
+        enrichmentScore: l.enrichmentScore,
+        emailCount: l.emailCount,
+        phoneCount: l.phoneCount,
       })),
+    };
+  },
+
+  get_enrichment_stats: async (input, ctx) => {
+    let groupId: string | undefined;
+    if (input.groupName) {
+      const group = await prisma.leadGroup.findUnique({
+        where: { organizationId_name: { organizationId: ctx.organizationId, name: String(input.groupName).trim() } },
+      });
+      if (!group) return { note: `No group named "${input.groupName}"` };
+      groupId = group.id;
+    }
+    const stats = await getEnrichmentStats(ctx.organizationId, { groupId });
+    return {
+      ...stats,
+      tierMeaning: {
+        RICH: 'decision maker + verified email + phone — nothing left to find',
+        GOOD: 'a named contact with a direct email or phone — ready for outreach',
+        PARTIAL: 'some detail, but a channel or the decision maker is missing',
+        MINIMAL: 'company-level only (main line / generic inbox), no named person',
+        NONE: 'no email, no phone, no social — unreachable until enriched',
+      },
+      note:
+        stats.retryability.staleCapability + stats.retryability.neverAttempted > 0
+          ? `${stats.retryability.neverAttempted + stats.retryability.staleCapability} lead(s) are worth an enrichment pass — get the work list with list_enrichment_targets. ${stats.retryability.wellEnriched} are already GOOD/RICH: do not re-research those.`
+          : `Nothing pending: every weak lead here was already worked with the current toolset (capability v${stats.retryability.currentCapabilityVersion}). Move to outreach, or re-sweep only if the platform gained a new enrichment capability.`,
+    };
+  },
+
+  list_enrichment_targets: async (input, ctx) => {
+    let groupId: string | undefined;
+    if (input.groupName) {
+      const group = await prisma.leadGroup.findUnique({
+        where: { organizationId_name: { organizationId: ctx.organizationId, name: String(input.groupName).trim() } },
+      });
+      if (!group) return { targets: [], note: `No group named "${input.groupName}"` };
+      groupId = group.id;
+    }
+    const result = await findEnrichmentTargets(ctx.organizationId, {
+      groupId,
+      maxTier: input.maxTier,
+      limit: Number(input.limit) || undefined,
+      cooldownHours: input.cooldownHours != null ? Number(input.cooldownHours) : undefined,
+      skipCurrentCapability: input.includeAlreadyAttempted !== true,
+    });
+    return {
+      ...result,
+      note: result.targets.length
+        ? `${result.total} lead(s) need enrichment; showing the ${result.targets.length} weakest. Work each one (find_contacts_on_website → enrich_contacts_apollo → verify_email), save what you find with upsert_contact/upsert_lead, then ALWAYS call record_enrichment_attempt so it isn't re-worked next run.`
+        : 'Nothing to enrich under these filters — either everything is already well enriched, or every weak lead was already worked with the current capabilities (capability v' +
+          result.capabilityVersion +
+          '). Do not re-research them; move to outreach.',
+    };
+  },
+
+  record_enrichment_attempt: async (input, ctx) => {
+    const outcome = ['improved', 'no_new_data', 'blocked'].includes(String(input.outcome))
+      ? (String(input.outcome) as 'improved' | 'no_new_data' | 'blocked')
+      : 'no_new_data';
+    const result = await recordEnrichmentAttempt(ctx.organizationId, String(input.leadId), outcome);
+    if (!result) throw new Error(`Lead ${input.leadId} not found`);
+
+    if (input.notes) {
+      await leadService.logActivity({
+        organizationId: ctx.organizationId,
+        leadId: String(input.leadId),
+        type: 'RESEARCH',
+        summary: `Enrichment pass (${outcome}): ${String(input.notes).slice(0, 400)}`,
+        agentRunId: ctx.runId,
+      });
+    }
+
+    return {
+      leadId: input.leadId,
+      outcome,
+      tierBefore: result.tierBefore,
+      tier: result.tier,
+      score: result.score,
+      emailCount: result.emailCount,
+      phoneCount: result.phoneCount,
+      stillMissing: result.gaps,
+      capabilityVersion: ENRICHMENT_CAPABILITY_VERSION,
+      note:
+        result.tier === 'GOOD' || result.tier === 'RICH'
+          ? 'This lead is now well enriched — hand it to outreach and do not research it again.'
+          : `Recorded at capability v${ENRICHMENT_CAPABILITY_VERSION}. It will stay off the enrichment work list until the platform gains new enrichment abilities.`,
     };
   },
 
@@ -1176,6 +1365,7 @@ const executors: Record<string, ToolExecutor> = {
       });
       saved++;
     }
+    if (saved > 0) await recomputeLeadEnrichment(lead.id);
     const locked = people.filter((p) => p.emailLocked).length;
     return {
       people,
@@ -1187,20 +1377,51 @@ const executors: Record<string, ToolExecutor> = {
   verify_email: async (input, ctx) => {
     const orgConfig = await getOrgConfig(ctx.organizationId);
     if (!orgConfig.mailgun.apiKey) {
-      return { verdict: 'unknown', note: 'Mailgun is not configured — cannot verify. Treat the address as unverified.' };
+      return {
+        verdict: 'unavailable',
+        reason: 'not_configured',
+        note: 'Mailgun is not configured (Settings → Integrations), so no verification ran. Treat the address as UNVERIFIED — do not report it as checked.',
+      };
     }
     const email = String(input.email || '').toLowerCase().trim();
     if (!email) throw new Error('email is required');
     const result = await verifyEmailAddress(email, orgConfig.mailgun.apiKey);
 
     // Suppress undeliverable addresses on matching contacts so send_email
-    // refuses them — a pre-send bounce prevented is reputation saved.
-    if (result.verdict === 'undeliverable') {
-      await prisma.contact.updateMany({
+    // refuses them — a pre-send bounce prevented is reputation saved. A
+    // confirmed-deliverable address is stamped on emailVerifiedAt (NOT
+    // emailStatus, where any value means suppressed) so it counts as the
+    // strongest enrichment signal a lead can carry.
+    if (result.verdict === 'undeliverable' || result.verdict === 'deliverable') {
+      const affected = await prisma.contact.findMany({
         where: { organizationId: ctx.organizationId, email },
-        data: { emailStatus: 'undeliverable' },
+        select: { id: true, leadId: true },
       });
+      if (affected.length) {
+        await prisma.contact.updateMany({
+          where: { id: { in: affected.map((c) => c.id) } },
+          data:
+            result.verdict === 'deliverable'
+              ? { emailVerifiedAt: new Date() }
+              : { emailStatus: 'undeliverable' },
+        });
+        for (const leadId of new Set(affected.map((c) => c.leadId))) {
+          await recomputeLeadEnrichment(leadId);
+        }
+      }
     }
+    // An 'unavailable' result means the check never ran — surface it as a
+    // configuration problem to escalate, never as a quiet green light.
+    if (result.verdict === 'unavailable') {
+      console.error(
+        `[verify_email] validation unavailable (${result.reason}) for org ${ctx.organizationId}: ${result.detail}`
+      );
+      return {
+        ...result,
+        note: `Email verification did NOT run — ${result.fix} Until this is fixed, addresses cannot be verified: do not claim any address is checked, and flag this to the user rather than sending cold email to unverified addresses at volume.`,
+      };
+    }
+
     return {
       ...result,
       note:
@@ -1208,7 +1429,7 @@ const executors: Record<string, ToolExecutor> = {
           ? 'Safe to email.'
           : result.verdict === 'undeliverable'
             ? 'Dead address — suppressed. Find another contact or channel.'
-            : 'Uncertain — acceptable to try once, but prefer a deliverable address if available.',
+            : 'Mailgun checked it but could not decide (catch-all or risky domain) — acceptable to try once, but prefer a deliverable address if available.',
     };
   },
 
@@ -1239,7 +1460,24 @@ const executors: Record<string, ToolExecutor> = {
       : await prisma.contact.create({
           data: { ...data, leadId: input.leadId, organizationId: ctx.organizationId },
         });
-    return { contactId: contact.id, created: !existing };
+    // Saving a person is the main way a lead gets more reachable — re-grade it
+    // and tell the agent where the lead now stands.
+    const snapshot = await recomputeLeadEnrichment(input.leadId);
+    return {
+      contactId: contact.id,
+      created: !existing,
+      ...(snapshot
+        ? {
+            enrichment: {
+              tier: snapshot.tier,
+              score: snapshot.score,
+              emailCount: snapshot.emailCount,
+              phoneCount: snapshot.phoneCount,
+              stillMissing: snapshot.gaps,
+            },
+          }
+        : {}),
+    };
   },
 
   get_lead_timeline: async (input, ctx) => {
@@ -2302,6 +2540,27 @@ const executors: Record<string, ToolExecutor> = {
     if (input.targetLeadCount && !leadGroupId) {
       throw new Error('targetLeadCount needs a linked groupName to count against.');
     }
+    const targetMetric = (['LEAD_COUNT', 'ENRICHED_LEADS', 'LEADS_WITH_EMAIL'].includes(String(input.targetMetric))
+      ? input.targetMetric
+      : 'LEAD_COUNT') as AutopilotMetric;
+
+    // Refuse a goal whose target is ALREADY met — it would complete on the
+    // first sweep having done nothing. This is the classic mistake: pointing an
+    // enrichment goal at LEAD_COUNT, which sourcing already satisfied.
+    const preflight = await evaluateGoalProgress({
+      leadGroupId: leadGroupId ?? null,
+      targetLeadCount: input.targetLeadCount ?? null,
+      targetMetric,
+    });
+    if (preflight?.satisfied) {
+      throw new Error(
+        `That goal is already complete on creation: "${input.groupName}" is at ${preflight.label}, so it would finish on the first cycle without doing any work. ` +
+          (targetMetric === 'LEAD_COUNT'
+            ? 'If this goal is about ENRICHING leads rather than finding more of them, set targetMetric to ENRICHED_LEADS (leads reachable enough for outreach) or LEADS_WITH_EMAIL — sourcing already satisfied the raw lead count. If it really is a sourcing goal, raise targetLeadCount above the current size.'
+            : 'Raise targetLeadCount above the current value, or drop it to let the goal run until paused.')
+      );
+    }
+
     const cadenceHours = Math.min(Math.max(1, input.cadenceHours ?? 24), 24 * 30);
     const goal = await prisma.autopilotGoal.create({
       data: {
@@ -2313,6 +2572,7 @@ const executors: Record<string, ToolExecutor> = {
         leadGroupId,
         campaignId,
         targetLeadCount: input.targetLeadCount,
+        targetMetric,
         createdByRunId: ctx.runId,
       },
     });
@@ -2320,7 +2580,9 @@ const executors: Record<string, ToolExecutor> = {
       goalId: goal.id,
       name: goal.name,
       cadenceHours,
-      note: `Standing goal is ACTIVE — the first cycle queues within ~5 minutes, then every ${cadenceHours}h${input.targetLeadCount ? ` until "${input.groupName}" reaches ${input.targetLeadCount} leads` : ' until paused/completed'}.`,
+      targetMetric,
+      ...(preflight ? { startingFrom: preflight.label } : {}),
+      note: `Standing goal is ACTIVE — the first cycle queues within ~5 minutes, then every ${cadenceHours}h${preflight ? ` until "${input.groupName}" reaches ${preflight.target} ${preflight.noun} (currently ${preflight.current})` : ' until paused/completed'}.`,
     };
   },
 
@@ -2337,8 +2599,11 @@ const executors: Record<string, ToolExecutor> = {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
+    // Show live progress in each goal's own metric, so "why hasn't this
+    // finished?" is answerable without guessing what it counts.
+    const progress = await Promise.all(goals.map((g) => evaluateGoalProgress(g)));
     return {
-      goals: goals.map((g) => ({
+      goals: goals.map((g, i) => ({
         goalId: g.id,
         name: g.name,
         status: g.status,
@@ -2347,6 +2612,8 @@ const executors: Record<string, ToolExecutor> = {
         group: g.leadGroup?.name,
         campaign: g.campaign?.name,
         targetLeadCount: g.targetLeadCount,
+        targetMetric: g.targetMetric,
+        progress: progress[i]?.label ?? null,
         nextRunAt: g.status === 'ACTIVE' ? g.nextRunAt.toISOString() : null,
         lastQueuedAt: g.lastQueuedAt?.toISOString(),
         lastResult: g.lastResult?.slice(0, 300),
@@ -2360,6 +2627,30 @@ const executors: Record<string, ToolExecutor> = {
       where: { id: input.goalId, organizationId: ctx.organizationId },
     });
     if (!goal) throw new Error('Autopilot goal not found');
+
+    const nextMetric = (['LEAD_COUNT', 'ENRICHED_LEADS', 'LEADS_WITH_EMAIL'].includes(String(input.targetMetric))
+      ? input.targetMetric
+      : goal.targetMetric) as AutopilotMetric;
+    const nextTarget =
+      input.targetLeadCount !== undefined ? input.targetLeadCount : goal.targetLeadCount;
+
+    // Same footgun as creation: retargeting a goal that stays ACTIVE onto an
+    // already-satisfied criterion just completes it on the next sweep.
+    const staysActive = (input.status ?? goal.status) === 'ACTIVE';
+    const retargeting = input.targetLeadCount !== undefined || input.targetMetric !== undefined;
+    if (staysActive && retargeting) {
+      const preflight = await evaluateGoalProgress({
+        leadGroupId: goal.leadGroupId,
+        targetLeadCount: nextTarget,
+        targetMetric: nextMetric,
+      });
+      if (preflight?.satisfied) {
+        throw new Error(
+          `That target is already met (${preflight.label}), so the goal would complete on the next cycle without doing any work. Raise targetLeadCount, pick a targetMetric that measures the work you actually want (ENRICHED_LEADS / LEADS_WITH_EMAIL), or set status COMPLETED explicitly if it really is done.`
+        );
+      }
+    }
+
     const updated = await prisma.autopilotGoal.update({
       where: { id: goal.id },
       data: {
@@ -2369,11 +2660,17 @@ const executors: Record<string, ToolExecutor> = {
           ? { cadenceHours: Math.min(Math.max(1, input.cadenceHours), 24 * 30) }
           : {}),
         ...(input.targetLeadCount !== undefined ? { targetLeadCount: input.targetLeadCount } : {}),
+        ...(input.targetMetric !== undefined ? { targetMetric: nextMetric } : {}),
         // Resuming shouldn't wait out a stale clock.
         ...(input.status === 'ACTIVE' ? { nextRunAt: new Date() } : {}),
       },
     });
-    return { goalId: updated.id, status: updated.status, cadenceHours: updated.cadenceHours };
+    return {
+      goalId: updated.id,
+      status: updated.status,
+      cadenceHours: updated.cadenceHours,
+      targetMetric: updated.targetMetric,
+    };
   },
 };
 

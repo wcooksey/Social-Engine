@@ -24,6 +24,23 @@
           @if (group.aiSummary) {
             <p class="group-summary">{{ group.aiSummary }}</p>
           }
+          @if (group.enrichment && group.leadCount) {
+            <div class="group-enrichment" [title]="tierTooltip(group)">
+              <div class="enrichment-mix">
+                @for (t of tiers; track t) {
+                  <span
+                    class="enrichment-seg"
+                    [class]="'enrichment-seg enrichment-seg--' + t.toLowerCase()"
+                    [style.width.%]="tierShare(group, t)">
+                  </span>
+                }
+              </div>
+              <span class="enrichment-caption">
+                {{ group.enrichment.withEmail }}/{{ group.leadCount }} have an email · avg score {{ group.enrichment.averageScore }}
+              </span>
+            </div>
+          }
+
           <div class="group-footer">
             <span class="lead-count"><i class="bi bi-building"></i> {{ group.leadCount }} leads</span>
           </div>

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../config/database';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { book, computeSlots, getActiveLink } from '../services/booking.service';
+import { recomputeLeadEnrichment } from '../services/lead-enrichment.service';
 import { verifyToken } from '../utils/signing';
 
 /**
@@ -58,6 +59,7 @@ async function applyUnsubscribe(token: string): Promise<boolean> {
   if (!contact) return false;
   await prisma.contact.update({ where: { id: contact.id }, data: { optedOut: true } });
   await prisma.lead.update({ where: { id: contact.leadId }, data: { doNotContact: true } });
+  await recomputeLeadEnrichment(contact.leadId);
   await prisma.activity.create({
     data: {
       organizationId: contact.organizationId,

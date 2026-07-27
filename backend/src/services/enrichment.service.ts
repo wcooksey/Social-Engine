@@ -178,12 +178,68 @@ export async function apolloPeopleSearch(
 // Email verification (Mailgun v4 validation)
 // ---------------------------------------------------------------------------
 
-export type EmailVerdict = 'deliverable' | 'undeliverable' | 'risky' | 'unknown';
+/**
+ * `unknown` means Mailgun answered but couldn't decide. `unavailable` means the
+ * check never ran (bad key, plan limit, outage) — a very different thing, and
+ * NOT a soft pass: callers must not treat it as permission to send. Collapsing
+ * the two is how a broken API key quietly turns into unverified cold sending.
+ */
+export type EmailVerdict = 'deliverable' | 'undeliverable' | 'risky' | 'unknown' | 'unavailable';
+
+export interface EmailVerification {
+  verdict: EmailVerdict;
+  detail?: string;
+  /** Why the check couldn't run — only set when verdict is 'unavailable'. */
+  reason?: 'auth' | 'plan' | 'rate_limited' | 'network' | 'server';
+  /** Operator-facing next step for an 'unavailable' result. */
+  fix?: string;
+}
+
+/**
+ * Turn a Mailgun HTTP failure into something a human can act on. The v4
+ * validation endpoint is ACCOUNT-scoped: it accepts only the private/account
+ * API key. Domain sending keys and the (v3-only) public verification key are
+ * rejected, and no per-key permission can grant them access.
+ */
+function explainValidationFailure(status: number, body: string): EmailVerification {
+  const detail = `Mailgun validation ${status}: ${body.slice(0, 300)}`;
+  if (status === 401 || status === 403) {
+    // "Insufficient permissions" means the key authenticated but its role does
+    // not cover validation — a different fix from a key that is simply wrong,
+    // because a key's role is fixed at creation and cannot be widened later.
+    const underScoped = /permission|scope|not authorized|insufficient/i.test(body);
+    return {
+      verdict: 'unavailable',
+      reason: 'auth',
+      detail,
+      fix: underScoped
+        ? 'This Mailgun key is valid but lacks the scope for validation, which is an ACCOUNT-level endpoint. A key\'s role is set when it is created and cannot be widened afterwards, so there is no permission to switch on: create a new Mailgun key with account/admin scope (or use the primary account API key) and save it in Settings → Integrations. Domain sending keys and the v3-only public verification key can never reach this endpoint.'
+        : 'Mailgun rejected the credentials outright. Email validation only accepts your private/account Mailgun API key — check the value saved in Settings → Integrations for a typo or a stale key. If your Mailgun account is in the EU region, the host must be api.eu.mailgun.net rather than api.mailgun.net.',
+    };
+  }
+  if (status === 402 || /plan|subscription|credit|upgrade/i.test(body)) {
+    return {
+      verdict: 'unavailable',
+      reason: 'plan',
+      detail,
+      fix: 'The key works, but email validation is not enabled on this Mailgun plan or the validation credits are used up. This is a billing change, not a key change.',
+    };
+  }
+  if (status === 429) {
+    return { verdict: 'unavailable', reason: 'rate_limited', detail, fix: 'Rate limited by Mailgun — retry later.' };
+  }
+  return {
+    verdict: 'unavailable',
+    reason: 'server',
+    detail,
+    fix: 'Mailgun returned an unexpected error. Retry; if it persists, check the Mailgun status page.',
+  };
+}
 
 export async function verifyEmail(
   email: string,
   mailgunApiKey: string
-): Promise<{ verdict: EmailVerdict; detail?: string }> {
+): Promise<EmailVerification> {
   try {
     const res = await fetch(
       `https://api.mailgun.net/v4/address/validate?address=${encodeURIComponent(email)}`,
@@ -195,8 +251,7 @@ export async function verifyEmail(
       }
     );
     if (!res.ok) {
-      const text = await res.text();
-      return { verdict: 'unknown', detail: `Mailgun validation ${res.status}: ${text.slice(0, 150)}` };
+      return explainValidationFailure(res.status, await res.text());
     }
     const body = (await res.json()) as { result?: string; risk?: string };
     const result = (body.result || '').toLowerCase();
@@ -209,6 +264,13 @@ export async function verifyEmail(
     }
     return { verdict: 'unknown', detail: body.result };
   } catch (err) {
-    return { verdict: 'unknown', detail: err instanceof Error ? err.message : 'validation failed' };
+    // Network/timeout: the check never ran, so this is 'unavailable', not a
+    // verified-but-ambiguous address.
+    return {
+      verdict: 'unavailable',
+      reason: 'network',
+      detail: err instanceof Error ? err.message : 'validation request failed',
+      fix: 'Could not reach Mailgun (network error or timeout). Retry.',
+    };
   }
 }

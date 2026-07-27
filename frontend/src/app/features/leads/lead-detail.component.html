@@ -42,6 +42,55 @@
         </div>
       </div>
 
+      <div class="enrichment-panel">
+        <div class="enrichment-headline">
+          <app-badge [variant]="tierBadgeVariant(l.enrichmentTier)">
+            {{ tierLabel[l.enrichmentTier!] || 'Unscored' }}
+          </app-badge>
+          <span class="enrichment-score">{{ l.enrichmentScore ?? 0 }}<span class="enrichment-score-max">/100</span></span>
+          <span class="enrichment-hint">{{ tierHint[l.enrichmentTier!] }}</span>
+        </div>
+
+        <div class="enrichment-bar">
+          <span class="enrichment-bar-fill" [style.width.%]="l.enrichmentScore ?? 0"></span>
+        </div>
+
+        <div class="enrichment-facts">
+          <span [class.enrichment-fact--missing]="!l.emailCount">
+            <i class="bi bi-envelope"></i> {{ l.emailCount ?? 0 }} usable email{{ (l.emailCount ?? 0) === 1 ? '' : 's' }}
+          </span>
+          <span [class.enrichment-fact--missing]="!l.phoneCount">
+            <i class="bi bi-telephone"></i> {{ l.phoneCount ?? 0 }} phone{{ (l.phoneCount ?? 0) === 1 ? '' : 's' }}
+          </span>
+          <span><i class="bi bi-people"></i> {{ l.contacts?.length ?? 0 }} contact{{ (l.contacts?.length ?? 0) === 1 ? '' : 's' }}</span>
+          @if (l.enrichmentAttempts) {
+            <span [title]="'Enrichment passes the Engine has run on this lead'">
+              <i class="bi bi-arrow-repeat"></i> {{ l.enrichmentAttempts }} enrichment pass{{ l.enrichmentAttempts === 1 ? '' : 'es' }}
+            </span>
+          }
+        </div>
+
+        @if (gapLabels(l).length) {
+          <p class="enrichment-gaps">
+            <span class="enrichment-gaps-label">Still needs:</span>
+            @for (gap of gapLabels(l); track gap) {
+              <span class="gap-pill">{{ gap }}</span>
+            }
+          </p>
+        } @else {
+          <p class="enrichment-gaps enrichment-gaps--complete">
+            <i class="bi bi-check-circle"></i> Fully enriched — nothing left to research.
+          </p>
+        }
+
+        @if (enrichmentExhausted(l)) {
+          <p class="enrichment-note">
+            <i class="bi bi-info-circle"></i>
+            Already worked with the current enrichment tools, so the Engine will skip it — it becomes eligible again automatically when new enrichment capabilities ship.
+          </p>
+        }
+      </div>
+
       @if (l.aiSummary) {
         <div class="ai-notes">
           <div class="ai-notes-header"><i class="bi bi-stars"></i> Engine notes</div>

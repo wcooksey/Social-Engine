@@ -3,8 +3,45 @@ import { prisma } from '../config/database';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { leadService } from '../services/lead.service';
 import { importLeadsCsv } from '../services/import.service';
+import {
+  ENRICHMENT_CAPABILITY_VERSION,
+  findEnrichmentTargets,
+  getEnrichmentStats,
+  recomputeLeadEnrichment,
+  recomputeOrganizationEnrichment,
+} from '../services/lead-enrichment.service';
+import { EnrichmentTier } from '@prisma/client';
 
 const router = Router();
+
+const TIERS: EnrichmentTier[] = ['NONE', 'MINIMAL', 'PARTIAL', 'GOOD', 'RICH'];
+
+function parseTiers(value: unknown): EnrichmentTier[] | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const parsed = value
+    .split(',')
+    .map((t) => t.trim().toUpperCase())
+    .filter((t): t is EnrichmentTier => TIERS.includes(t as EnrichmentTier));
+  return parsed.length ? parsed : undefined;
+}
+
+function parseTier(value: unknown): EnrichmentTier | undefined {
+  const parsed = parseTiers(value);
+  return parsed?.[0];
+}
+
+/** Tri-state query flag: "true"/"false" filter, anything else means "don't care". */
+function parseBool(value: unknown): boolean | undefined {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return undefined;
+}
+
+function parseNumber(value: unknown): number | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 
 router.get(
   '/',
@@ -14,10 +51,64 @@ router.get(
       status: req.query.status as string,
       groupId: req.query.groupId as string,
       state: req.query.state as string,
+      tiers: parseTiers(req.query.tier),
+      maxTier: parseTier(req.query.maxTier),
+      minTier: parseTier(req.query.minTier),
+      minScore: parseNumber(req.query.minScore),
+      maxScore: parseNumber(req.query.maxScore),
+      hasEmail: parseBool(req.query.hasEmail),
+      hasPhone: parseBool(req.query.hasPhone),
+      multipleEmails: parseBool(req.query.multipleEmails) === true,
+      sort: req.query.sort as 'created' | 'score' | 'company' | 'emails' | undefined,
+      sortDir: req.query.sortDir === 'asc' ? 'asc' : req.query.sortDir === 'desc' ? 'desc' : undefined,
       page: req.query.page ? parseInt(req.query.page as string, 10) : undefined,
       pageSize: req.query.pageSize ? parseInt(req.query.pageSize as string, 10) : undefined,
     });
     res.json({ success: true, data });
+  })
+);
+
+// --- Enrichment categorization -------------------------------------------
+// Declared before '/:id' so these paths aren't swallowed by the id route.
+
+/** How well is this list enriched? Tier counts, contactability, gaps, retryability. */
+router.get(
+  '/enrichment/stats',
+  asyncHandler(async (req, res) => {
+    const stats = await getEnrichmentStats(req.user!.organizationId, {
+      groupId: (req.query.groupId as string) || undefined,
+      status: (req.query.status as string) || undefined,
+    });
+    res.json({ success: true, data: stats });
+  })
+);
+
+/** The work list: weak leads still worth another enrichment pass, worst first. */
+router.get(
+  '/enrichment/targets',
+  asyncHandler(async (req, res) => {
+    const data = await findEnrichmentTargets(req.user!.organizationId, {
+      groupId: (req.query.groupId as string) || undefined,
+      maxTier: parseTier(req.query.maxTier),
+      limit: parseNumber(req.query.limit),
+      cooldownHours: parseNumber(req.query.cooldownHours),
+      skipCurrentCapability: parseBool(req.query.skipCurrentCapability) !== false,
+    });
+    res.json({ success: true, data });
+  })
+);
+
+/** Rebuild the derived enrichment columns (whole org, or one group). */
+router.post(
+  '/enrichment/recompute',
+  asyncHandler(async (req, res) => {
+    const result = await recomputeOrganizationEnrichment(req.user!.organizationId, {
+      groupId: req.body?.groupId || undefined,
+    });
+    res.json({
+      success: true,
+      data: { ...result, capabilityVersion: ENRICHMENT_CAPABILITY_VERSION },
+    });
   })
 );
 
@@ -105,6 +196,7 @@ router.patch(
     }
 
     const lead = await prisma.lead.update({ where: { id: existing.id }, data });
+    await recomputeLeadEnrichment(lead.id);
 
     if (data.status && data.status !== existing.status) {
       await leadService.logActivity({
@@ -167,6 +259,7 @@ router.post(
         isPrimary: !!req.body.isPrimary,
       },
     });
+    await recomputeLeadEnrichment(lead.id);
     res.status(201).json({ success: true, data: contact });
   })
 );

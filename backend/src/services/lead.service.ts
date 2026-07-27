@@ -1,6 +1,12 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, EnrichmentTier } from '@prisma/client';
 import { prisma } from '../config/database';
 import { AppError } from '../middleware/error.middleware';
+import {
+  ENRICHMENT_TIER_ORDER,
+  recomputeLeadEnrichment,
+  tiersFrom,
+  tiersUpTo,
+} from './lead-enrichment.service';
 
 /** Normalize a website/URL/domain string to a bare dedup key like "sunshinetoyota.com". */
 export function normalizeDomain(input?: string | null): string | null {
@@ -16,6 +22,24 @@ export function normalizePhone(input?: string | null): string | null {
   if (!input) return null;
   const digits = input.replace(/\D/g, '');
   return digits.length >= 10 ? digits.slice(-10) : null;
+}
+
+/**
+ * Re-score a lead after a write and fold the fresh numbers into the object we
+ * hand back, so callers never see a stale enrichment snapshot.
+ */
+async function withFreshEnrichment<T extends { id: string }>(lead: T): Promise<T> {
+  const snapshot = await recomputeLeadEnrichment(lead.id);
+  if (!snapshot) return lead;
+  return {
+    ...lead,
+    enrichmentScore: snapshot.score,
+    enrichmentTier: snapshot.tier,
+    emailCount: snapshot.emailCount,
+    phoneCount: snapshot.phoneCount,
+    contactCount: snapshot.contactCount,
+    enrichmentGaps: snapshot.gaps,
+  };
 }
 
 export interface UpsertLeadInput {
@@ -104,10 +128,11 @@ class LeadService {
 
     if (existing) {
       const updated = await prisma.lead.update({ where: { id: existing.id }, data });
-      return { lead: updated, created: false };
+      // Website/phone/socials just changed — re-grade how reachable this lead is.
+      return { lead: await withFreshEnrichment(updated), created: false };
     }
     const created = await prisma.lead.create({ data: { ...data, organizationId } });
-    return { lead: created, created: true };
+    return { lead: await withFreshEnrichment(created), created: true };
   }
 
   async searchLeads(
@@ -119,16 +144,53 @@ class LeadService {
       state?: string;
       page?: number;
       pageSize?: number;
+      // --- Enrichment categorization filters ---
+      /** Exact tiers to include, e.g. ['NONE','MINIMAL'] — "show me the weak ones". */
+      tiers?: EnrichmentTier[];
+      /** Everything at or below a tier (inclusive), e.g. maxTier=PARTIAL. */
+      maxTier?: EnrichmentTier;
+      /** Everything at or above a tier (inclusive), e.g. minTier=GOOD. */
+      minTier?: EnrichmentTier;
+      minScore?: number;
+      maxScore?: number;
+      /** true = has at least one usable email; false = has none. */
+      hasEmail?: boolean;
+      hasPhone?: boolean;
+      /** Only leads with more than one email on file (redundancy). */
+      multipleEmails?: boolean;
+      sort?: 'created' | 'score' | 'company' | 'emails';
+      sortDir?: 'asc' | 'desc';
     }
   ) {
     const page = Math.max(1, params.page || 1);
     const pageSize = Math.min(100, Math.max(1, params.pageSize || 25));
+
+    // Tier filters compose: an explicit list wins, otherwise min/max expand to
+    // ranges and intersect when both are given.
+    let tierFilter: EnrichmentTier[] | null = params.tiers?.length ? params.tiers : null;
+    if (!tierFilter && (params.maxTier || params.minTier)) {
+      const below = params.maxTier ? tiersUpTo(params.maxTier) : ENRICHMENT_TIER_ORDER;
+      const above = params.minTier ? tiersFrom(params.minTier) : ENRICHMENT_TIER_ORDER;
+      tierFilter = below.filter((t) => above.includes(t));
+    }
 
     const where: Prisma.LeadWhereInput = {
       organizationId,
       ...(params.status ? { status: params.status as never } : {}),
       ...(params.groupId ? { groupId: params.groupId } : {}),
       ...(params.state ? { state: { equals: params.state, mode: 'insensitive' } } : {}),
+      ...(tierFilter ? { enrichmentTier: { in: tierFilter } } : {}),
+      ...(params.minScore != null || params.maxScore != null
+        ? {
+            enrichmentScore: {
+              ...(params.minScore != null ? { gte: params.minScore } : {}),
+              ...(params.maxScore != null ? { lte: params.maxScore } : {}),
+            },
+          }
+        : {}),
+      ...(params.hasEmail != null ? { emailCount: params.hasEmail ? { gt: 0 } : 0 } : {}),
+      ...(params.multipleEmails ? { emailCount: { gt: 1 } } : {}),
+      ...(params.hasPhone != null ? { phoneCount: params.hasPhone ? { gt: 0 } : 0 } : {}),
       ...(params.search
         ? {
             OR: [
@@ -140,6 +202,16 @@ class LeadService {
         : {}),
     };
 
+    const direction: Prisma.SortOrder = params.sortDir === 'asc' ? 'asc' : 'desc';
+    const orderBy: Prisma.LeadOrderByWithRelationInput[] =
+      params.sort === 'score'
+        ? [{ enrichmentScore: direction }, { createdAt: 'desc' }]
+        : params.sort === 'emails'
+          ? [{ emailCount: direction }, { enrichmentScore: 'desc' }]
+          : params.sort === 'company'
+            ? [{ companyName: params.sortDir === 'desc' ? 'desc' : 'asc' }]
+            : [{ createdAt: direction }];
+
     const [leads, total] = await Promise.all([
       prisma.lead.findMany({
         where,
@@ -147,7 +219,7 @@ class LeadService {
           group: { select: { id: true, name: true } },
           _count: { select: { contacts: true } },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),

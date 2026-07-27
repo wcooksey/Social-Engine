@@ -4,6 +4,7 @@ import { config } from '../config/environment';
 import { prisma } from '../config/database';
 import { asyncHandler } from '../middleware/error.middleware';
 import { handleInbound } from '../services/inbound.service';
+import { recomputeLeadEnrichment } from '../services/lead-enrichment.service';
 
 const router = Router();
 
@@ -193,6 +194,9 @@ router.post(
       if (isComplaint) {
         await prisma.lead.update({ where: { id: contact.leadId }, data: { doNotContact: true } });
       }
+      // A dead/complained address stops counting as a usable email — the lead's
+      // enrichment tier must reflect that it just got harder to reach.
+      await recomputeLeadEnrichment(contact.leadId);
       await prisma.activity.create({
         data: {
           organizationId: contact.organizationId,

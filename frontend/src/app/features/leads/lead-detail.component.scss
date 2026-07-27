@@ -80,6 +80,104 @@
   gap: $spacing-sm;
 }
 
+/* --- Enrichment quality panel ----------------------------------------- */
+
+.enrichment-panel {
+  margin-top: $spacing-lg;
+  padding: $spacing-md;
+  border-radius: $border-radius-md;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+}
+
+.enrichment-headline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+}
+
+.enrichment-score {
+  font-size: $font-size-lg;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.enrichment-score-max {
+  font-size: $font-size-sm;
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+.enrichment-hint {
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+}
+
+.enrichment-bar {
+  height: 5px;
+  margin: $spacing-md 0;
+  border-radius: $border-radius-full;
+  background: var(--border-primary);
+  overflow: hidden;
+}
+
+.enrichment-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: $border-radius-full;
+  background: linear-gradient(90deg, $secondary-orange, $primary-blue, $success-green);
+  background-size: 200% 100%;
+}
+
+.enrichment-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-md;
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+
+  i { margin-right: 4px; }
+}
+
+.enrichment-fact--missing {
+  color: $error-red;
+}
+
+.enrichment-gaps {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+  margin: $spacing-md 0 0;
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+
+  &--complete {
+    color: $success-green;
+  }
+}
+
+.enrichment-gaps-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.gap-pill {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-full;
+  padding: 2px $spacing-sm;
+  font-size: $font-size-xs;
+}
+
+.enrichment-note {
+  margin: $spacing-md 0 0;
+  font-size: $font-size-xs;
+  color: var(--text-tertiary);
+}
+
 .ai-notes {
   margin-top: $spacing-lg;
   padding: $spacing-md;

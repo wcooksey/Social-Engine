@@ -1,5 +1,6 @@
 import { prisma } from '../config/database';
 import { leadService } from './lead.service';
+import { recomputeLeadEnrichment } from './lead-enrichment.service';
 import { timezoneForState } from '../utils/timezone';
 
 /**
@@ -165,6 +166,7 @@ export async function importLeadsCsv(
             },
           });
           result.contactsCreated++;
+          await recomputeLeadEnrichment(lead.id);
         }
       }
     } catch (err) {

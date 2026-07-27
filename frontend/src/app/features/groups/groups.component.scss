@@ -106,6 +106,38 @@
   overflow: hidden;
 }
 
+/* Stacked bar showing the group's enrichment mix, weakest segment first. */
+.group-enrichment {
+  margin-top: $spacing-md;
+}
+
+.enrichment-mix {
+  display: flex;
+  height: 6px;
+  width: 100%;
+  border-radius: $border-radius-full;
+  overflow: hidden;
+  background: var(--border-primary);
+}
+
+.enrichment-seg {
+  display: block;
+  height: 100%;
+
+  &--none { background: $error-red; }
+  &--minimal { background: $secondary-orange; }
+  &--partial { background: $warning-yellow; }
+  &--good { background: $primary-blue; }
+  &--rich { background: $success-green; }
+}
+
+.enrichment-caption {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: var(--text-tertiary);
+}
+
 .group-footer {
   margin-top: $spacing-md;
   padding-top: $spacing-md;

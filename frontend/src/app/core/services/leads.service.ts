@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
-import { Contact, Lead, LeadsPage, LeadsQuery } from '../models/lead.model';
+import { Contact, EnrichmentStats, Lead, LeadsPage, LeadsQuery } from '../models/lead.model';
 
 export interface LeadInput {
   companyName: string;
@@ -36,6 +36,18 @@ export class LeadsService {
 
   list(query: LeadsQuery = {}): Observable<LeadsPage> {
     return this.api.get<LeadsPage>('/api/leads', query);
+  }
+
+  /** Tier counts, contactability and retryability for a list (org-wide or one group). */
+  enrichmentStats(groupId?: string): Observable<EnrichmentStats> {
+    return this.api.get<EnrichmentStats>('/api/leads/enrichment/stats', groupId ? { groupId } : {});
+  }
+
+  /** Rebuild the derived enrichment columns after a scoring change or bulk edit. */
+  recomputeEnrichment(groupId?: string): Observable<{ leads: number; capabilityVersion: number }> {
+    return this.api.post<{ leads: number; capabilityVersion: number }>('/api/leads/enrichment/recompute', {
+      groupId
+    });
   }
 
   get(id: string): Observable<Lead> {

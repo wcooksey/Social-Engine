@@ -4,8 +4,62 @@
       <h1>Leads</h1>
       <p class="subtitle">{{ total() }} leads tracked by the Engine</p>
     </div>
-    <app-button variant="primary" icon="bi-plus-lg" (clicked)="openAddDialog()">Add Lead</app-button>
+    <div class="header-actions">
+      <app-button variant="ghost" icon="bi-arrow-repeat" [loading]="recomputing()" (clicked)="recompute()">Rescore</app-button>
+      <app-button variant="primary" icon="bi-plus-lg" (clicked)="openAddDialog()">Add Lead</app-button>
+    </div>
   </div>
+
+  @if (stats(); as s) {
+    <div class="quality-strip">
+      <div class="quality-head">
+        <div>
+          <span class="quality-title">Enrichment quality</span>
+          <span class="quality-sub">
+            avg score {{ s.averageScore }}/100 ·
+            {{ s.contactability.withEmail }} with an email ·
+            {{ s.contactability.withoutEmail }} without ·
+            {{ s.contactability.withNoChannelAtAll }} unreachable
+          </span>
+        </div>
+        <span class="quality-retry" [title]="'Leads already GOOD/RICH are skipped by the Engine so it never re-researches finished work.'">
+          <i class="bi bi-arrow-repeat"></i>
+          {{ s.retryability.neverAttempted + s.retryability.staleCapability }} worth an enrichment pass ·
+          {{ s.retryability.wellEnriched }} already done
+        </span>
+      </div>
+
+      <div class="tier-chips">
+        <button type="button" class="tier-chip" [class.active]="tier === ''" (click)="selectTier('')">
+          <span class="tier-chip-count">{{ s.totalLeads }}</span>
+          <span class="tier-chip-label">All leads</span>
+        </button>
+        @for (t of tiers; track t) {
+          <button
+            type="button"
+            class="tier-chip"
+            [class]="'tier-chip tier-chip--' + t.toLowerCase()"
+            [class.active]="tier === t"
+            [title]="tierHint[t]"
+            (click)="selectTier(t)">
+            <span class="tier-chip-count">{{ tierCount(t) }}</span>
+            <span class="tier-chip-label">{{ tierLabel[t] }}</span>
+            <span class="tier-chip-bar"><span class="tier-chip-fill" [style.width.%]="tierShare(t)"></span></span>
+          </button>
+        }
+      </div>
+
+      @if (s.topGaps.length) {
+        <p class="quality-gaps">
+          <i class="bi bi-search"></i>
+          Most common gaps:
+          @for (gap of s.topGaps.slice(0, 3); track gap.gap) {
+            <span class="gap-pill">{{ gap.leads }} missing {{ gap.label }}</span>
+          }
+        </p>
+      }
+    </div>
+  }
 
   <div class="filters">
     <div class="filter-search">
@@ -28,6 +82,12 @@
       [(ngModel)]="groupId"
       (selectionChange)="onFilterChange()">
     </app-select>
+    <app-select
+      placeholder="Any enrichment"
+      [options]="qualityOptions"
+      [(ngModel)]="quality"
+      (selectionChange)="onQualityChange()">
+    </app-select>
   </div>
 
   <app-data-table
@@ -38,16 +98,37 @@
     [total]="total()"
     [page]="page"
     [pageSize]="pageSize"
+    [sort]="sort"
+    [clientSort]="false"
+    (sortChange)="onSortChange($event)"
     (pageChange)="onPageChange($event)"
     emptyText="No leads found."
     (rowClick)="goToLead($event)">
 
     <ng-template appDataCell="companyName" let-row="row">
       <span class="dt-strong">{{ row.companyName }}</span>
+      @if (row.doNotContact) {
+        <app-badge variant="error" size="xs">DNC</app-badge>
+      }
     </ng-template>
 
     <ng-template appDataCell="location" let-row="row">
       {{ location(row) }}
+    </ng-template>
+
+    <ng-template appDataCell="enrichment" let-row="row">
+      <div class="enrichment-cell" [title]="tierHintFor(row)">
+        <app-badge [variant]="tierBadgeVariant(row.enrichmentTier)" size="sm">
+          {{ tierLabelFor(row) }}
+        </app-badge>
+        <span class="enrichment-score">{{ row.enrichmentScore ?? 0 }}</span>
+      </div>
+    </ng-template>
+
+    <ng-template appDataCell="reach" let-row="row">
+      <span class="reach-cell" [class.reach-cell--empty]="!row.emailCount && !row.phoneCount">
+        {{ reachSummary(row) }}
+      </span>
     </ng-template>
 
     <ng-template appDataCell="status" let-value>
@@ -56,10 +137,6 @@
 
     <ng-template appDataCell="group" let-row="row">
       {{ row.group?.name || '—' }}
-    </ng-template>
-
-    <ng-template appDataCell="contacts" let-row="row">
-      <span class="dt-num">{{ row.contacts?.length ?? 0 }}</span>
     </ng-template>
 
     <ng-template appDataCell="createdAt" let-value>

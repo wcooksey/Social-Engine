@@ -3,7 +3,13 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { LeadsService } from '../../core/services/leads.service';
-import { Contact, Lead } from '../../core/models/lead.model';
+import {
+  Contact,
+  ENRICHMENT_TIER_HINT,
+  ENRICHMENT_TIER_LABEL,
+  EnrichmentTier,
+  Lead
+} from '../../core/models/lead.model';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { ButtonComponent } from '../../shared/components/button/button.component';
 import { InputComponent } from '../../shared/components/input/input.component';
@@ -191,6 +197,8 @@ export class LeadDetailComponent implements OnInit {
         this.savingContact.set(false);
         this.showContactDialog.set(false);
         this.toast.success(this.editingContact ? 'Contact updated' : 'Contact added');
+        // The server re-scored the lead on this write — pull the fresh snapshot.
+        this.load(lead.id);
       },
       error: () => {
         this.savingContact.set(false);
@@ -206,6 +214,7 @@ export class LeadDetailComponent implements OnInit {
       next: () => {
         this.lead.set({ ...lead, contacts: (lead.contacts || []).filter(c => c.id !== contact.id) });
         this.toast.success('Contact removed');
+        this.load(lead.id);
       },
       error: () => this.toast.error('Failed to remove contact')
     });
@@ -223,6 +232,46 @@ export class LeadDetailComponent implements OnInit {
       case 'ARCHIVED': return 'neutral';
       default: return 'default';
     }
+  }
+
+  // --- Enrichment ---------------------------------------------------------
+
+  readonly tierLabel = ENRICHMENT_TIER_LABEL;
+  readonly tierHint = ENRICHMENT_TIER_HINT;
+
+  tierBadgeVariant(tier?: EnrichmentTier): BadgeVariant {
+    switch (tier) {
+      case 'RICH': return 'success';
+      case 'GOOD': return 'info';
+      case 'PARTIAL': return 'warning';
+      case 'MINIMAL': return 'orange';
+      case 'NONE': return 'error';
+      default: return 'neutral';
+    }
+  }
+
+  /** Turn the stored gap keys into the plain-English "still needs" list. */
+  gapLabels(lead: Lead): string[] {
+    const labels: Record<string, string> = {
+      email: 'an email address',
+      named_contact: 'a named person',
+      decision_maker: 'a decision maker',
+      verified_email: 'a verified email',
+      direct_phone: 'a direct phone',
+      website: 'a website',
+      company_phone: 'a company phone',
+      location: 'a location',
+      social: 'a social profile'
+    };
+    return (lead.enrichmentGaps || []).map(gap => labels[gap] || gap);
+  }
+
+  /**
+   * Whether the Engine considers this lead worked-out under the current
+   * capabilities — i.e. another research pass would likely find nothing new.
+   */
+  enrichmentExhausted(lead: Lead): boolean {
+    return (lead.enrichmentAttempts ?? 0) > 0 && (lead.enrichmentTier === 'NONE' || lead.enrichmentTier === 'MINIMAL' || lead.enrichmentTier === 'PARTIAL');
   }
 
   activityIcon(type: string): string {

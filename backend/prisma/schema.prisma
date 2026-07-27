@@ -156,6 +156,17 @@ model CoverageCell {
   @@index([groupId, status])
 }
 
+/// How well a lead is enriched — i.e. how reachable it actually is right now.
+/// Derived from the lead + its contacts by the enrichment scorer, stored
+/// denormalized so hundreds of leads can be filtered/sorted/counted in SQL.
+enum EnrichmentTier {
+  NONE // no email, no phone, no social — unreachable, needs work or dropping
+  MINIMAL // company-level only (main line / generic inbox), no named person
+  PARTIAL // some person-level detail, but a channel or the decision maker is missing
+  GOOD // a named contact with a direct email or phone — workable today
+  RICH // decision maker(s), verified email, phone, socials — nothing left to find
+}
+
 model Lead {
   id             String       @id @default(uuid())
   organizationId String
@@ -185,6 +196,24 @@ model Lead {
   socials     Json?        // { linkedin, facebook, instagram, x, ... }
   metadata    Json?
 
+  // --- Enrichment quality (denormalized; recomputed on every lead/contact write) ---
+  // Answers "which of these hundreds of leads are actually workable, and which
+  // still need research?" without N+1 queries over contacts.
+  enrichmentScore   Int            @default(0) // 0-100, weighted signal coverage
+  enrichmentTier    EnrichmentTier @default(NONE)
+  emailCount        Int            @default(0) // usable contact emails (not bounced/opted-out)
+  phoneCount        Int            @default(0) // usable phones (lead line + contact directs)
+  contactCount      Int            @default(0) // people on file
+  enrichmentGaps    Json?          // string[] of missing signals, e.g. ["email","decision_maker"]
+  // Capability generation the last enrichment pass ran under. When the platform
+  // gains new enrichment powers we bump ENRICHMENT_CAPABILITY_VERSION, and every
+  // lead below it becomes re-workable — that is how "retry the old leads with the
+  // new tools" stays a database fact instead of an agent's memory.
+  enrichmentVersion       Int       @default(0)
+  lastEnrichedAt          DateTime? // last attempt that actually ADDED data
+  lastEnrichmentAttemptAt DateTime? // last attempt, successful or not (cooldown)
+  enrichmentAttempts      Int       @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -199,6 +228,10 @@ model Lead {
   @@index([organizationId, status])
   @@index([organizationId, state])
   @@index([groupId])
+  // Triage queries: "weakest leads in this group the new tools haven't seen yet".
+  @@index([organizationId, enrichmentTier])
+  @@index([organizationId, enrichmentScore])
+  @@index([organizationId, enrichmentVersion])
 }
 
 model Contact {
@@ -218,7 +251,12 @@ model Contact {
   isPrimary Boolean @default(false)
   optedOut  Boolean @default(false)
   // Deliverability suppression from Mailgun events: null=ok, 'bounced', 'complained'.
+  // Any non-null value means "do not send here" — a verified-good address is
+  // recorded on emailVerifiedAt instead, never here.
   emailStatus String?
+  // Set when Mailgun validation confirmed the address is deliverable. The
+  // strongest enrichment signal a lead can carry: a channel we know works.
+  emailVerifiedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -573,6 +611,15 @@ enum AutopilotGoalStatus {
 // A standing objective the platform keeps working mechanically: a sweep
 // re-queues an agent job on a cadence until the goal completes, so autonomy
 // no longer depends on each agent remembering to schedule its successor.
+/// What an Autopilot goal counts toward its target. "How many leads are in the
+/// group" and "how many of them can we actually reach" are different questions,
+/// and a sourcing run answers only the first.
+enum AutopilotMetric {
+  LEAD_COUNT // leads in the linked group — sourcing progress
+  ENRICHED_LEADS // leads enriched to GOOD/RICH — ready for outreach
+  LEADS_WITH_EMAIL // leads with at least one usable email address
+}
+
 model AutopilotGoal {
   id             String       @id @default(uuid())
   organizationId String
@@ -589,7 +636,12 @@ model AutopilotGoal {
   leadGroup       LeadGroup? @relation(fields: [leadGroupId], references: [id], onDelete: SetNull)
   campaignId      String?
   campaign        Campaign?  @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  targetLeadCount Int?       // goal completes when the group reaches this size
+  targetLeadCount Int?       // goal completes when the metric below reaches this number
+  // WHAT gets counted toward targetLeadCount. Sourcing goals want raw group
+  // size; enrichment goals must NOT, because sourcing already satisfied that
+  // number — counting leads instead of reachable leads completes an enrichment
+  // goal before it does any work.
+  targetMetric    AutopilotMetric @default(LEAD_COUNT)
 
   nextRunAt    DateTime  @default(now())
   lastQueuedAt DateTime?
