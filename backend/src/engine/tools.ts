@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { Prisma } from '@prisma/client';
+import { AutopilotMetric, Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
 import { config } from '../config/environment';
 import * as channels from '../services/channels.service';
@@ -45,6 +45,7 @@ import { signToken } from '../utils/signing';
 import { resolveLeadTimezone, localHourIn, isWithinQuietHours } from '../utils/timezone';
 import { runBrowserAgent } from './browser/browser-agent.service';
 import { AgentRole, defaultRoleForJobType } from './roles';
+import { evaluateGoalProgress } from '../services/autopilot.service';
 import { buildCallSystemPrompt } from './prompts';
 import { researchService } from './research.service';
 
@@ -810,7 +811,7 @@ export const engineTools: Anthropic.Tool[] = [
   {
     name: 'create_autopilot_goal',
     description:
-      'Create a STANDING goal the platform works mechanically: a sweep re-queues an agent job with this objective every cadenceHours until the goal completes — autonomy that survives failed jobs and forgotten follow-ups. Use for open-ended mandates like "keep sourcing dealerships until the group has 500" or "review campaign performance and tune playbooks weekly". Link a leadGroup + targetLeadCount to auto-complete when the group reaches the target. Prefer this over chains of schedule_followup for anything meant to run for days or weeks.',
+      'Create a STANDING goal the platform works mechanically: a sweep re-queues an agent job with this objective every cadenceHours until the goal completes — autonomy that survives failed jobs and forgotten follow-ups. Use for open-ended mandates like "keep sourcing dealerships until the group has 500" or "review campaign performance and tune playbooks weekly". Link a leadGroup + targetLeadCount to auto-complete when the target is reached, and set targetMetric to match the work: LEAD_COUNT for sourcing, ENRICHED_LEADS or LEADS_WITH_EMAIL for enrichment. Using LEAD_COUNT on an enrichment goal is a mistake — sourcing already satisfied that number, so the goal completes immediately having done nothing (creation refuses it). Prefer this over chains of schedule_followup for anything meant to run for days or weeks.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -830,7 +831,14 @@ export const engineTools: Anthropic.Tool[] = [
         campaignName: { type: 'string', description: 'Campaign this goal relates to (optional)' },
         targetLeadCount: {
           type: 'number',
-          description: 'Auto-complete when the linked group reaches this many leads (optional)',
+          description:
+            'Auto-complete when the linked group reaches this many of whatever targetMetric counts (optional). Omit to run until paused.',
+        },
+        targetMetric: {
+          type: 'string',
+          enum: ['LEAD_COUNT', 'ENRICHED_LEADS', 'LEADS_WITH_EMAIL'],
+          description:
+            'What targetLeadCount counts. LEAD_COUNT = leads in the group (SOURCING goals only). ENRICHED_LEADS = leads enriched to GOOD/RICH, i.e. reachable for outreach. LEADS_WITH_EMAIL = leads with at least one usable email. Default LEAD_COUNT — you MUST override it for enrichment goals, or the target is already met before the goal starts.',
         },
       },
       required: ['name', 'objective'],
@@ -858,6 +866,11 @@ export const engineTools: Anthropic.Tool[] = [
         objective: { type: 'string' },
         cadenceHours: { type: 'number' },
         targetLeadCount: { type: 'number' },
+        targetMetric: {
+          type: 'string',
+          enum: ['LEAD_COUNT', 'ENRICHED_LEADS', 'LEADS_WITH_EMAIL'],
+          description: 'What targetLeadCount counts — switch an enrichment goal off LEAD_COUNT with this.',
+        },
       },
       required: ['goalId'],
     },
@@ -2527,6 +2540,27 @@ const executors: Record<string, ToolExecutor> = {
     if (input.targetLeadCount && !leadGroupId) {
       throw new Error('targetLeadCount needs a linked groupName to count against.');
     }
+    const targetMetric = (['LEAD_COUNT', 'ENRICHED_LEADS', 'LEADS_WITH_EMAIL'].includes(String(input.targetMetric))
+      ? input.targetMetric
+      : 'LEAD_COUNT') as AutopilotMetric;
+
+    // Refuse a goal whose target is ALREADY met — it would complete on the
+    // first sweep having done nothing. This is the classic mistake: pointing an
+    // enrichment goal at LEAD_COUNT, which sourcing already satisfied.
+    const preflight = await evaluateGoalProgress({
+      leadGroupId: leadGroupId ?? null,
+      targetLeadCount: input.targetLeadCount ?? null,
+      targetMetric,
+    });
+    if (preflight?.satisfied) {
+      throw new Error(
+        `That goal is already complete on creation: "${input.groupName}" is at ${preflight.label}, so it would finish on the first cycle without doing any work. ` +
+          (targetMetric === 'LEAD_COUNT'
+            ? 'If this goal is about ENRICHING leads rather than finding more of them, set targetMetric to ENRICHED_LEADS (leads reachable enough for outreach) or LEADS_WITH_EMAIL — sourcing already satisfied the raw lead count. If it really is a sourcing goal, raise targetLeadCount above the current size.'
+            : 'Raise targetLeadCount above the current value, or drop it to let the goal run until paused.')
+      );
+    }
+
     const cadenceHours = Math.min(Math.max(1, input.cadenceHours ?? 24), 24 * 30);
     const goal = await prisma.autopilotGoal.create({
       data: {
@@ -2538,6 +2572,7 @@ const executors: Record<string, ToolExecutor> = {
         leadGroupId,
         campaignId,
         targetLeadCount: input.targetLeadCount,
+        targetMetric,
         createdByRunId: ctx.runId,
       },
     });
@@ -2545,7 +2580,9 @@ const executors: Record<string, ToolExecutor> = {
       goalId: goal.id,
       name: goal.name,
       cadenceHours,
-      note: `Standing goal is ACTIVE — the first cycle queues within ~5 minutes, then every ${cadenceHours}h${input.targetLeadCount ? ` until "${input.groupName}" reaches ${input.targetLeadCount} leads` : ' until paused/completed'}.`,
+      targetMetric,
+      ...(preflight ? { startingFrom: preflight.label } : {}),
+      note: `Standing goal is ACTIVE — the first cycle queues within ~5 minutes, then every ${cadenceHours}h${preflight ? ` until "${input.groupName}" reaches ${preflight.target} ${preflight.noun} (currently ${preflight.current})` : ' until paused/completed'}.`,
     };
   },
 
@@ -2562,8 +2599,11 @@ const executors: Record<string, ToolExecutor> = {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
+    // Show live progress in each goal's own metric, so "why hasn't this
+    // finished?" is answerable without guessing what it counts.
+    const progress = await Promise.all(goals.map((g) => evaluateGoalProgress(g)));
     return {
-      goals: goals.map((g) => ({
+      goals: goals.map((g, i) => ({
         goalId: g.id,
         name: g.name,
         status: g.status,
@@ -2572,6 +2612,8 @@ const executors: Record<string, ToolExecutor> = {
         group: g.leadGroup?.name,
         campaign: g.campaign?.name,
         targetLeadCount: g.targetLeadCount,
+        targetMetric: g.targetMetric,
+        progress: progress[i]?.label ?? null,
         nextRunAt: g.status === 'ACTIVE' ? g.nextRunAt.toISOString() : null,
         lastQueuedAt: g.lastQueuedAt?.toISOString(),
         lastResult: g.lastResult?.slice(0, 300),
@@ -2585,6 +2627,30 @@ const executors: Record<string, ToolExecutor> = {
       where: { id: input.goalId, organizationId: ctx.organizationId },
     });
     if (!goal) throw new Error('Autopilot goal not found');
+
+    const nextMetric = (['LEAD_COUNT', 'ENRICHED_LEADS', 'LEADS_WITH_EMAIL'].includes(String(input.targetMetric))
+      ? input.targetMetric
+      : goal.targetMetric) as AutopilotMetric;
+    const nextTarget =
+      input.targetLeadCount !== undefined ? input.targetLeadCount : goal.targetLeadCount;
+
+    // Same footgun as creation: retargeting a goal that stays ACTIVE onto an
+    // already-satisfied criterion just completes it on the next sweep.
+    const staysActive = (input.status ?? goal.status) === 'ACTIVE';
+    const retargeting = input.targetLeadCount !== undefined || input.targetMetric !== undefined;
+    if (staysActive && retargeting) {
+      const preflight = await evaluateGoalProgress({
+        leadGroupId: goal.leadGroupId,
+        targetLeadCount: nextTarget,
+        targetMetric: nextMetric,
+      });
+      if (preflight?.satisfied) {
+        throw new Error(
+          `That target is already met (${preflight.label}), so the goal would complete on the next cycle without doing any work. Raise targetLeadCount, pick a targetMetric that measures the work you actually want (ENRICHED_LEADS / LEADS_WITH_EMAIL), or set status COMPLETED explicitly if it really is done.`
+        );
+      }
+    }
+
     const updated = await prisma.autopilotGoal.update({
       where: { id: goal.id },
       data: {
@@ -2594,11 +2660,17 @@ const executors: Record<string, ToolExecutor> = {
           ? { cadenceHours: Math.min(Math.max(1, input.cadenceHours), 24 * 30) }
           : {}),
         ...(input.targetLeadCount !== undefined ? { targetLeadCount: input.targetLeadCount } : {}),
+        ...(input.targetMetric !== undefined ? { targetMetric: nextMetric } : {}),
         // Resuming shouldn't wait out a stale clock.
         ...(input.status === 'ACTIVE' ? { nextRunAt: new Date() } : {}),
       },
     });
-    return { goalId: updated.id, status: updated.status, cadenceHours: updated.cadenceHours };
+    return {
+      goalId: updated.id,
+      status: updated.status,
+      cadenceHours: updated.cadenceHours,
+      targetMetric: updated.targetMetric,
+    };
   },
 };
 

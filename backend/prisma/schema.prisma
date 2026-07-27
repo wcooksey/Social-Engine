@@ -611,6 +611,15 @@ enum AutopilotGoalStatus {
 // A standing objective the platform keeps working mechanically: a sweep
 // re-queues an agent job on a cadence until the goal completes, so autonomy
 // no longer depends on each agent remembering to schedule its successor.
+/// What an Autopilot goal counts toward its target. "How many leads are in the
+/// group" and "how many of them can we actually reach" are different questions,
+/// and a sourcing run answers only the first.
+enum AutopilotMetric {
+  LEAD_COUNT // leads in the linked group — sourcing progress
+  ENRICHED_LEADS // leads enriched to GOOD/RICH — ready for outreach
+  LEADS_WITH_EMAIL // leads with at least one usable email address
+}
+
 model AutopilotGoal {
   id             String       @id @default(uuid())
   organizationId String
@@ -627,7 +636,12 @@ model AutopilotGoal {
   leadGroup       LeadGroup? @relation(fields: [leadGroupId], references: [id], onDelete: SetNull)
   campaignId      String?
   campaign        Campaign?  @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  targetLeadCount Int?       // goal completes when the group reaches this size
+  targetLeadCount Int?       // goal completes when the metric below reaches this number
+  // WHAT gets counted toward targetLeadCount. Sourcing goals want raw group
+  // size; enrichment goals must NOT, because sourcing already satisfied that
+  // number — counting leads instead of reachable leads completes an enrichment
+  // goal before it does any work.
+  targetMetric    AutopilotMetric @default(LEAD_COUNT)
 
   nextRunAt    DateTime  @default(now())
   lastQueuedAt DateTime?
