@@ -1364,7 +1364,11 @@ const executors: Record<string, ToolExecutor> = {
   verify_email: async (input, ctx) => {
     const orgConfig = await getOrgConfig(ctx.organizationId);
     if (!orgConfig.mailgun.apiKey) {
-      return { verdict: 'unknown', note: 'Mailgun is not configured — cannot verify. Treat the address as unverified.' };
+      return {
+        verdict: 'unavailable',
+        reason: 'not_configured',
+        note: 'Mailgun is not configured (Settings → Integrations), so no verification ran. Treat the address as UNVERIFIED — do not report it as checked.',
+      };
     }
     const email = String(input.email || '').toLowerCase().trim();
     if (!email) throw new Error('email is required');
@@ -1393,6 +1397,18 @@ const executors: Record<string, ToolExecutor> = {
         }
       }
     }
+    // An 'unavailable' result means the check never ran — surface it as a
+    // configuration problem to escalate, never as a quiet green light.
+    if (result.verdict === 'unavailable') {
+      console.error(
+        `[verify_email] validation unavailable (${result.reason}) for org ${ctx.organizationId}: ${result.detail}`
+      );
+      return {
+        ...result,
+        note: `Email verification did NOT run — ${result.fix} Until this is fixed, addresses cannot be verified: do not claim any address is checked, and flag this to the user rather than sending cold email to unverified addresses at volume.`,
+      };
+    }
+
     return {
       ...result,
       note:
@@ -1400,7 +1416,7 @@ const executors: Record<string, ToolExecutor> = {
           ? 'Safe to email.'
           : result.verdict === 'undeliverable'
             ? 'Dead address — suppressed. Find another contact or channel.'
-            : 'Uncertain — acceptable to try once, but prefer a deliverable address if available.',
+            : 'Mailgun checked it but could not decide (catch-all or risky domain) — acceptable to try once, but prefer a deliverable address if available.',
     };
   },
 
