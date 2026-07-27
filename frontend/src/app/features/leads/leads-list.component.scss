@@ -15,14 +15,185 @@
   }
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+/* --- Enrichment quality breakdown ------------------------------------- */
+
+.quality-strip {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-lg;
+  padding: $spacing-md $spacing-lg;
+  margin-bottom: $spacing-lg;
+}
+
+.quality-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-md;
+  flex-wrap: wrap;
+  margin-bottom: $spacing-md;
+}
+
+.quality-title {
+  display: block;
+  font-weight: 600;
+  font-size: $font-size-base;
+  color: var(--text-primary);
+}
+
+.quality-sub {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+}
+
+.quality-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-sm;
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border-radius: $border-radius-full;
+  padding: $spacing-xs $spacing-md;
+  cursor: help;
+
+  i { color: $primary-blue; }
+}
+
+.tier-chips {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: $spacing-sm;
+
+  @include responsive($breakpoint-lg) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  @include responsive($breakpoint-md) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.tier-chip {
+  --tier-color: #{$primary-blue};
+
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: $spacing-sm $spacing-md;
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+  background: var(--bg-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+
+  &:hover {
+    border-color: var(--tier-color);
+    transform: translateY(-1px);
+  }
+
+  &.active {
+    border-color: var(--tier-color);
+    box-shadow: 0 0 0 1px var(--tier-color) inset;
+  }
+
+  &--none { --tier-color: #{$error-red}; }
+  &--minimal { --tier-color: #{$secondary-orange}; }
+  &--partial { --tier-color: #{$warning-yellow}; }
+  &--good { --tier-color: #{$primary-blue}; }
+  &--rich { --tier-color: #{$success-green}; }
+}
+
+.tier-chip-count {
+  font-size: $font-size-xl;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--text-primary);
+}
+
+.tier-chip-label {
+  font-size: $font-size-xs;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.tier-chip-bar {
+  display: block;
+  width: 100%;
+  height: 3px;
+  margin-top: $spacing-xs;
+  border-radius: $border-radius-full;
+  background: var(--border-primary);
+  overflow: hidden;
+}
+
+.tier-chip-fill {
+  display: block;
+  height: 100%;
+  background: var(--tier-color);
+  border-radius: $border-radius-full;
+}
+
+.quality-gaps {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+  margin: $spacing-md 0 0;
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+}
+
+.gap-pill {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-full;
+  padding: 2px $spacing-sm;
+  font-size: $font-size-xs;
+}
+
+/* --- Filters + table cells -------------------------------------------- */
+
 .filters {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
   gap: $spacing-md;
   margin-bottom: $spacing-lg;
 
   @include responsive($breakpoint-md) {
     grid-template-columns: 1fr;
+  }
+}
+
+.enrichment-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.enrichment-score {
+  font-variant-numeric: tabular-nums;
+  font-size: $font-size-sm;
+  color: var(--text-tertiary);
+}
+
+.reach-cell {
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+
+  &--empty {
+    color: $error-red;
   }
 }
 

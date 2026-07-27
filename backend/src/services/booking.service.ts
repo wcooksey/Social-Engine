@@ -3,6 +3,7 @@ import { config } from '../config/environment';
 import * as channels from './channels.service';
 import { getOrgConfig } from './settings.service';
 import { notify } from './notification.service';
+import { recomputeLeadEnrichment } from './lead-enrichment.service';
 import { buildIcs } from '../utils/ics';
 
 /**
@@ -211,6 +212,8 @@ export async function book(input: BookInput): Promise<{ eventId: string; startIs
     });
     leadId = lead.id;
     contactId = created.id;
+    // Self-booked leads arrive with a real person + email attached — score it.
+    await recomputeLeadEnrichment(lead.id);
   }
 
   const org = await prisma.organization.findUnique({ where: { id: orgId } });

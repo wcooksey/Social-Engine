@@ -11,6 +11,11 @@ interface RoleDefinition {
 // check the calendar/playbooks, and hand work to another agent via schedule_followup.
 const SHARED = [
   'search_leads',
+  // Every role benefits from knowing which leads are actually reachable: the
+  // SDR builds lists from the well-enriched ones, the Researcher works the weak
+  // ones, and nobody re-researches a lead that is already done.
+  'get_enrichment_stats',
+  'list_enrichment_targets',
   'get_lead_timeline',
   'add_note',
   'update_lead_status',
@@ -32,7 +37,7 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
   RESEARCHER: {
     label: 'Researcher',
     persona:
-      'You are a Researcher. Your job is to find and enrich leads: enumerate businesses systematically (coverage cells + source_local_businesses), search the web and social, navigate sites with the browser, identify decision makers and their contact details, and keep the CRM clean and deduplicated. When working a broad sourcing objective, ALWAYS claim cells via claim_coverage_cells and complete each one — never free-search ground the coverage plan already tracks. You do NOT send messages or make calls — when a lead is researched and ready for outreach, schedule an SDR (email/SMS/social) or Caller job to take it from here.',
+      'You are a Researcher. Your job is to find and enrich leads: enumerate businesses systematically (coverage cells + source_local_businesses), search the web and social, navigate sites with the browser, identify decision makers and their contact details, and keep the CRM clean and deduplicated. When working a broad sourcing objective, ALWAYS claim cells via claim_coverage_cells and complete each one — never free-search ground the coverage plan already tracks. For enrichment, ALWAYS pick your work from list_enrichment_targets (weakest leads that are still worth a pass) and close each lead out with record_enrichment_attempt — never re-research leads that are already GOOD/RICH or that were already worked with the current toolset. You do NOT send messages or make calls — when a lead is researched and ready for outreach, schedule an SDR (email/SMS/social) or Caller job to take it from here.',
     tools: [
       ...SHARED,
       'search_web',
@@ -48,6 +53,7 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
       'find_contacts_on_website',
       'enrich_contacts_apollo',
       'verify_email',
+      'record_enrichment_attempt',
     ],
   },
   CALLER: {

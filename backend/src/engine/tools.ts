@@ -30,6 +30,13 @@ import {
   crawlSiteForContacts,
   verifyEmail as verifyEmailAddress,
 } from '../services/enrichment.service';
+import {
+  ENRICHMENT_CAPABILITY_VERSION,
+  findEnrichmentTargets,
+  getEnrichmentStats,
+  recomputeLeadEnrichment,
+  recordEnrichmentAttempt,
+} from '../services/lead-enrichment.service';
 import { llmService } from './llm/llm.service';
 import { GUIDE_TOPICS, PLATFORM_GUIDE } from './platform-guide';
 import { recordBrowserAction, recordBrowserFrame } from './live-view.registry';
@@ -185,7 +192,80 @@ export const engineTools: Anthropic.Tool[] = [
           description:
             'Page number (1-based). Results include total + hasMore — keep paging until hasMore is false when you need the whole list.',
         },
+        maxTier: {
+          type: 'string',
+          enum: ['NONE', 'MINIMAL', 'PARTIAL', 'GOOD', 'RICH'],
+          description:
+            'Enrichment filter: return only leads at or BELOW this quality tier (e.g. PARTIAL = everything that still needs research).',
+        },
+        minTier: {
+          type: 'string',
+          enum: ['NONE', 'MINIMAL', 'PARTIAL', 'GOOD', 'RICH'],
+          description:
+            'Enrichment filter: return only leads at or ABOVE this tier. Use minTier=GOOD to build an outreach list of leads that are actually reachable.',
+        },
+        hasEmail: {
+          type: 'boolean',
+          description: 'true = only leads with at least one usable email; false = only leads with none.',
+        },
+        hasPhone: { type: 'boolean', description: 'Filter on having any usable phone number.' },
       },
+    },
+  },
+  {
+    name: 'get_enrichment_stats',
+    description:
+      "Categorize a lead list by how well enriched it is: how many leads are RICH/GOOD/PARTIAL/MINIMAL/NONE, how many have emails (and how many have none), phone coverage, the most common missing signals, and how many are worth re-running enrichment on. Use this BEFORE planning enrichment or outreach on a group so you work from facts, not guesses.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        groupName: { type: 'string', description: 'Limit to one lead group. Omit for the whole org.' },
+      },
+    },
+  },
+  {
+    name: 'list_enrichment_targets',
+    description:
+      "The enrichment work list: leads that are weak AND still worth another pass, weakest first, each with exactly what it's missing. Leads already enriched well (GOOD/RICH), already worked with the current toolset, opted out, or attempted in the last cooldown window are excluded — so you never burn time or API credits re-researching leads that are already done or already exhausted. ALWAYS use this to pick enrichment work instead of search_leads.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        groupName: { type: 'string' },
+        maxTier: {
+          type: 'string',
+          enum: ['NONE', 'MINIMAL', 'PARTIAL', 'GOOD'],
+          description: 'Work leads at or below this tier. Default PARTIAL.',
+        },
+        limit: { type: 'number', description: 'How many leads to take on (default 25, max 200).' },
+        cooldownHours: {
+          type: 'number',
+          description: 'Skip leads attempted within this many hours (default 24). 0 disables.',
+        },
+        includeAlreadyAttempted: {
+          type: 'boolean',
+          description:
+            'Default false. Set true ONLY when told to re-sweep everything — it returns leads already worked with the current capability set, which usually finds nothing new.',
+        },
+      },
+    },
+  },
+  {
+    name: 'record_enrichment_attempt',
+    description:
+      "Record that you finished an enrichment pass on a lead — call this after trying the enrichment tools on it, whether or not you found anything. This stamps the lead with the capability generation you used so future runs skip it until the platform gains new abilities. Skipping this call means the same dead-end lead gets re-worked forever.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        leadId: { type: 'string' },
+        outcome: {
+          type: 'string',
+          enum: ['improved', 'no_new_data', 'blocked'],
+          description:
+            "'improved' = you saved new contact detail; 'no_new_data' = tried everything, found nothing; 'blocked' = couldn't work it (site down, no domain, missing API key).",
+        },
+        notes: { type: 'string', description: 'Short note for the lead timeline (what you tried).' },
+      },
+      required: ['leadId', 'outcome'],
     },
   },
   {
@@ -1085,6 +1165,10 @@ const executors: Record<string, ToolExecutor> = {
       status: input.status,
       groupId,
       state: input.state,
+      maxTier: input.maxTier,
+      minTier: input.minTier,
+      hasEmail: typeof input.hasEmail === 'boolean' ? input.hasEmail : undefined,
+      hasPhone: typeof input.hasPhone === 'boolean' ? input.hasPhone : undefined,
       page,
       pageSize,
     });
@@ -1101,7 +1185,99 @@ const executors: Record<string, ToolExecutor> = {
         status: l.status,
         group: l.group?.name,
         contactCount: l.contactCount,
+        // Enrichment quality travels with every result so you can tell at a
+        // glance which leads are reachable and which still need research.
+        enrichmentTier: l.enrichmentTier,
+        enrichmentScore: l.enrichmentScore,
+        emailCount: l.emailCount,
+        phoneCount: l.phoneCount,
       })),
+    };
+  },
+
+  get_enrichment_stats: async (input, ctx) => {
+    let groupId: string | undefined;
+    if (input.groupName) {
+      const group = await prisma.leadGroup.findUnique({
+        where: { organizationId_name: { organizationId: ctx.organizationId, name: String(input.groupName).trim() } },
+      });
+      if (!group) return { note: `No group named "${input.groupName}"` };
+      groupId = group.id;
+    }
+    const stats = await getEnrichmentStats(ctx.organizationId, { groupId });
+    return {
+      ...stats,
+      tierMeaning: {
+        RICH: 'decision maker + verified email + phone — nothing left to find',
+        GOOD: 'a named contact with a direct email or phone — ready for outreach',
+        PARTIAL: 'some detail, but a channel or the decision maker is missing',
+        MINIMAL: 'company-level only (main line / generic inbox), no named person',
+        NONE: 'no email, no phone, no social — unreachable until enriched',
+      },
+      note:
+        stats.retryability.staleCapability + stats.retryability.neverAttempted > 0
+          ? `${stats.retryability.neverAttempted + stats.retryability.staleCapability} lead(s) are worth an enrichment pass — get the work list with list_enrichment_targets. ${stats.retryability.wellEnriched} are already GOOD/RICH: do not re-research those.`
+          : `Nothing pending: every weak lead here was already worked with the current toolset (capability v${stats.retryability.currentCapabilityVersion}). Move to outreach, or re-sweep only if the platform gained a new enrichment capability.`,
+    };
+  },
+
+  list_enrichment_targets: async (input, ctx) => {
+    let groupId: string | undefined;
+    if (input.groupName) {
+      const group = await prisma.leadGroup.findUnique({
+        where: { organizationId_name: { organizationId: ctx.organizationId, name: String(input.groupName).trim() } },
+      });
+      if (!group) return { targets: [], note: `No group named "${input.groupName}"` };
+      groupId = group.id;
+    }
+    const result = await findEnrichmentTargets(ctx.organizationId, {
+      groupId,
+      maxTier: input.maxTier,
+      limit: Number(input.limit) || undefined,
+      cooldownHours: input.cooldownHours != null ? Number(input.cooldownHours) : undefined,
+      skipCurrentCapability: input.includeAlreadyAttempted !== true,
+    });
+    return {
+      ...result,
+      note: result.targets.length
+        ? `${result.total} lead(s) need enrichment; showing the ${result.targets.length} weakest. Work each one (find_contacts_on_website → enrich_contacts_apollo → verify_email), save what you find with upsert_contact/upsert_lead, then ALWAYS call record_enrichment_attempt so it isn't re-worked next run.`
+        : 'Nothing to enrich under these filters — either everything is already well enriched, or every weak lead was already worked with the current capabilities (capability v' +
+          result.capabilityVersion +
+          '). Do not re-research them; move to outreach.',
+    };
+  },
+
+  record_enrichment_attempt: async (input, ctx) => {
+    const outcome = ['improved', 'no_new_data', 'blocked'].includes(String(input.outcome))
+      ? (String(input.outcome) as 'improved' | 'no_new_data' | 'blocked')
+      : 'no_new_data';
+    const result = await recordEnrichmentAttempt(ctx.organizationId, String(input.leadId), outcome);
+    if (!result) throw new Error(`Lead ${input.leadId} not found`);
+
+    if (input.notes) {
+      await leadService.logActivity({
+        organizationId: ctx.organizationId,
+        leadId: String(input.leadId),
+        type: 'RESEARCH',
+        summary: `Enrichment pass (${outcome}): ${String(input.notes).slice(0, 400)}`,
+        agentRunId: ctx.runId,
+      });
+    }
+
+    return {
+      leadId: input.leadId,
+      outcome,
+      tierBefore: result.tierBefore,
+      tier: result.tier,
+      score: result.score,
+      emailCount: result.emailCount,
+      phoneCount: result.phoneCount,
+      stillMissing: result.gaps,
+      capabilityVersion: ENRICHMENT_CAPABILITY_VERSION,
+      note:
+        result.tier === 'GOOD' || result.tier === 'RICH'
+          ? 'This lead is now well enriched — hand it to outreach and do not research it again.'
+          : `Recorded at capability v${ENRICHMENT_CAPABILITY_VERSION}. It will stay off the enrichment work list until the platform gains new enrichment abilities.`,
     };
   },
 
@@ -1176,6 +1352,7 @@ const executors: Record<string, ToolExecutor> = {
       });
       saved++;
     }
+    if (saved > 0) await recomputeLeadEnrichment(lead.id);
     const locked = people.filter((p) => p.emailLocked).length;
     return {
       people,
@@ -1194,12 +1371,27 @@ const executors: Record<string, ToolExecutor> = {
     const result = await verifyEmailAddress(email, orgConfig.mailgun.apiKey);
 
     // Suppress undeliverable addresses on matching contacts so send_email
-    // refuses them — a pre-send bounce prevented is reputation saved.
-    if (result.verdict === 'undeliverable') {
-      await prisma.contact.updateMany({
+    // refuses them — a pre-send bounce prevented is reputation saved. A
+    // confirmed-deliverable address is stamped on emailVerifiedAt (NOT
+    // emailStatus, where any value means suppressed) so it counts as the
+    // strongest enrichment signal a lead can carry.
+    if (result.verdict === 'undeliverable' || result.verdict === 'deliverable') {
+      const affected = await prisma.contact.findMany({
         where: { organizationId: ctx.organizationId, email },
-        data: { emailStatus: 'undeliverable' },
+        select: { id: true, leadId: true },
       });
+      if (affected.length) {
+        await prisma.contact.updateMany({
+          where: { id: { in: affected.map((c) => c.id) } },
+          data:
+            result.verdict === 'deliverable'
+              ? { emailVerifiedAt: new Date() }
+              : { emailStatus: 'undeliverable' },
+        });
+        for (const leadId of new Set(affected.map((c) => c.leadId))) {
+          await recomputeLeadEnrichment(leadId);
+        }
+      }
     }
     return {
       ...result,
@@ -1239,7 +1431,24 @@ const executors: Record<string, ToolExecutor> = {
       : await prisma.contact.create({
           data: { ...data, leadId: input.leadId, organizationId: ctx.organizationId },
         });
-    return { contactId: contact.id, created: !existing };
+    // Saving a person is the main way a lead gets more reachable — re-grade it
+    // and tell the agent where the lead now stands.
+    const snapshot = await recomputeLeadEnrichment(input.leadId);
+    return {
+      contactId: contact.id,
+      created: !existing,
+      ...(snapshot
+        ? {
+            enrichment: {
+              tier: snapshot.tier,
+              score: snapshot.score,
+              emailCount: snapshot.emailCount,
+              phoneCount: snapshot.phoneCount,
+              stillMissing: snapshot.gaps,
+            },
+          }
+        : {}),
+    };
   },
 
   get_lead_timeline: async (input, ctx) => {

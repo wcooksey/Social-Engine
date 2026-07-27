@@ -170,6 +170,47 @@ validation — undeliverable addresses are suppressed on the contact BEFORE a
 bounce can hurt sender reputation). Requires `APOLLO_API_KEY` for Apollo;
 crawl + verification work with just Mailgun.
 
+### Enrichment quality: categorization & targeted retries
+
+A group of hundreds of sourced businesses is useless if you can't tell which
+ones are actually reachable. Every lead therefore carries a **denormalized
+enrichment snapshot**, recomputed on every lead/contact write (`scoreLead` in
+`lead-enrichment.service.ts` is the single source of truth, mirrored by the
+migration's SQL backfill so existing data is graded on deploy):
+
+- **Score** 0-100 from weighted signals — usable email (25), named person (12),
+  decision maker (10), verified-deliverable email (10), direct phone (10),
+  website (10), company phone (8), location (5), social (5), second email (5).
+- **Tier** — `NONE` (no email/phone/social — unreachable), `MINIMAL` (company
+  switchboard only, no named person), `PARTIAL`, `GOOD` (a named contact with a
+  direct email or phone), `RICH`. Reachability is a hard gate: a lead with a
+  great website and no way to contact anyone is `NONE` regardless of score.
+- **Counts + gaps** — usable email/phone/contact counts and the exact list of
+  missing signals. Suppressed (bounced/complained), unverified-dead, and
+  opted-out contacts do not count as reachable, so a lead's tier *drops* when a
+  bounce arrives.
+
+Because it's denormalized, the whole list is filterable and countable in SQL:
+the Leads page shows clickable tier chips with counts, presets ("needs
+enrichment", "no email", "ready for outreach", "2+ emails"), an enrichment
+column sortable by score, and per-group enrichment mix bars on the Groups page.
+`GET /api/leads/enrichment/stats` returns the breakdown; `POST
+/api/leads/enrichment/recompute` rebuilds the columns after a scoring change.
+
+**Retrying with new capabilities without wasting passes.** Each lead records how
+many enrichment passes it has had and which `ENRICHMENT_CAPABILITY_VERSION` last
+worked it. Agents pick work from `list_enrichment_targets`, which returns only
+leads that are weak *and* worth another pass — excluding anything already
+GOOD/RICH, opted out, attempted within the cooldown, or already exhausted by the
+current toolset — ordered weakest-first with each lead's missing signals
+attached. After working a lead the agent calls `record_enrichment_attempt`,
+stamping the capability generation used. When the platform gains a new
+enrichment ability, bumping `ENRICHMENT_CAPABILITY_VERSION` makes every
+previously worked lead eligible again automatically — so "go back over the old
+leads with the new tools" is a one-line change and a database fact, never an
+agent's memory, and the leads that are already enriched well never get
+re-researched.
+
 ### Cold DM machine
 
 Researchers find the right account/person on social (browser agent with the
@@ -250,7 +291,10 @@ provider adapters translate. A run works like this:
 | `create_lead_group` | Create a named group/segment of leads |
 | `upsert_lead` | Create or update a lead (dedup by domain/name/phone built in) |
 | `upsert_contact` | Add a person to a lead with email/phone/socials |
-| `search_leads` | Query existing leads (dedup checks, targeting) |
+| `search_leads` | Query existing leads (dedup checks, targeting, enrichment-tier filters) |
+| `get_enrichment_stats` | Categorize a list by enrichment quality (tier counts, gaps, what's retryable) |
+| `list_enrichment_targets` | The enrichment work list: weak leads still worth a pass, weakest first |
+| `record_enrichment_attempt` | Stamp a lead with the capability generation used, so it isn't re-worked |
 | `create_campaign` | Define a campaign (channel mix, message templates, offer) |
 | `send_email` / `send_sms` | Send a message through the channel services |
 | `place_call` | Kick off an AI voice call |
@@ -309,8 +353,11 @@ pool simultaneously without conflict.
 - **User** — auth identity (email+password now; Google/Microsoft OAuth later), role (owner/admin/member).
 - **LeadGroup** — a named list/segment ("Florida Dealerships"), with `aiSummary` + goal.
 - **Lead** — a business/prospect: name, website/domain, address, industry, status
-  (new → researching → contacted → engaged → interested → customer / not_interested), dedup keys.
+  (new → researching → contacted → engaged → interested → customer / not_interested), dedup keys,
+  plus the enrichment snapshot (score, tier, email/phone counts, gaps, attempts, capability version).
 - **Contact** — a person at a lead: name, title, emails, phones, social profiles (JSON), source.
+  `emailStatus` is suppression-only (any value = do not send); a confirmed-good
+  address is stamped on `emailVerifiedAt`.
 - **Campaign** — outreach program: target group, channel sequence, templates/offer, mode
   (autonomous | approval-required), status.
 - **Activity** — timeline event on a lead: email_sent, email_reply, sms, call, note,

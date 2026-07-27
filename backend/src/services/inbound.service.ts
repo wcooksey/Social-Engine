@@ -3,6 +3,7 @@ import { prisma } from '../config/database';
 import { leadService } from './lead.service';
 import { normalizePhone } from './lead.service';
 import { recordResponseForInbound } from './experiment.service';
+import { recomputeLeadEnrichment } from './lead-enrichment.service';
 import { notify } from './notification.service';
 
 /**
@@ -203,6 +204,8 @@ export async function handleInbound(input: InboundMessage): Promise<{
     });
     if (contactId) {
       await prisma.contact.update({ where: { id: contactId }, data: { optedOut: true } });
+      // An opted-out contact is no longer a usable channel — re-grade the lead.
+      await recomputeLeadEnrichment(leadId);
     }
     await leadService.logActivity({
       organizationId,

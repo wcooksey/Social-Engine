@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../config/database';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
+import { recomputeLeadEnrichment } from '../services/lead-enrichment.service';
 
 const router = Router();
 
@@ -18,6 +19,8 @@ router.patch(
       if (key in req.body) data[key] = req.body[key];
     }
     const contact = await prisma.contact.update({ where: { id: existing.id }, data });
+    // Editing a person changes what the lead has on file — re-grade it.
+    await recomputeLeadEnrichment(existing.leadId);
     res.json({ success: true, data: contact });
   })
 );
@@ -30,6 +33,7 @@ router.delete(
     });
     if (!existing) throw new AppError('Contact not found', 404);
     await prisma.contact.delete({ where: { id: existing.id } });
+    await recomputeLeadEnrichment(existing.leadId);
     res.json({ success: true, data: null });
   })
 );

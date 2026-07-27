@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { LeadGroupsService } from '../../core/services/lead-groups.service';
-import { LeadGroup } from '../../core/models/lead.model';
+import { ENRICHMENT_TIERS, ENRICHMENT_TIER_LABEL, EnrichmentTier, LeadGroup } from '../../core/models/lead.model';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { ButtonComponent } from '../../shared/components/button/button.component';
 import { InputComponent } from '../../shared/components/input/input.component';
@@ -84,5 +84,27 @@ export class GroupsComponent implements OnInit {
 
   viewLeads(group: LeadGroup): void {
     this.router.navigate(['/leads'], { queryParams: { groupId: group.id } });
+  }
+
+  // --- Enrichment mix ------------------------------------------------------
+
+  readonly tiers = ENRICHMENT_TIERS;
+  readonly tierLabel = ENRICHMENT_TIER_LABEL;
+
+  tierCount(group: LeadGroup, tier: EnrichmentTier): number {
+    return group.enrichment?.tiers?.[tier] ?? 0;
+  }
+
+  /** Segment width for the stacked "how enriched is this list?" bar. */
+  tierShare(group: LeadGroup, tier: EnrichmentTier): number {
+    const total = group.leadCount || 0;
+    if (!total) return 0;
+    return (this.tierCount(group, tier) / total) * 100;
+  }
+
+  tierTooltip(group: LeadGroup): string {
+    return this.tiers
+      .map(t => `${this.tierLabel[t]}: ${this.tierCount(group, t)}`)
+      .join(' · ');
   }
 }
