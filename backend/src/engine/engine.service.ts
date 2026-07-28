@@ -8,6 +8,7 @@ import { buildEngineSystemPrompt } from './prompts';
 import { LlmMessage, LlmToolDefinition, llmService } from './llm/llm.service';
 import { AgentRole, roleAllowsTool, rolePersona } from './roles';
 import { engineTools, executeTool, ToolContext } from './tools';
+import * as runRegistry from './run-registry';
 
 export type EngineEvent =
   | { type: 'text'; delta: string }
@@ -27,11 +28,20 @@ export interface RunEngineOptions {
   /** Prior chat turns for USER_CHAT runs. */
   history?: { role: 'user' | 'assistant'; content: string }[];
   onEvent?: (event: EngineEvent) => void;
+  /** Chat this run belongs to, so the UI can reattach to it by chat. */
+  chatId?: string;
+  /**
+   * Fires as soon as the AgentRun row exists — lets a caller return the runId
+   * to the client immediately and let the run continue in the background.
+   */
+  onStart?: (runId: string) => void;
+  /** Start parked, advancing only when the operator steps it (watch mode). */
+  watch?: boolean;
 }
 
 export interface RunEngineResult {
   runId: string;
-  status: 'COMPLETED' | 'FAILED';
+  status: 'COMPLETED' | 'FAILED' | 'CANCELLED';
   finalText: string;
   error?: string;
 }
@@ -80,7 +90,28 @@ class EngineService {
       },
     });
     const ctx: ToolContext = { organizationId: options.organizationId, runId: run.id };
-    const emit = options.onEvent ?? (() => undefined);
+
+    // Register before the first event so nothing is missed by a client that
+    // attaches immediately after onStart.
+    runRegistry.registerRun({
+      runId: run.id,
+      organizationId: options.organizationId,
+      userId: options.userId,
+      chatId: options.chatId,
+      objective: options.objective,
+      trigger: options.trigger,
+      role,
+      watch: options.watch,
+    });
+    options.onStart?.(run.id);
+
+    // Every event goes to the registry (buffered + fanned out to all attached
+    // clients) as well as the direct caller.
+    const directEmit = options.onEvent ?? (() => undefined);
+    const emit = (event: EngineEvent) => {
+      runRegistry.publish(run.id, event);
+      directEmit(event);
+    };
 
     let stepIndex = 0;
     const recordStep = async (
@@ -137,6 +168,8 @@ class EngineService {
 
       const maxIterations = (await getPlatformEngineConfig()).maxIterations;
       for (let iteration = 0; iteration < maxIterations; iteration++) {
+        // Checkpoint before thinking: honours cancel/pause between turns.
+        await runRegistry.checkpoint(run.id, 'Thinking about the next step');
         const response = await llmService.chatWithFailover(
           { model, system, messages, tools: roleTools, maxTokens: 8192 },
           providerKeys,
@@ -174,6 +207,11 @@ class EngineService {
           [];
 
         for (const call of response.toolCalls) {
+          // The checkpoint that matters for watching: one pause per action, so
+          // an operator sees each DM/lookup before it happens and can stop the
+          // run before it fires rather than after.
+          await runRegistry.checkpoint(run.id, describeToolIntent(call.name, call.input));
+
           emit({ type: 'tool_call', toolName: call.name, input: call.input });
           await recordStep('tool_call', { toolName: call.name, input: call.input });
 
@@ -213,14 +251,26 @@ class EngineService {
           finishedAt: new Date(),
         },
       });
+      runRegistry.finishRun(run.id, 'COMPLETED');
       return { runId: run.id, status: 'COMPLETED', finalText };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Engine run failed';
+      // An operator cancel is a clean stop, not a failure — it keeps whatever
+      // work already landed and reports the partial result.
+      const cancelled = err instanceof runRegistry.RunCancelledError;
+      const message = cancelled
+        ? 'Run stopped by operator'
+        : err instanceof Error
+          ? err.message
+          : 'Engine run failed';
+
       await prisma.agentRun.update({
         where: { id: run.id },
         data: {
-          status: 'FAILED',
-          error: message.slice(0, 2000),
+          status: cancelled ? 'CANCELLED' : 'FAILED',
+          error: cancelled ? null : message.slice(0, 2000),
+          summary: cancelled
+            ? `${finalText.slice(0, 3900) || options.objective}\n\n[Stopped by operator]`.slice(0, 4000)
+            : undefined,
           model: servedByModel,
           inputTokens: { increment: inputTokens },
           outputTokens: { increment: outputTokens },
@@ -228,10 +278,35 @@ class EngineService {
           finishedAt: new Date(),
         },
       });
+
+      if (cancelled) {
+        runRegistry.finishRun(run.id, 'CANCELLED');
+        return { runId: run.id, status: 'CANCELLED', finalText };
+      }
       emit({ type: 'error', message });
+      runRegistry.finishRun(run.id, 'FAILED');
       return { runId: run.id, status: 'FAILED', finalText, error: message };
     }
   }
+}
+
+/**
+ * A human-readable "about to do X" line for the run's current step. Watch mode
+ * shows this while parked, so the operator knows what they're approving before
+ * it happens rather than reading it back afterwards.
+ */
+function describeToolIntent(toolName: string, input: unknown): string {
+  const args = (input ?? {}) as Record<string, unknown>;
+  const pick = (...keys: string[]): string | undefined => {
+    for (const key of keys) {
+      const value = args[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+    return undefined;
+  };
+  const subject = pick('companyName', 'groupName', 'query', 'search', 'email', 'objective', 'name');
+  const readable = toolName.replace(/_/g, ' ');
+  return subject ? `${readable}: ${subject.slice(0, 80)}` : readable;
 }
 
 export const engineService = new EngineService();

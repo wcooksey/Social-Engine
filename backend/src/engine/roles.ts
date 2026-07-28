@@ -54,6 +54,7 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
       'enrich_contacts_apollo',
       'verify_email',
       'record_enrichment_attempt',
+      'find_business_page',
     ],
   },
   CALLER: {
@@ -77,6 +78,7 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
       'send_email',
       'send_sms',
       'send_social_dm',
+      'find_business_page',
       'check_social_inbox',
       'create_campaign',
       'add_leads_to_campaign',

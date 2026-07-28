@@ -101,6 +101,54 @@
     }
 
     <div class="input-bar">
+      @if (sending()) {
+        <div class="transport" [class.transport--paused]="paused()" [class.transport--awaiting]="awaitingStep()">
+          <span class="transport-state">
+            @if (awaitingStep()) {
+              <i class="bi bi-pause-circle-fill"></i>
+            } @else if (paused()) {
+              <i class="bi bi-pause-circle"></i>
+            } @else {
+              <span class="transport-pulse"></span>
+            }
+            <span class="transport-label">{{ runPhaseLabel() }}</span>
+          </span>
+
+          <div class="transport-actions">
+            <button
+              type="button"
+              class="transport-btn"
+              [class.transport-btn--on]="watchMode()"
+              [title]="watchMode() ? 'Watch mode on — stepping one action at a time. Click to let it run free.' : 'Watch mode: pause before each action so you can see it happen'"
+              (click)="toggleWatch()">
+              <i class="bi bi-eye"></i> Watch
+            </button>
+
+            @if (awaitingStep() || paused()) {
+              <button type="button" class="transport-btn" title="Run the next action only" (click)="stepRun()">
+                <i class="bi bi-skip-end-fill"></i> Step
+              </button>
+              <button type="button" class="transport-btn transport-btn--primary" title="Let it continue" (click)="resumeRun()">
+                <i class="bi bi-play-fill"></i> Resume
+              </button>
+            } @else {
+              <button type="button" class="transport-btn" title="Pause at the next step boundary" (click)="pauseRun()">
+                <i class="bi bi-pause-fill"></i> Pause
+              </button>
+            }
+
+            <button type="button" class="transport-btn transport-btn--danger" title="Stop this run after the current step" (click)="cancelRun()">
+              <i class="bi bi-stop-fill"></i> Stop
+            </button>
+          </div>
+        </div>
+      } @else {
+        <label class="watch-toggle" title="Start the next run parked, stepping through one action at a time so you can watch it work">
+          <input type="checkbox" [(ngModel)]="watchNextRun" />
+          <i class="bi bi-eye"></i> Watch mode
+        </label>
+      }
+
       @if (voiceAgent.status() !== 'idle') {
         <div class="voice-session-pill" [class.voice-session-pill--speaking]="voiceAgent.mode() === 'speaking'">
           <span class="listening-dot"></span>

@@ -93,6 +93,79 @@
   50% { opacity: 0.35; }
 }
 
+/* Held (paused / awaiting a step) reads as steady, not breathing. */
+.paused-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: $warning-yellow;
+}
+
+/* --- Per-agent transport controls -------------------------------------- */
+
+.agent-transport {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  margin: $spacing-sm 0;
+  padding: $spacing-xs $spacing-sm;
+  border-radius: $border-radius-md;
+  background: var(--bg-secondary);
+  border: 1px solid transparent;
+
+  &--held {
+    border-color: $warning-yellow;
+  }
+}
+
+.agent-transport-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: $font-size-xs;
+  color: var(--text-secondary);
+  @include truncate;
+}
+
+.agent-transport-actions {
+  display: inline-flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.mini-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: $border-radius-sm;
+  border: 1px solid var(--border-primary);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: $font-size-xs;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: var(--text-primary);
+    border-color: $primary-blue;
+  }
+
+  &--on {
+    background: rgba($primary-blue, 0.15);
+    border-color: $primary-blue;
+    color: $primary-blue;
+  }
+
+  &--danger:hover {
+    border-color: $error-red;
+    color: $error-red;
+  }
+}
+
 .agent-duration {
   margin-left: auto;
   display: inline-flex;

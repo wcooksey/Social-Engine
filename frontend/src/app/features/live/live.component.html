@@ -23,7 +23,11 @@
           <app-card padding="lg" class="agent-card">
             <div class="agent-header">
               <app-badge [variant]="roleBadgeVariant(run.role)" size="sm">{{ roleLabel(run.role) }}</app-badge>
-              <span class="live-dot" title="Running"></span>
+              @if (run.phase === 'paused' || run.phase === 'awaiting_step') {
+                <span class="paused-dot" [title]="run.phase === 'paused' ? 'Paused' : 'Waiting for you to step it'"></span>
+              } @else {
+                <span class="live-dot" title="Running"></span>
+              }
               <span class="agent-duration">
                 <i class="bi bi-stopwatch"></i>
                 {{ runningDuration(run) }}
@@ -31,6 +35,47 @@
             </div>
 
             <p class="agent-objective">{{ run.objective }}</p>
+
+            @if (run.controllable) {
+              <div class="agent-transport" [class.agent-transport--held]="run.phase === 'paused' || run.phase === 'awaiting_step'">
+                <span class="agent-transport-state">
+                  @if (run.phase === 'awaiting_step') {
+                    <i class="bi bi-pause-circle-fill"></i> Next: {{ run.currentStep || 'ready' }}
+                  } @else if (run.phase === 'paused') {
+                    <i class="bi bi-pause-circle"></i> Paused
+                  } @else if (run.phase === 'cancelling') {
+                    <i class="bi bi-stop-circle"></i> Stopping after this step
+                  } @else {
+                    <i class="bi bi-cpu"></i> {{ run.currentStep || 'Working' }}
+                  }
+                </span>
+                <span class="agent-transport-actions">
+                  <button
+                    type="button"
+                    class="mini-btn"
+                    [class.mini-btn--on]="run.watch"
+                    title="Watch mode: pause before each action"
+                    (click)="control(run, run.watch ? 'watch_off' : 'watch_on')">
+                    <i class="bi bi-eye"></i>
+                  </button>
+                  @if (run.phase === 'paused' || run.phase === 'awaiting_step') {
+                    <button type="button" class="mini-btn" title="Run the next action only" (click)="control(run, 'step')">
+                      <i class="bi bi-skip-end-fill"></i>
+                    </button>
+                    <button type="button" class="mini-btn" title="Resume" (click)="control(run, 'resume')">
+                      <i class="bi bi-play-fill"></i>
+                    </button>
+                  } @else {
+                    <button type="button" class="mini-btn" title="Pause at the next step" (click)="control(run, 'pause')">
+                      <i class="bi bi-pause-fill"></i>
+                    </button>
+                  }
+                  <button type="button" class="mini-btn mini-btn--danger" title="Stop this run" (click)="control(run, 'cancel')">
+                    <i class="bi bi-stop-fill"></i>
+                  </button>
+                </span>
+              </div>
+            }
 
             <div class="agent-meta">
               @if (run.model) {

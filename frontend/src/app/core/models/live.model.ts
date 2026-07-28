@@ -1,4 +1,5 @@
 import { AgentRole, AgentRunStatus, AgentRunStep } from './agent.model';
+import { RunPhase } from './engine.model';
 
 export interface LiveBrowserAction {
   at: string;
@@ -23,6 +24,13 @@ export interface LiveRunningAgent {
   costUsd?: number | null;
   steps: AgentRunStep[];
   browser: LiveBrowserState | null;
+  /** True when the run registry is tracking it — i.e. it can be driven. */
+  controllable?: boolean;
+  phase?: RunPhase | null;
+  watch?: boolean;
+  /** What it is about to do, shown while parked in watch mode. */
+  currentStep?: string | null;
+  chatId?: string | null;
 }
 
 export interface LiveFinishedRun {

@@ -11,6 +11,9 @@ import {
 } from '../../core/models/live.model';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { BadgeComponent, BadgeVariant } from '../../shared/components/badge/badge.component';
+import { EngineService } from '../../core/services/engine.service';
+import { ToastService } from '../../core/services/toast.service';
+import { RunControlAction } from '../../core/models/engine.model';
 
 @Component({
   selector: 'app-live',
@@ -33,7 +36,51 @@ export class LiveComponent implements OnInit, OnDestroy {
   private fetchingLive = false;
   private fetchingFrames = new Set<string>();
 
-  constructor(private agentService: AgentService) {}
+  constructor(
+    private agentService: AgentService,
+    private engineService: EngineService,
+    private toast: ToastService
+  ) {}
+
+  /**
+   * Drive a running agent from the fleet view. Optimistically reflects the new
+   * phase so the card responds immediately, then the next poll confirms it.
+   */
+  control(run: LiveRunningAgent, action: RunControlAction): void {
+    this.engineService.control(run.id, action).subscribe({
+      next: () => {
+        if (action === 'cancel') this.toast.info('Stopping after the current step finishes');
+        this.live.update((snapshot) => {
+          if (!snapshot) return snapshot;
+          return {
+            ...snapshot,
+            running: snapshot.running.map((r) =>
+              r.id !== run.id
+                ? r
+                : {
+                    ...r,
+                    watch: action === 'watch_on' ? true : action === 'watch_off' ? false : r.watch,
+                    phase:
+                      action === 'pause'
+                        ? 'paused'
+                        : action === 'cancel'
+                          ? 'cancelling'
+                          : action === 'resume' || action === 'step'
+                            ? 'running'
+                            : r.phase
+                  }
+            )
+          };
+        });
+        this.tickNow();
+      },
+      error: () => this.toast.error('That run is no longer live')
+    });
+  }
+
+  private tickNow(): void {
+    setTimeout(() => this.fetchLive(), 400);
+  }
 
   ngOnInit(): void {
     this.tick();
