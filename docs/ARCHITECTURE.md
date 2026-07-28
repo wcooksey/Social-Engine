@@ -170,6 +170,28 @@ validation — undeliverable addresses are suppressed on the contact BEFORE a
 bounce can hurt sender reputation). Requires `APOLLO_API_KEY` for Apollo;
 crawl + verification work with just Mailgun.
 
+### Sandbox: rehearsing behaviour, not plumbing
+
+`/api/test` proves the channels work by sending real messages to yourself.
+The Sandbox answers a different question — *what will the AI actually say?* —
+and answers it without touching anyone.
+
+A run started with `simulate: true` uses the real role, system prompt,
+playbooks and tool set, but `executeTool` intercepts anything that isn't
+read-only and returns what it *would* have done. The interception list is an
+**allowlist of read-only tools**, not a blocklist of senders, so it fails
+closed: a tool added later is simulated by default rather than quietly sending.
+Verified across all 51 tools — 35 intercepted, and the 16 that execute are
+exactly the read-only set, with zero writes to leads, contacts, activities,
+messages, calendar events, campaigns, goals or playbooks.
+
+The Conversation tab replays the same objective `inbound.service` gives a real
+reply job, so what you see is what a prospect would get, and each turn lists
+the actions the Engine would have taken. The Voice tab is the one place
+something real happens: it calls *you* with the actual call persona and VOICE
+playbooks, and shows the resolved system prompt — the thing to edit when the
+bot says something you don't like.
+
 ### Run control: runs outlive their request
 
 An Engine run used to *be* its HTTP request — `engineService.run()` was awaited

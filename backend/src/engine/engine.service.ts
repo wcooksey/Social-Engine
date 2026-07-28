@@ -37,6 +37,11 @@ export interface RunEngineOptions {
   onStart?: (runId: string) => void;
   /** Start parked, advancing only when the operator steps it (watch mode). */
   watch?: boolean;
+  /**
+   * Sandbox rehearsal: real prompt, playbooks, role and tools, but every
+   * side-effecting tool is intercepted so nothing reaches a real person.
+   */
+  simulate?: boolean;
 }
 
 export interface RunEngineResult {
@@ -89,7 +94,11 @@ class EngineService {
         model,
       },
     });
-    const ctx: ToolContext = { organizationId: options.organizationId, runId: run.id };
+    const ctx: ToolContext = {
+      organizationId: options.organizationId,
+      runId: run.id,
+      simulate: options.simulate,
+    };
 
     // Register before the first event so nothing is missed by a client that
     // attaches immediately after onStart.

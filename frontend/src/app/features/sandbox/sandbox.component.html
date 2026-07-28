@@ -1,0 +1,196 @@
+<div class="sandbox-page">
+  <div class="page-header">
+    <div>
+      <h1>Sandbox</h1>
+      <p class="subtitle">Rehearse what the AI says before a real prospect hears it</p>
+    </div>
+    <div class="tab-switch">
+      <button type="button" [class.active]="tab() === 'chat'" (click)="tab.set('chat')">
+        <i class="bi bi-chat-dots"></i> Conversation
+      </button>
+      <button type="button" [class.active]="tab() === 'voice'" (click)="tab.set('voice')">
+        <i class="bi bi-telephone"></i> Voice
+      </button>
+    </div>
+  </div>
+
+  @if (tab() === 'chat') {
+    <div class="chat-layout">
+      <app-card padding="lg" class="setup-card">
+        <h3>Setup</h3>
+        <p class="hint">
+          You play the prospect. The reply comes from the same SDR role and playbooks that handle live
+          replies — but nothing is sent and no record changes.
+        </p>
+
+        <app-select
+          label="Channel"
+          [options]="channelOptions"
+          [(ngModel)]="channel"
+          [showPlaceholderOption]="false">
+        </app-select>
+
+        <app-select
+          label="Lead context (optional)"
+          placeholder="No lead — hypothetical prospect"
+          [options]="leadOptions"
+          [(ngModel)]="leadId">
+        </app-select>
+        <p class="hint hint--tight">
+          Pick a real lead to rehearse with its actual notes, contacts and status.
+        </p>
+
+        <div class="examples">
+          <span class="examples-label">Try a hard one</span>
+          @for (example of examples; track example) {
+            <button type="button" class="example-chip" (click)="useExample(example)">{{ example }}</button>
+          }
+        </div>
+
+        @if (turns().length) {
+          <app-button variant="ghost" size="sm" icon="bi-arrow-counterclockwise" (clicked)="resetConversation()">
+            Start over
+          </app-button>
+        }
+      </app-card>
+
+      <app-card padding="lg" class="thread-card">
+        <div class="thread-header">
+          <h3>{{ channelLabel(channel) }} rehearsal</h3>
+          <app-badge variant="neutral" size="sm">
+            <i class="bi bi-shield-check"></i> Nothing is sent
+          </app-badge>
+        </div>
+
+        <div class="thread">
+          @if (!turns().length) {
+            <div class="thread-empty">
+              <i class="bi bi-chat-square-text"></i>
+              <p>Send a message as the prospect and see exactly how the Engine answers.</p>
+            </div>
+          }
+
+          @for (turn of turns(); track $index) {
+            <div class="turn" [class.turn--prospect]="turn.role === 'user'">
+              <div class="turn-bubble">
+                <span class="turn-who">{{ turn.role === 'user' ? 'Prospect (you)' : 'Engine' }}</span>
+                @if (turn.role === 'assistant') {
+                  <div class="turn-body" [innerHTML]="turn.content | markdown"></div>
+                } @else {
+                  <p class="turn-body">{{ turn.content }}</p>
+                }
+
+                @if (turn.actions?.length) {
+                  <div class="actions">
+                    <span class="actions-label">Would have:</span>
+                    @for (action of turn.actions; track $index) {
+                      <span class="action-chip">
+                        <i class="bi bi-lightning-charge"></i> {{ describeAction(action) }}
+                      </span>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+          }
+
+          @if (thinking()) {
+            <div class="turn">
+              <div class="turn-bubble turn-bubble--thinking">
+                <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+              </div>
+            </div>
+          }
+          <div #threadEnd></div>
+        </div>
+
+        <div class="composer">
+          <textarea
+            rows="2"
+            placeholder="Reply as the prospect would…"
+            [(ngModel)]="draft"
+            (keydown)="handleKeydown($event)">
+          </textarea>
+          <app-button
+            variant="primary"
+            icon="bi-send"
+            [loading]="thinking()"
+            [disabled]="!draft.trim()"
+            (clicked)="sendAsProspect()">
+            Send
+          </app-button>
+        </div>
+      </app-card>
+    </div>
+  } @else {
+    <div class="voice-layout">
+      <app-card padding="lg">
+        <h3>Have the calling bot call you</h3>
+        <p class="hint">
+          Places a <strong>real call to your phone</strong> using the same persona, objective and voice
+          playbooks a lead would get — so you can hear it, interrupt it, and tune it.
+        </p>
+
+        @if (!hasVoicePlaybooks()) {
+          <div class="warn">
+            <i class="bi bi-exclamation-triangle"></i>
+            No active VOICE playbook, so the bot is running on base instructions only. Add one in Playbooks
+            to shape how it talks.
+          </div>
+        }
+
+        <app-input label="Your phone number" placeholder="+15551234567" [(ngModel)]="phone"></app-input>
+
+        <app-select
+          label="Lead context (optional)"
+          placeholder="No lead — generic prospect"
+          [options]="leadOptions"
+          [(ngModel)]="voiceLeadId"
+          (selectionChange)="refreshCallPrompt()">
+        </app-select>
+
+        <div class="field">
+          <label>Call objective</label>
+          <textarea
+            rows="3"
+            placeholder="Introduce yourself, find out whether they are the right person, and book a short demo if there is interest."
+            [(ngModel)]="callObjective"
+            (blur)="refreshCallPrompt()">
+          </textarea>
+        </div>
+
+        <app-input
+          label="Opening line (optional)"
+          placeholder="Hi, this is … — do you have a quick minute?"
+          [(ngModel)]="firstMessage">
+        </app-input>
+
+        <app-button
+          variant="primary"
+          icon="bi-telephone-outbound"
+          [loading]="calling()"
+          [disabled]="!phone.trim()"
+          (clicked)="callMe()">
+          Call me now
+        </app-button>
+        <p class="hint hint--tight">Uses real Vapi minutes, same as a live call.</p>
+      </app-card>
+
+      <app-card padding="lg">
+        <div class="thread-header">
+          <h3>What the bot is running on</h3>
+          <app-button variant="ghost" size="sm" (clicked)="showPrompt.set(!showPrompt())">
+            {{ showPrompt() ? 'Hide' : 'Show' }} prompt
+          </app-button>
+        </div>
+        <p class="hint">
+          The exact system prompt built for this call — objective, lead context and your voice playbooks.
+          If the bot says something you don't like, this is what to change.
+        </p>
+        @if (showPrompt()) {
+          <pre class="prompt-preview">{{ callPrompt() || 'Could not build the prompt.' }}</pre>
+        }
+      </app-card>
+    </div>
+  }
+</div>

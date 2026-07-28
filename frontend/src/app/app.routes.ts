@@ -77,6 +77,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/live/live.component').then(m => m.LiveComponent)
       },
       {
+        path: 'sandbox',
+        loadComponent: () => import('./features/sandbox/sandbox.component').then(m => m.SandboxComponent)
+      },
+      {
         path: 'activity',
         loadComponent: () => import('./features/activity/activity.component').then(m => m.ActivityComponent)
       },
