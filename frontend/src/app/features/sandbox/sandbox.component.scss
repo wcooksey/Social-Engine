@@ -1,0 +1,333 @@
+@import '../../../assets/styles/variables';
+@import '../../../assets/styles/mixins';
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-md;
+  margin-bottom: $spacing-lg;
+  flex-wrap: wrap;
+
+  .subtitle {
+    color: var(--text-secondary);
+    margin-top: $spacing-xs;
+  }
+}
+
+.tab-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: $border-radius-full;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: $spacing-xs $spacing-md;
+    border: none;
+    border-radius: $border-radius-full;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: $font-size-sm;
+    cursor: pointer;
+    transition: all $transition-fast;
+
+    &:hover { color: var(--text-primary); }
+
+    &.active {
+      background: $primary-blue;
+      color: #fff;
+    }
+  }
+}
+
+.chat-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: $spacing-lg;
+  align-items: start;
+
+  @include responsive($breakpoint-lg) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.voice-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: $spacing-lg;
+  align-items: start;
+
+  @include responsive($breakpoint-lg) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.setup-card {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+
+  h3 { margin: 0; }
+}
+
+.hint {
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+  margin: 0;
+
+  // Sits directly under the control it explains. The parent's flex gap already
+  // provides separation — a negative margin here collides with the next label.
+  &--tight {
+    font-size: $font-size-xs;
+    color: var(--text-tertiary);
+    line-height: 1.4;
+  }
+}
+
+.warn {
+  display: flex;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-md;
+  border-radius: $border-radius-md;
+  background: rgba($warning-yellow, 0.12);
+  border: 1px solid rgba($warning-yellow, 0.35);
+  font-size: $font-size-xs;
+  color: var(--text-secondary);
+
+  i { color: $warning-yellow; }
+}
+
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+}
+
+.examples-label {
+  width: 100%;
+  font-size: $font-size-xs;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+
+.example-chip {
+  padding: 3px $spacing-sm;
+  border-radius: $border-radius-full;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: $font-size-xs;
+  cursor: pointer;
+  text-align: left;
+
+  &:hover {
+    border-color: $primary-blue;
+    color: var(--text-primary);
+  }
+}
+
+.thread-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 560px;
+}
+
+.thread-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  margin-bottom: $spacing-md;
+
+  h3 { margin: 0; }
+}
+
+.thread {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+  overflow-y: auto;
+  max-height: 52vh;
+  padding-right: $spacing-xs;
+}
+
+.thread-empty {
+  @include flex-center;
+  flex-direction: column;
+  gap: $spacing-sm;
+  padding: $spacing-2xl;
+  color: var(--text-tertiary);
+  text-align: center;
+
+  i { font-size: 1.8rem; }
+  p { margin: 0; font-size: $font-size-sm; }
+}
+
+.turn {
+  display: flex;
+  justify-content: flex-start;
+
+  &--prospect {
+    justify-content: flex-end;
+  }
+}
+
+.turn-bubble {
+  max-width: 78%;
+  padding: $spacing-sm $spacing-md;
+  border-radius: $border-radius-lg;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+
+  .turn--prospect & {
+    background: rgba($primary-blue, 0.14);
+    border-color: rgba($primary-blue, 0.3);
+  }
+
+  &--thinking {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+  }
+}
+
+.turn-who {
+  display: block;
+  font-size: $font-size-xs;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  margin-bottom: 2px;
+}
+
+.turn-body {
+  margin: 0;
+  font-size: $font-size-sm;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+
+  :last-child { margin-bottom: 0; }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+  margin-top: $spacing-sm;
+  padding-top: $spacing-sm;
+  border-top: 1px dashed var(--border-primary);
+}
+
+.actions-label {
+  font-size: $font-size-xs;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.action-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px $spacing-sm;
+  border-radius: $border-radius-full;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  font-size: $font-size-xs;
+  color: var(--text-secondary);
+
+  i { color: $secondary-orange; }
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  animation: sandboxBlink 1.2s infinite ease-in-out;
+
+  &:nth-child(2) { animation-delay: 0.15s; }
+  &:nth-child(3) { animation-delay: 0.3s; }
+}
+
+@keyframes sandboxBlink {
+  0%, 80%, 100% { opacity: 0.25; }
+  40% { opacity: 1; }
+}
+
+.composer {
+  display: flex;
+  gap: $spacing-sm;
+  align-items: flex-end;
+  margin-top: $spacing-md;
+  padding-top: $spacing-md;
+  border-top: 1px solid var(--border-primary);
+
+  textarea {
+    flex: 1;
+    resize: vertical;
+    padding: $spacing-sm $spacing-md;
+    border-radius: $border-radius-md;
+    border: 1px solid var(--border-secondary);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: $font-size-sm;
+
+    &:focus {
+      outline: none;
+      border-color: $primary-blue;
+    }
+  }
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+
+  label {
+    font-size: $font-size-sm;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  textarea {
+    resize: vertical;
+    padding: $spacing-sm $spacing-md;
+    border-radius: $border-radius-md;
+    border: 1px solid var(--border-secondary);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: $font-size-sm;
+
+    &:focus {
+      outline: none;
+      border-color: $primary-blue;
+    }
+  }
+}
+
+.prompt-preview {
+  margin: $spacing-md 0 0;
+  padding: $spacing-md;
+  border-radius: $border-radius-md;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  font-size: $font-size-xs;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 46vh;
+  overflow-y: auto;
+}

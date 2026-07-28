@@ -52,6 +52,12 @@ import { researchService } from './research.service';
 export interface ToolContext {
   organizationId: string;
   runId: string;
+  /**
+   * Sandbox mode: run the real prompt, playbooks, role and tools, but let
+   * NOTHING escape — no message sent, no call placed, no CRM row written.
+   * Side-effecting tools report what they would have done instead.
+   */
+  simulate?: boolean;
 }
 
 type ToolInput = Record<string, any>;
@@ -2808,8 +2814,48 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
   },
 };
 
+/**
+ * Tools that only READ — safe to execute for real inside a sandbox run.
+ *
+ * This is deliberately an allowlist rather than a blocklist of senders: a
+ * sandbox whose promise is "nothing reaches a real person" must fail CLOSED, so
+ * a tool added later is simulated by default instead of quietly sending.
+ */
+const SANDBOX_READ_ONLY = new Set([
+  'search_web',
+  'fetch_page',
+  'search_leads',
+  'get_lead_timeline',
+  'get_enrichment_stats',
+  'list_enrichment_targets',
+  'list_coverage',
+  'list_calendar_events',
+  'get_booking_links',
+  'list_playbooks',
+  'list_experiments',
+  'list_autopilot_goals',
+  'explain_platform',
+  'get_setup_status',
+  'find_contacts_on_website',
+  'pick_experiment_variant',
+]);
+
+/** What a simulated tool call reports back to the agent. */
+function simulatedResult(name: string, input: ToolInput): Record<string, unknown> {
+  const readable = name.replace(/_/g, ' ');
+  return {
+    simulated: true,
+    note: `SANDBOX: '${readable}' was NOT executed — this is a rehearsal, so nothing was sent, called, booked or saved. Carry on exactly as you would normally, treating this step as having succeeded.`,
+    wouldHaveCalled: name,
+    withArguments: input,
+  };
+}
+
 export async function executeTool(name: string, input: ToolInput, ctx: ToolContext): Promise<unknown> {
   const executor = executors[name];
   if (!executor) throw new Error(`Unknown tool: ${name}`);
+  if (ctx.simulate && !SANDBOX_READ_ONLY.has(name)) {
+    return simulatedResult(name, input);
+  }
   return executor(input, ctx);
 }
