@@ -170,6 +170,39 @@ validation — undeliverable addresses are suppressed on the contact BEFORE a
 bounce can hurt sender reputation). Requires `APOLLO_API_KEY` for Apollo;
 crawl + verification work with just Mailgun.
 
+### Run control: runs outlive their request
+
+An Engine run used to *be* its HTTP request — `engineService.run()` was awaited
+inside the POST handler with events streaming into that one response. Navigating
+away destroyed the stream with no way back, and nothing held a handle on the run,
+so it could not be paused or stopped.
+
+Runs are now first-class. `run-registry.ts` holds each in-flight run's indexed
+event buffer, its subscribers, and its control state:
+
+- **Start and follow are separate.** `POST /chats/:id/messages` returns a
+  `runId` immediately (202) and the run continues in the background;
+  `GET /runs/:runId/stream?fromIndex=N` attaches, replays what was missed, then
+  live-tails. Attach from any tab or device, as many times as you like. Runs the
+  registry no longer holds are replayed from their persisted `AgentStep` rows.
+- **The frontend keeps state out of the component.** `EngineSessionService` is
+  root-scoped, so navigating away just stops rendering; the thread and the
+  stream subscription survive. After a full reload, `GET /chats/:id/live`
+  reattaches to whatever is still running.
+- **Control happens at checkpoints.** The run loop awaits
+  `runRegistry.checkpoint()` before each iteration and before each tool call.
+  Pause parks there, cancel throws `RunCancelledError` (recorded as `CANCELLED`,
+  keeping partial work — not `FAILED`), and **watch mode** parks before every
+  action with a description of what it is about to do, so an operator can watch
+  work happen one step at a time and stop it *before* it fires. Because control
+  is only observed at checkpoints, stopping never lands mid-tool-call; a cancel
+  during a long browser step takes effect when that step returns, and the UI
+  says so rather than pretending it is instant.
+- **The Live page is fleet view.** Every concurrent agent is a card with its
+  role, objective, current step, live tool timeline, browser viewport, and its
+  own transport controls — the answer to "what are 300 leads' worth of agents
+  actually doing right now?"
+
 ### Enrichment quality: categorization & targeted retries
 
 A group of hundreds of sourced businesses is useless if you can't tell which
@@ -295,6 +328,7 @@ provider adapters translate. A run works like this:
 | `get_enrichment_stats` | Categorize a list by enrichment quality (tier counts, gaps, what's retryable) |
 | `list_enrichment_targets` | The enrichment work list: weak leads still worth a pass, weakest first |
 | `record_enrichment_attempt` | Stamp a lead with the capability generation used, so it isn't re-worked |
+| `find_business_page` | Find + verify a lead's official social business page (name/city/website match) |
 | `create_campaign` | Define a campaign (channel mix, message templates, offer) |
 | `send_email` / `send_sms` | Send a message through the channel services |
 | `place_call` | Kick off an AI voice call |

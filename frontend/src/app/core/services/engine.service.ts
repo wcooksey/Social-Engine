@@ -2,7 +2,13 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
 import { AuthService } from './auth.service';
-import { EngineChat, EngineChatSummary, EngineStreamEvent } from '../models/engine.model';
+import {
+  ActiveRun,
+  EngineChat,
+  EngineChatSummary,
+  IndexedStreamEvent,
+  RunControlAction
+} from '../models/engine.model';
 
 @Injectable({ providedIn: 'root' })
 export class EngineService {
@@ -22,29 +28,52 @@ export class EngineService {
   }
 
   /**
-   * Streams a reply to a message via Server-Sent Events. Uses fetch() + a
-   * ReadableStream reader rather than EventSource because the endpoint is a
-   * POST (EventSource only supports GET).
+   * Start a run. Returns as soon as the run exists — the run itself continues
+   * server-side, followed via streamRun(). Nothing about it dies with this
+   * request or with the page.
    */
-  sendMessage(chatId: string, content: string): Observable<EngineStreamEvent> {
-    return new Observable<EngineStreamEvent>(subscriber => {
+  startRun(chatId: string, content: string, watch = false): Observable<{ runId: string }> {
+    return this.api.post<{ runId: string }>(`/api/engine/chats/${chatId}/messages`, { content, watch });
+  }
+
+  /** The live run for a chat, if one is still going — used to reattach. */
+  liveRunForChat(chatId: string): Observable<ActiveRun | null> {
+    return this.api.get<ActiveRun | null>(`/api/engine/chats/${chatId}/live`);
+  }
+
+  /** Every run in flight for the org — the fleet view. */
+  activeRuns(): Observable<ActiveRun[]> {
+    return this.api.get<ActiveRun[]>('/api/engine/runs/active');
+  }
+
+  control(runId: string, action: RunControlAction): Observable<unknown> {
+    return this.api.post(`/api/engine/runs/${runId}/control`, { action });
+  }
+
+  /**
+   * Attach to a run's event stream, resuming from `fromIndex` so a reconnect
+   * replays only what was missed. Uses fetch() + a ReadableStream reader rather
+   * than EventSource so the request can carry an Authorization header.
+   */
+  streamRun(runId: string, fromIndex = 0): Observable<IndexedStreamEvent> {
+    return new Observable<IndexedStreamEvent>(subscriber => {
       const controller = new AbortController();
 
       (async () => {
         try {
-          const response = await fetch(this.api.url(`/api/engine/chats/${chatId}/messages`), {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Accept: 'text/event-stream',
-              ...(this.authService.token ? { Authorization: `Bearer ${this.authService.token}` } : {})
-            },
-            body: JSON.stringify({ content }),
-            signal: controller.signal
-          });
+          const response = await fetch(
+            this.api.url(`/api/engine/runs/${runId}/stream?fromIndex=${fromIndex}`),
+            {
+              headers: {
+                Accept: 'text/event-stream',
+                ...(this.authService.token ? { Authorization: `Bearer ${this.authService.token}` } : {})
+              },
+              signal: controller.signal
+            }
+          );
 
           if (!response.ok || !response.body) {
-            throw new Error(`Engine request failed with status ${response.status}`);
+            throw new Error(`Engine stream failed with status ${response.status}`);
           }
 
           const reader = response.body.getReader();
@@ -65,8 +94,7 @@ export class EngineService {
               const jsonStr = line.slice(5).trim();
               if (!jsonStr) continue;
               try {
-                const event = JSON.parse(jsonStr) as EngineStreamEvent;
-                subscriber.next(event);
+                subscriber.next(JSON.parse(jsonStr) as IndexedStreamEvent);
               } catch {
                 // Ignore malformed chunks rather than killing the stream.
               }

@@ -510,6 +510,22 @@ export const engineTools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'find_business_page',
+    description:
+      "Find and verify a lead's OFFICIAL business page on a social platform (the dealership's own Facebook page / Instagram account, not an employee's personal profile). Nearly every established business has one, and its inbox is the highest-yield first touch — no identity guesswork, and messaging a business page is what those inboxes exist for. Verifies the match against the company name, city/state, and the website/phone on file before saving it to the lead's socials. Run this BEFORE hunting for individual people on social.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        leadId: { type: 'string' },
+        platform: {
+          type: 'string',
+          enum: ['facebook', 'instagram', 'linkedin', 'x'],
+        },
+      },
+      required: ['leadId', 'platform'],
+    },
+  },
+  {
     name: 'send_social_dm',
     description:
       'Use the browser to find a lead contact on a social platform and send them a direct message / connection request. COLD DM RULE: each lead gets exactly ONE cold DM per platform — the tool refuses repeats unless allowRepeat is set (replies are handled by the inbound loop, not by re-DMing). Requires the org to have social autonomy enabled; otherwise the message is recorded as a draft for human approval. Records a social touch on the lead timeline.',
@@ -524,9 +540,15 @@ export const engineTools: Anthropic.Tool[] = [
         profileUrl: { type: 'string', description: 'Direct profile URL if known (skips searching)' },
         personName: { type: 'string', description: 'Who to reach if no profileUrl' },
         message: { type: 'string', description: 'The DM text to send' },
+        target: {
+          type: 'string',
+          enum: ['business_page', 'person'],
+          description:
+            "Who to message. 'business_page' = the company's own page inbox (DEFAULT when the lead has a page on file, and the preferred first touch — no identity guesswork). 'person' = a named individual, for when the page has no DM option or didn't respond. Each target gets its own one-cold-DM allowance, so a page DM does not use up the person DM.",
+        },
         allowRepeat: {
           type: 'boolean',
-          description: 'Override the one-cold-DM-per-lead rule (only when the lead has replied and you must respond via browser)',
+          description: 'Override the one-cold-DM rule for this target (only when the lead has replied and you must respond via browser)',
         },
       },
       required: ['leadId', 'platform', 'message'],
@@ -1891,25 +1913,124 @@ const executors: Record<string, ToolExecutor> = {
     };
   },
 
+  find_business_page: async (input, ctx) => {
+    const lead = await requireLead(input.leadId, ctx.organizationId);
+    const platform = input.platform as PlatformKey;
+    const socials = (lead.socials || {}) as Record<string, string>;
+    if (socials[platform]) {
+      return {
+        alreadyKnown: true,
+        url: socials[platform],
+        note: `Already on file for ${platform}. Message it with send_social_dm (target: business_page).`,
+      };
+    }
+
+    const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
+    const orgConfig = await getOrgConfig(ctx.organizationId);
+    const storageState = (await loadStorageState(ctx.organizationId, platform)) || undefined;
+
+    // Verification criteria are spelled out because a wrong page means DMing a
+    // different business entirely — worse than finding nothing.
+    const identity = [
+      `Company name: ${lead.companyName}`,
+      lead.city || lead.state ? `Location: ${[lead.city, lead.state].filter(Boolean).join(', ')}` : null,
+      lead.website ? `Website: ${lead.website}` : null,
+      lead.phone ? `Phone: ${lead.phone}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const result = await runBrowserAgent({
+      objective: `Find the OFFICIAL ${platform} page for this business — the company's own page/account, NOT an employee's personal profile and NOT a fan/unofficial page.
+
+${identity}
+
+Confirm the page is genuinely this business before reporting it. Evidence that counts: the page name matches the company; the listed address/city matches; the page links to the website above; the phone matches; the bio describes the same business. A same-name business in a DIFFERENT city is NOT a match — dealership names repeat across regions.
+
+Finish with: the page URL, whether it has a message/DM button, and exactly which evidence you matched on. If you cannot confirm a match, say so plainly rather than guessing.`,
+      model: org?.engineModel || config.engine.model,
+      providerKeys: orgConfig.providerKeys,
+      allowSend: false,
+      storageState,
+      onStep: (n) => recordBrowserAction(ctx.runId, ctx.organizationId, n),
+      onFrame: (f) => recordBrowserFrame(ctx.runId, ctx.organizationId, f),
+      ...(storageState
+        ? { persistState: (state) => saveStorageState(ctx.organizationId, platform, state) }
+        : {}),
+    });
+    await attributeBrowserUsage(ctx.runId, result.usage);
+
+    const data = (result.data || {}) as Record<string, unknown>;
+    const url = typeof data.url === 'string' ? data.url : typeof data.pageUrl === 'string' ? data.pageUrl : null;
+    const found = result.status === 'completed' && !!url;
+
+    if (found) {
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data: { socials: { ...socials, [platform]: url } as Prisma.InputJsonValue },
+      });
+      // A social channel changes how reachable this lead is — re-grade it.
+      await recomputeLeadEnrichment(lead.id);
+    }
+
+    await leadService.logActivity({
+      organizationId: ctx.organizationId,
+      leadId: lead.id,
+      type: 'RESEARCH',
+      summary: `${platform} business page ${found ? `found: ${url}` : 'not confirmed'} — ${result.summary}`.slice(0, 500),
+      payload: { platform, url, evidence: result.data, kind: 'business_page' },
+      agentRunId: ctx.runId,
+    });
+
+    return {
+      found,
+      url,
+      platform,
+      evidence: result.data,
+      summary: result.summary,
+      note: found
+        ? 'Saved to the lead. DM this page first (send_social_dm with target business_page) — only go looking for individual people if the page has no DM option or does not reply.'
+        : 'No confirmed page. Either this business has none, or the match was too uncertain to trust — do not save a guess. Try the other platform, or move to finding a person.',
+    };
+  },
+
   send_social_dm: async (input, ctx) => {
     const lead = await requireLead(input.leadId, ctx.organizationId);
     assertContactable(lead);
 
-    // One cold DM per lead per platform — repeats waste quota, look spammy,
-    // and risk the account. Replies flow through the inbound loop instead.
+    // Business page first: it's the company's own inbox, so there is no
+    // identity guesswork and no wrong-person risk. Default to it whenever one
+    // is on file and no specific person was named.
+    const leadSocials = (lead.socials || {}) as Record<string, string>;
+    const pageUrl = leadSocials[String(input.platform)];
+    const target: 'business_page' | 'person' =
+      input.target === 'person' || input.target === 'business_page'
+        ? input.target
+        : !input.profileUrl && !input.personName && pageUrl
+          ? 'business_page'
+          : 'person';
+
+    // One cold DM per lead per platform PER TARGET — repeats waste quota, look
+    // spammy, and risk the account. Scoping by target is what lets the page get
+    // the first touch without spending the individual's allowance.
     if (!input.allowRepeat) {
-      const existing = await prisma.message.findFirst({
+      const priorTouch = await prisma.activity.findFirst({
         where: {
-          direction: 'OUTBOUND',
-          status: { in: ['sent', 'sending', 'draft_pending_approval'] },
-          conversation: { leadId: lead.id, channel: 'SOCIAL' },
+          organizationId: ctx.organizationId,
+          leadId: lead.id,
+          type: 'SOCIAL_TOUCH',
+          AND: [
+            { payload: { path: ['platform'], equals: input.platform } },
+            { payload: { path: ['target'], equals: target } },
+          ],
         },
+        orderBy: { createdAt: 'desc' },
       });
-      if (existing) {
+      if (priorTouch) {
         return {
           sent: false,
           skipped: true,
-          note: `This lead already has an outbound social DM (status: ${existing.status}). Cold DM = one per lead; if they replied, reply via the conversation instead. Pass allowRepeat only if you truly must send another browser DM.`,
+          note: `This lead already got a ${input.platform} DM to the ${target.replace('_', ' ')} (${priorTouch.createdAt.toISOString().slice(0, 10)}). Cold DM = one per target; if they replied, reply via the conversation instead.${target === 'business_page' ? ' You may still try a named person at this company with target "person".' : ''}`,
         };
       }
     }
@@ -1949,7 +2070,9 @@ const executors: Record<string, ToolExecutor> = {
         leadId: lead.id,
         type: 'SOCIAL_TOUCH',
         summary,
-        payload: { platform: input.platform, status, message: input.message, ...extra },
+        // `target` is what scopes the one-cold-DM rule, so it must be recorded
+        // on every touch — including drafts, which also consume the allowance.
+        payload: { platform: input.platform, target, status, message: input.message, ...extra },
         agentRunId: ctx.runId,
       });
       return conversation.id;
@@ -1978,15 +2101,26 @@ const executors: Record<string, ToolExecutor> = {
       };
     }
 
-    const target = input.profileUrl
-      ? `their profile at ${input.profileUrl}`
-      : `${input.personName || 'the decision maker'} at ${lead.companyName}`;
-    const objective = `You are already logged in to ${input.platform}. Find ${target} and send them this direct message, personalized naturally: "${input.message}". Confirm the message was sent.`;
+    // Messaging a company page and messaging a person are different jobs: the
+    // page needs no identity check, while a personal profile must be confirmed
+    // as the right human before anything is sent.
+    const startUrl = input.profileUrl || (target === 'business_page' ? pageUrl : undefined);
+    const destination =
+      target === 'business_page'
+        ? `the OFFICIAL ${lead.companyName} business page${pageUrl ? ` at ${pageUrl}` : ''} (the company's own page, not an employee's personal profile)`
+        : input.profileUrl
+          ? `their profile at ${input.profileUrl}`
+          : `${input.personName || 'the decision maker'} at ${lead.companyName}`;
+    const verification =
+      target === 'business_page'
+        ? `Confirm the page really is ${lead.companyName}${lead.city ? ` in ${lead.city}` : ''} before messaging — same-name businesses in other cities are NOT the right page.`
+        : `Confirm this is the right person before messaging: the profile should tie them to ${lead.companyName}${lead.city ? ` in ${lead.city}` : ''} via their bio, employer, or posts. If you cannot confirm it is the right person, do NOT send — finish and report what you found instead.`;
+    const objective = `You are already logged in to ${input.platform}. Find ${destination} and send this direct message, personalized naturally: "${input.message}". ${verification} Confirm the message was sent.`;
 
     const orgConfig = await getOrgConfig(ctx.organizationId);
     const result = await runBrowserAgent({
       objective,
-      startUrl: input.profileUrl,
+      startUrl,
       model,
       providerKeys: orgConfig.providerKeys,
       allowSend: true,

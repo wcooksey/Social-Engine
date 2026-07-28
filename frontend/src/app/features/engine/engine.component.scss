@@ -575,6 +575,112 @@
   z-index: 1;
 }
 
+/* --- Run transport (pause / step / stop) ------------------------------- */
+
+.transport {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  flex-wrap: wrap;
+  margin-bottom: $spacing-sm;
+  padding: $spacing-sm $spacing-md;
+  border-radius: $border-radius-full;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+
+  &--paused { border-color: $warning-yellow; }
+  &--awaiting { border-color: $primary-blue; }
+}
+
+.transport-state {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-sm;
+  min-width: 0;
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+
+  i { color: $warning-yellow; }
+}
+
+.transport-label {
+  @include truncate;
+  max-width: 42ch;
+}
+
+/* Breathing dot: the run is alive even when no text is streaming. */
+.transport-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: $success-green;
+  flex-shrink: 0;
+  animation: transport-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes transport-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+.transport-actions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.transport-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px $spacing-sm;
+  border-radius: $border-radius-full;
+  border: 1px solid var(--border-secondary);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: $font-size-xs;
+  cursor: pointer;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: var(--text-primary);
+    border-color: $primary-blue;
+  }
+
+  &--on {
+    background: rgba($primary-blue, 0.15);
+    border-color: $primary-blue;
+    color: $primary-blue;
+  }
+
+  &--primary {
+    border-color: $primary-blue;
+    color: $primary-blue;
+  }
+
+  &--danger:hover {
+    border-color: $error-red;
+    color: $error-red;
+  }
+}
+
+.watch-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+  margin-bottom: $spacing-sm;
+  padding: 2px $spacing-sm;
+  font-size: $font-size-xs;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  user-select: none;
+
+  input { cursor: pointer; }
+
+  &:hover { color: var(--text-secondary); }
+}
+
 .listening-hint {
   display: flex;
   align-items: center;

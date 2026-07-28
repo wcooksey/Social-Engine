@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../config/database';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { browserActiveRunIds, getFrameImage, getLiveEntry } from '../engine/live-view.registry';
+import { listRuns as listTrackedRuns } from '../engine/run-registry';
 
 const router = Router();
 
@@ -28,6 +29,7 @@ router.get(
         organizationId
       )
     );
+    const trackedRuns = new Map(listTrackedRuns(organizationId).map((r) => [r.runId, r]));
     const [pendingJobs, recentFinished] = await Promise.all([
       prisma.agentJob.count({ where: { organizationId, status: 'PENDING', runAt: { lte: new Date() } } }),
       prisma.agentRun.findMany({
@@ -43,6 +45,9 @@ router.get(
       data: {
         running: runs.map((r) => {
           const live = withBrowser.has(r.id) ? getLiveEntry(r.id, organizationId) : null;
+          // Control state for runs the registry is tracking, so the live view
+          // can show what each agent is about to do and drive it.
+          const tracked = trackedRuns.get(r.id);
           return {
             id: r.id,
             role: r.role,
@@ -51,6 +56,11 @@ router.get(
             model: r.model,
             startedAt: r.startedAt,
             costUsd: r.costUsd,
+            controllable: !!tracked,
+            phase: tracked?.phase ?? null,
+            watch: tracked?.watch ?? false,
+            currentStep: tracked?.currentStep ?? null,
+            chatId: tracked?.chatId ?? null,
             // steps come newest-first from the query; show oldest-first
             steps: [...r.steps].reverse().map((s) => ({
               index: s.index,
