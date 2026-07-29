@@ -34,8 +34,12 @@ import { prisma } from '../config/database';
  *
  * History:
  *   1 — website crawl + Apollo people search + Mailgun verification
+ *   2 — verification actually works (v1 ran against a Mailgun key that lacked
+ *       the validation scope, so every check silently failed and NO lead could
+ *       earn the verified_email signal), plus find_business_page and
+ *       submit_contact_form opened social and contact forms as channels.
  */
-export const ENRICHMENT_CAPABILITY_VERSION = 1;
+export const ENRICHMENT_CAPABILITY_VERSION = 2;
 
 // ---------------------------------------------------------------------------
 // Scoring model
