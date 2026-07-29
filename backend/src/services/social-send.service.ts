@@ -33,10 +33,14 @@ export async function dispatchApprovedSocialDm(messageId: string): Promise<void>
     await leadService.logActivity({
       organizationId,
       leadId: lead.id,
-      type: 'SOCIAL_TOUCH',
+      type: 'SOCIAL_TOUCH' as const,
       summary,
       payload: { messageId: message.id, approvedDraft: true, status, ...extra },
     });
+    // An approved draft that actually sent is still a first touch.
+    if (status === 'sent') {
+      await leadService.advanceStatusOnTouch(lead.id, `${platform ?? 'Social'} DM`);
+    }
   };
 
   if (!platform) {

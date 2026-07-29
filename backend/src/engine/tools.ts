@@ -1095,6 +1095,15 @@ async function recordOutbound(opts: {
     where: { id: conversation.id },
     data: { lastMessageAt: new Date() },
   });
+  // A touch that actually went out moves the lead out of NEW/RESEARCHING.
+  // Drafts deliberately don't — nothing reached the lead.
+  if (opts.status === 'sent') {
+    await leadService.advanceStatusOnTouch(
+      opts.leadId,
+      opts.channel === 'EMAIL' ? 'Email' : 'SMS',
+      opts.ctx.runId
+    );
+  }
   await leadService.logActivity({
     organizationId: opts.ctx.organizationId,
     leadId: opts.leadId,
@@ -1883,6 +1892,7 @@ const executors: Record<string, ToolExecutor> = {
       campaignId: input.campaignId,
       agentRunId: ctx.runId,
     });
+    await leadService.advanceStatusOnTouch(lead.id, 'Call', ctx.runId);
     if (input.campaignId) {
       await recordCampaignTouch(input.campaignId, lead.id);
     }
@@ -2059,6 +2069,9 @@ Rules:
       `Contact form ${submitted ? 'submitted' : 'attempt failed'} for ${lead.companyName}: ${result.summary}`.slice(0, 500),
       { browserResult: result.summary, finalUrl: result.finalUrl }
     );
+    if (submitted) {
+      await leadService.advanceStatusOnTouch(lead.id, 'Contact form enquiry', ctx.runId);
+    }
 
     return {
       submitted,
@@ -2295,6 +2308,9 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
       `${input.platform} DM ${success ? 'sent' : 'attempt failed'}: ${result.summary}`.slice(0, 500),
       { browserResult: result.summary, finalUrl: result.finalUrl }
     );
+    if (success) {
+      await leadService.advanceStatusOnTouch(lead.id, `${input.platform} DM`, ctx.runId);
+    }
     return {
       sent: success,
       summary: result.summary,
