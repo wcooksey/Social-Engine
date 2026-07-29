@@ -351,6 +351,7 @@ provider adapters translate. A run works like this:
 | `list_enrichment_targets` | The enrichment work list: weak leads still worth a pass, weakest first |
 | `record_enrichment_attempt` | Stamp a lead with the capability generation used, so it isn't re-worked |
 | `find_business_page` | Find + verify a lead's official social business page (name/city/website match) |
+| `submit_contact_form` | Fill a lead's website enquiry form with our reply address, so answers thread back |
 | `create_campaign` | Define a campaign (channel mix, message templates, offer) |
 | `send_email` / `send_sms` | Send a message through the channel services |
 | `place_call` | Kick off an AI voice call |

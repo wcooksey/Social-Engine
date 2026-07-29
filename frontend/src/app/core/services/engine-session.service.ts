@@ -51,8 +51,16 @@ export class EngineSessionService {
 
   // --- Conversation ------------------------------------------------------
 
-  openChat(chatId: string, force = false): void {
-    if (!force && this.activeChatId() === chatId && this.messages().length) return;
+  /**
+   * `onLoaded` fires once the messages are in place, so the caller can scroll
+   * to the newest one — the load is async, so scrolling before it lands would
+   * leave you at the top of the thread.
+   */
+  openChat(chatId: string, force = false, onLoaded?: () => void): void {
+    if (!force && this.activeChatId() === chatId && this.messages().length) {
+      onLoaded?.();
+      return;
+    }
 
     this.activeChatId.set(chatId);
     this.loadingMessages.set(true);
@@ -61,6 +69,7 @@ export class EngineSessionService {
         this.messages.set(chat.messages ?? []);
         this.loadingMessages.set(false);
         this.reattachIfLive(chatId);
+        onLoaded?.();
       },
       error: () => this.loadingMessages.set(false)
     });
@@ -116,10 +125,14 @@ export class EngineSessionService {
     if (!this.streamingMessageId) this.appendStreamingAssistant();
 
     this.streamSub = this.engineService.streamRun(runId, fromIndex).subscribe({
-      next: ({ index, event }) => {
+      next: ({ index, event, snapshot }) => {
         // Replay and live-tail can overlap; ignore anything already applied.
-        if (index <= this.lastIndex) return;
-        this.lastIndex = index;
+        // A snapshot describes current state rather than occupying a position,
+        // so it must not move the cursor — that would drop the next real event.
+        if (!snapshot) {
+          if (index <= this.lastIndex) return;
+          this.lastIndex = index;
+        }
 
         switch (event.type) {
           case 'text':
@@ -159,13 +172,25 @@ export class EngineSessionService {
             break;
         }
       },
-      error: () => {
-        // Dropped connection: the run is probably still going server-side, so
-        // resume from where we stopped rather than restarting the thread.
-        const id = this.runId();
-        if (id) setTimeout(() => this.attach(id, this.lastIndex + 1), 1500);
-      }
+      error: () => this.resumeIfStillRunning(),
+      // A stream can also end WITHOUT an error — a proxy hanging up, or the
+      // server closing after the run finished. Without this the UI would sit on
+      // an empty bubble forever, since no further events can arrive.
+      complete: () => this.resumeIfStillRunning()
     });
+  }
+
+  /**
+   * The stream ended. If the run already finished, nothing to do; otherwise
+   * reconnect from the next unseen event so no output is lost or repeated.
+   */
+  private resumeIfStillRunning(): void {
+    const id = this.runId();
+    if (!id || !this.running()) return;
+    setTimeout(() => {
+      // Re-check: a 'done' may have landed while the retry was queued.
+      if (this.runId() === id && this.running()) this.attach(id, this.lastIndex + 1);
+    }, 1500);
   }
 
   /** Stop rendering this run locally without touching the run itself. */

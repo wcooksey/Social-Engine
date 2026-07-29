@@ -48,6 +48,8 @@ export type EngineStreamEvent =
 export interface IndexedStreamEvent {
   index: number;
   event: EngineStreamEvent;
+  /** Current-state snapshot sent on attach — carries no position of its own. */
+  snapshot?: boolean;
 }
 
 /** A run in flight — one card in the fleet view. */

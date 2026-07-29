@@ -218,6 +218,21 @@ h6, .h6 {
   opacity: 0.5;
 }
 
+/* Same projection problem as the data-table footer below: the [dialog-footer]
+   wrapper carries the HOST component's encapsulation, so the dialog's own
+   stylesheet can't reach it — its flex layout applies to the wrapper, not to
+   the buttons inside it. Left unstyled the wrapper is a plain block, so buttons
+   flow as inline content and any block-level spacer (used to push Delete to the
+   left) breaks them onto separate lines. Make the wrapper the flex row. */
+[dialog-footer] {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: $spacing-md;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
 /* Footer cells are projected via [dataTableFooter], so they carry the host's
    encapsulation rather than the data-table's — style them globally. */
 .data-table tfoot td {

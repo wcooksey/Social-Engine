@@ -234,6 +234,39 @@ class LeadService {
     };
   }
 
+  /**
+   * Advance a lead's pipeline status after a touch actually went out.
+   *
+   * Status used to move ONLY when an agent remembered to call
+   * update_lead_status, so a lead marked RESEARCHING at the start of a run sat
+   * there forever — including after we had emailed it. Sending is an objective
+   * fact, so the transition is mechanical, like campaign cadence.
+   *
+   * Only ever moves forward out of the two "not yet contacted" states. ENGAGED,
+   * INTERESTED, CUSTOMER, NOT_INTERESTED and ARCHIVED are decisions made by a
+   * reply or a human, and must never be overwritten by an outbound touch.
+   */
+  async advanceStatusOnTouch(leadId: string, channelLabel: string, agentRunId?: string): Promise<void> {
+    try {
+      const lead = await prisma.lead.findUnique({
+        where: { id: leadId },
+        select: { id: true, organizationId: true, status: true },
+      });
+      if (!lead || (lead.status !== 'NEW' && lead.status !== 'RESEARCHING')) return;
+
+      await prisma.lead.update({ where: { id: lead.id }, data: { status: 'CONTACTED' } });
+      await this.logActivity({
+        organizationId: lead.organizationId,
+        leadId: lead.id,
+        type: 'STATUS_CHANGE',
+        summary: `Status changed from ${lead.status} to CONTACTED — ${channelLabel} sent`,
+        agentRunId,
+      });
+    } catch {
+      // Never let bookkeeping fail the send that triggered it.
+    }
+  }
+
   async logActivity(input: {
     organizationId: string;
     leadId: string;
@@ -258,3 +291,46 @@ class LeadService {
 }
 
 export const leadService = new LeadService();
+
+/** How long a lead may sit in RESEARCHING with nothing happening. */
+const STALE_RESEARCHING_HOURS = 24;
+
+/**
+ * Release leads stranded in RESEARCHING back to NEW.
+ *
+ * RESEARCHING means "an agent is working this right now". A run that ends —
+ * iterations exhausted, handed to another role, or failed — leaves the flag
+ * set with nothing to clear it, and the lead then looks busy forever and is
+ * skipped by anything filtering on NEW. Leads that were actually contacted are
+ * moved to CONTACTED by advanceStatusOnTouch instead, so anything still sitting
+ * here genuinely was never reached.
+ */
+export async function releaseStaleResearchingLeads(): Promise<number> {
+  const cutoff = new Date(Date.now() - STALE_RESEARCHING_HOURS * 3600_000);
+
+  const stale = await prisma.lead.findMany({
+    where: {
+      status: 'RESEARCHING',
+      // Nothing at all has happened on this lead since the cutoff — no
+      // research note, no touch, no status change.
+      activities: { none: { createdAt: { gte: cutoff } } },
+    },
+    select: { id: true, organizationId: true, companyName: true },
+    take: 500,
+  });
+  if (stale.length === 0) return 0;
+
+  await prisma.lead.updateMany({
+    where: { id: { in: stale.map((l) => l.id) } },
+    data: { status: 'NEW' },
+  });
+  await prisma.activity.createMany({
+    data: stale.map((l) => ({
+      organizationId: l.organizationId,
+      leadId: l.id,
+      type: 'STATUS_CHANGE' as const,
+      summary: `Status returned to NEW — sat in RESEARCHING for over ${STALE_RESEARCHING_HOURS}h with no activity, so it is back in the pool.`,
+    })),
+  });
+  return stale.length;
+}

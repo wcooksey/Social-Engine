@@ -4,6 +4,7 @@ import { getPlatformEngineConfig } from '../services/settings.service';
 import { runReminderSweep, runDigestSweepIfDue } from '../services/reminder.service';
 import { runCadenceSweep } from '../services/campaign-cadence.service';
 import { runAutopilotSweep, recordGoalJobOutcome } from '../services/autopilot.service';
+import { releaseStaleResearchingLeads } from '../services/lead.service';
 import { notify } from '../services/notification.service';
 import { runSocialInboxSweeps } from './social-inbox.service';
 import { AgentRole } from './roles';
@@ -176,6 +177,10 @@ async function runTimeSweeps(): Promise<void> {
     await runReminderSweep();
     await runCadenceSweep();
     await runAutopilotSweep();
+    // Free leads stranded in RESEARCHING by a run that ended without contacting
+    // them — otherwise they look busy forever and never get picked up again.
+    const released = await releaseStaleResearchingLeads();
+    if (released > 0) console.log(`Released ${released} lead(s) stuck in RESEARCHING back to NEW.`);
     await runDigestSweepIfDue();
     // Reads connected social DM inboxes for replies (hourly per account).
     await runSocialInboxSweeps();

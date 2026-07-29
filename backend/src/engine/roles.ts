@@ -79,6 +79,7 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
       'send_sms',
       'send_social_dm',
       'find_business_page',
+      'submit_contact_form',
       'check_social_inbox',
       'create_campaign',
       'add_leads_to_campaign',

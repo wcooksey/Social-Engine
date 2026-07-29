@@ -46,6 +46,8 @@ interface SocialPlatformCard {
   param: SocialPlatformParam;
   name: string;
   icon: string;
+  /** Exact login page for this platform, so the copied command needs no editing. */
+  loginUrl: string;
 }
 
 function hourToTime(hour: number): string {
@@ -191,10 +193,10 @@ export class SettingsComponent implements OnInit {
   encryptionConfigured = computed(() => this.socialAccountsService.encryptionConfigured());
 
   socialPlatforms: SocialPlatformCard[] = [
-    { platform: 'LINKEDIN', param: 'linkedin', name: 'LinkedIn', icon: 'bi-linkedin' },
-    { platform: 'FACEBOOK', param: 'facebook', name: 'Facebook', icon: 'bi-facebook' },
-    { platform: 'INSTAGRAM', param: 'instagram', name: 'Instagram', icon: 'bi-instagram' },
-    { platform: 'X', param: 'x', name: 'X', icon: 'bi-twitter-x' }
+    { platform: 'LINKEDIN', param: 'linkedin', name: 'LinkedIn', icon: 'bi-linkedin', loginUrl: 'https://www.linkedin.com/login' },
+    { platform: 'FACEBOOK', param: 'facebook', name: 'Facebook', icon: 'bi-facebook', loginUrl: 'https://www.facebook.com/login' },
+    { platform: 'INSTAGRAM', param: 'instagram', name: 'Instagram', icon: 'bi-instagram', loginUrl: 'https://www.instagram.com/accounts/login/' },
+    { platform: 'X', param: 'x', name: 'X', icon: 'bi-twitter-x', loginUrl: 'https://x.com/login' }
   ];
 
   showConnectDialog = false;
@@ -452,9 +454,58 @@ export class SettingsComponent implements OnInit {
     return `${days}d ago`;
   }
 
+  // --- Guided session capture --------------------------------------------
+  // Capturing a login session means running a terminal command, which is the
+  // one genuinely technical step in setup. Rather than a paragraph telling
+  // people to "swap the URL", each platform gets the exact command, per OS,
+  // with copy buttons — so it's paste-and-go with nothing to edit.
+
+  /** Windows uses a different terminal app and a different "print file" command. */
+  captureOs: 'mac' | 'windows' = /win/i.test(navigator.platform || navigator.userAgent) ? 'windows' : 'mac';
+  copiedCommand: string | null = null;
+
+  get captureTerminalName(): string {
+    return this.captureOs === 'windows' ? 'PowerShell' : 'Terminal';
+  }
+
+  get captureTerminalHint(): string {
+    return this.captureOs === 'windows'
+      ? 'Press the Windows key, type "PowerShell", and open it.'
+      : 'Press ⌘ + Space, type "Terminal", and press Enter.';
+  }
+
+  /** The one command that captures the session for the platform being connected. */
+  get captureCommand(): string {
+    const url = this.connectTarget?.loginUrl ?? 'https://www.instagram.com/accounts/login/';
+    return `npx playwright@latest codegen --save-storage=session.json ${url}`;
+  }
+
+  /** Prints the saved file so it can be copied straight out of the terminal. */
+  get printFileCommand(): string {
+    return this.captureOs === 'windows' ? 'type session.json' : 'cat session.json';
+  }
+
+  copyCommand(command: string): void {
+    if (!navigator.clipboard) {
+      this.toast.warning('Copying is blocked in this browser — select the text and copy manually');
+      return;
+    }
+    navigator.clipboard.writeText(command).then(
+      () => {
+        this.copiedCommand = command;
+        this.toast.success('Command copied');
+        setTimeout(() => {
+          if (this.copiedCommand === command) this.copiedCommand = null;
+        }, 2500);
+      },
+      () => this.toast.error('Could not copy — select the text and copy manually')
+    );
+  }
+
   openConnectDialog(card: SocialPlatformCard): void {
     this.connectTarget = card;
     this.connectStorageState = '';
+    this.copiedCommand = null;
     this.showConnectDialog = true;
   }
 

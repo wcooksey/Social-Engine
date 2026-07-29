@@ -9,13 +9,20 @@
         <p class="chat-list-empty">Loading conversations...</p>
       } @else if (chats().length) {
         @for (chat of chats(); track chat.id) {
-          <button
-            class="chat-list-item"
-            [class.active]="activeChatId() === chat.id"
-            (click)="selectChat(chat)">
-            <i class="bi bi-chat-left-text"></i>
-            <span class="chat-title">{{ chat.title || 'New conversation' }}</span>
-          </button>
+          <div class="chat-list-item" [class.active]="activeChatId() === chat.id">
+            <button type="button" class="chat-list-open" (click)="selectChat(chat)">
+              <i class="bi bi-chat-left-text"></i>
+              <span class="chat-title">{{ chat.title || 'New conversation' }}</span>
+            </button>
+            <button
+              type="button"
+              class="chat-delete-btn"
+              [disabled]="deletingChatId() === chat.id"
+              [title]="'Delete this conversation'"
+              (click)="deleteChat(chat, $event)">
+              <i class="bi" [class.bi-trash]="deletingChatId() !== chat.id" [class.bi-hourglass-split]="deletingChatId() === chat.id"></i>
+            </button>
+          </div>
         }
       } @else {
         <p class="chat-list-empty">No conversations yet.</p>
@@ -143,10 +150,10 @@
           </div>
         </div>
       } @else {
-        <label class="watch-toggle" title="Start the next run parked, stepping through one action at a time so you can watch it work">
-          <input type="checkbox" [(ngModel)]="watchNextRun" />
-          <i class="bi bi-eye"></i> Watch mode
-        </label>
+        <div class="watch-toggle" title="Start the next run parked, stepping through one action at a time so you can watch it work">
+          <app-switch size="sm" [(ngModel)]="watchNextRun" [ngModelOptions]="{ standalone: true }"></app-switch>
+          <span class="watch-toggle-label"><i class="bi bi-eye"></i> Watch mode</span>
+        </div>
       }
 
       @if (voiceAgent.status() !== 'idle') {

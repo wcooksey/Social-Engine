@@ -516,6 +516,27 @@ export const engineTools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'submit_contact_form',
+    description:
+      "Fill out and submit the 'Contact Us' form on a lead's own website using the browser, with our real reply address so their response comes back into the platform and threads onto the lead. This reaches businesses that publish NO email anywhere — the form IS their published channel, and a form submission lands in the inbox the business actually watches. Use it when a lead has a website but no usable email (enrichment gap 'email'). Counts as a cold touch: one per lead, subject to the same guardrails as any other send, and drafts for approval unless outreach is autonomous.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        leadId: { type: 'string' },
+        message: {
+          type: 'string',
+          description: "The enquiry to type into the form's message field. Write it as a real person would — short, specific to their business, and with a clear ask.",
+        },
+        formUrl: {
+          type: 'string',
+          description: "Direct URL of the contact page if known. Omit and the browser will find it from the lead's website.",
+        },
+        subject: { type: 'string', description: 'Subject/reason field, when the form has one' },
+      },
+      required: ['leadId', 'message'],
+    },
+  },
+  {
     name: 'find_business_page',
     description:
       "Find and verify a lead's OFFICIAL business page on a social platform (the dealership's own Facebook page / Instagram account, not an employee's personal profile). Nearly every established business has one, and its inbox is the highest-yield first touch — no identity guesswork, and messaging a business page is what those inboxes exist for. Verifies the match against the company name, city/state, and the website/phone on file before saving it to the lead's socials. Run this BEFORE hunting for individual people on social.",
@@ -1074,6 +1095,15 @@ async function recordOutbound(opts: {
     where: { id: conversation.id },
     data: { lastMessageAt: new Date() },
   });
+  // A touch that actually went out moves the lead out of NEW/RESEARCHING.
+  // Drafts deliberately don't — nothing reached the lead.
+  if (opts.status === 'sent') {
+    await leadService.advanceStatusOnTouch(
+      opts.leadId,
+      opts.channel === 'EMAIL' ? 'Email' : 'SMS',
+      opts.ctx.runId
+    );
+  }
   await leadService.logActivity({
     organizationId: opts.ctx.organizationId,
     leadId: opts.leadId,
@@ -1862,6 +1892,7 @@ const executors: Record<string, ToolExecutor> = {
       campaignId: input.campaignId,
       agentRunId: ctx.runId,
     });
+    await leadService.advanceStatusOnTouch(lead.id, 'Call', ctx.runId);
     if (input.campaignId) {
       await recordCampaignTouch(input.campaignId, lead.id);
     }
@@ -1916,6 +1947,140 @@ const executors: Record<string, ToolExecutor> = {
       data: result.data,
       steps: result.steps,
       ...(result.error ? { error: result.error } : {}),
+    };
+  },
+
+  submit_contact_form: async (input, ctx) => {
+    const lead = await requireLead(input.leadId, ctx.organizationId);
+    assertContactable(lead);
+
+    const startUrl = String(input.formUrl || lead.website || '').trim();
+    if (!startUrl) {
+      return {
+        submitted: false,
+        note: 'This lead has no website on file, so there is no contact form to fill. Research a website first.',
+      };
+    }
+
+    // A contact form is a cold touch like any other — one per lead. Repeat
+    // submissions land in the same shared inbox and read as spam.
+    const priorTouch = await prisma.activity.findFirst({
+      where: {
+        organizationId: ctx.organizationId,
+        leadId: lead.id,
+        type: 'SOCIAL_TOUCH',
+        payload: { path: ['channel'], equals: 'contact_form' },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (priorTouch) {
+      return {
+        submitted: false,
+        skipped: true,
+        note: `A contact form was already submitted for this lead on ${priorTouch.createdAt.toISOString().slice(0, 10)}. One per lead — if they replied, continue in the conversation instead.`,
+      };
+    }
+
+    const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
+    const orgConfig = await getOrgConfig(ctx.organizationId);
+
+    // The reply address is the whole point: use the address inbound email
+    // already routes through, so their response threads onto this lead instead
+    // of landing in a human's personal inbox.
+    const replyEmail = orgConfig.mailgun.fromEmail?.trim() ||
+      (orgConfig.mailgun.domain ? `noreply@${orgConfig.mailgun.domain}` : '');
+    if (!replyEmail) {
+      return {
+        submitted: false,
+        note: 'No reply address configured (Settings → Integrations → Mailgun). Without one, any reply to this form would be lost, so the submission is refused.',
+      };
+    }
+    const senderName = orgConfig.outreachIdentity.name?.trim() || org?.name || 'Sales team';
+    const senderPhone = orgConfig.outreachIdentity.phone?.trim() || orgConfig.twilio.fromNumber || '';
+
+    const record = async (status: string, summary: string, extra?: Record<string, unknown>) => {
+      const conversation =
+        (await prisma.conversation.findFirst({ where: { leadId: lead.id, channel: 'EMAIL' } })) ??
+        (await prisma.conversation.create({
+          data: {
+            organizationId: ctx.organizationId,
+            leadId: lead.id,
+            channel: 'EMAIL',
+            subject: input.subject || `Website enquiry — ${lead.companyName}`,
+          },
+        }));
+      await prisma.message.create({
+        data: { conversationId: conversation.id, direction: 'OUTBOUND', body: input.message, status },
+      });
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { lastMessageAt: new Date() },
+      });
+      await leadService.logActivity({
+        organizationId: ctx.organizationId,
+        leadId: lead.id,
+        type: 'SOCIAL_TOUCH',
+        summary,
+        payload: { channel: 'contact_form', status, message: input.message, replyEmail, ...extra },
+        agentRunId: ctx.runId,
+      });
+    };
+
+    const blocked = await outboundBlockReason(ctx.organizationId, lead);
+    // Draft-first unless social/browser autonomy is on — same posture as DMs,
+    // since this is an unattended browser submitting on the org's behalf.
+    if (blocked || !org?.socialAutonomy) {
+      await record('draft_pending_approval', `Contact-form enquiry drafted for ${lead.companyName}`);
+      return {
+        submitted: false,
+        drafted: true,
+        note:
+          blocked ||
+          'Autonomous browser outreach is off. The enquiry is saved as a draft for approval — enable social autonomy in Settings to submit automatically.',
+      };
+    }
+
+    const result = await runBrowserAgent({
+      objective: `You are on the website of ${lead.companyName}${lead.city ? ` in ${lead.city}` : ''}. Find their "Contact Us" / "Get in touch" enquiry form and submit it ONCE with these exact details:
+
+- Name: ${senderName}
+- Email: ${replyEmail}
+- Phone: ${senderPhone || '(leave blank if optional; if required, skip the form and report that)'}
+- Company: ${org?.name || ''}
+${input.subject ? `- Subject: ${input.subject}\n` : ''}- Message: "${input.message}"
+
+Rules:
+- This must be a general enquiry/contact form. Do NOT submit a form that books a test drive, requests a vehicle quote, applies for financing, or schedules service — those create real obligations for the business. If only those exist, do not submit anything and report what you found.
+- Fill required fields only. If a required field asks for something we do not have (a VIN, a vehicle of interest, a trade-in), pick the most neutral option available, and if none is neutral, abandon the form and report why.
+- Submit ONCE, then confirm the page showed a success/thank-you message. Never resubmit.
+- If a CAPTCHA blocks submission, do not attempt to solve it — abandon and report that a CAPTCHA stopped you.`,
+      startUrl,
+      model: org?.engineModel || config.engine.model,
+      providerKeys: orgConfig.providerKeys,
+      allowSend: true,
+      onStep: (n) => recordBrowserAction(ctx.runId, ctx.organizationId, n),
+      onFrame: (f) => recordBrowserFrame(ctx.runId, ctx.organizationId, f),
+    });
+    await attributeBrowserUsage(ctx.runId, result.usage);
+
+    const submitted = result.status === 'completed';
+    await record(
+      submitted ? 'sent' : 'failed',
+      `Contact form ${submitted ? 'submitted' : 'attempt failed'} for ${lead.companyName}: ${result.summary}`.slice(0, 500),
+      { browserResult: result.summary, finalUrl: result.finalUrl }
+    );
+    if (submitted) {
+      await leadService.advanceStatusOnTouch(lead.id, 'Contact form enquiry', ctx.runId);
+    }
+
+    return {
+      submitted,
+      replyEmail,
+      summary: result.summary,
+      finalUrl: result.finalUrl,
+      note: submitted
+        ? `Submitted as ${senderName} <${replyEmail}>. Their reply arrives as inbound email and threads onto this lead automatically — do not also cold-email or DM them while waiting.`
+        : `Not submitted: ${result.summary}. Do not retry blindly — if a CAPTCHA or an unsuitable form blocked it, this lead needs a different channel.`,
     };
   },
 
@@ -2143,6 +2308,9 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
       `${input.platform} DM ${success ? 'sent' : 'attempt failed'}: ${result.summary}`.slice(0, 500),
       { browserResult: result.summary, finalUrl: result.finalUrl }
     );
+    if (success) {
+      await leadService.advanceStatusOnTouch(lead.id, `${input.platform} DM`, ctx.runId);
+    }
     return {
       sent: success,
       summary: result.summary,

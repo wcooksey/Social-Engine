@@ -442,13 +442,9 @@
   <app-card padding="lg" class="section-card">
     <h3>Connected social accounts</h3>
     <p class="social-accounts-description">
-      Connect a social account once and the Engine's browser agent stays logged in for every lead — no per-lead login.
-      On your own computer, run this one command (installs nothing permanent), log in normally in the window that opens, then close it:
-      <br />
-      <code>npx playwright&#64;latest codegen --save-storage=session.json https://www.instagram.com</code>
-      <br />
-      Swap the URL for the platform you're connecting. Then open the generated <code>session.json</code>, copy everything, and paste it below.
-      It's your live login — treat it like a password; it's stored encrypted.
+      Connect an account once and the Engine's browser agent stays logged in for every lead — no per-lead login.
+      Connecting takes about two minutes and involves one copy-paste command on your own computer;
+      pick a platform below and it walks you through it step by step.
     </p>
 
     @if (!encryptionConfigured()) {
@@ -526,16 +522,84 @@
   size="md"
   (close)="closeConnectDialog()">
   <div class="connect-account-form">
+    <div class="os-switch">
+      <span class="os-switch-label">I'm on</span>
+      <button type="button" [class.active]="captureOs === 'mac'" (click)="captureOs = 'mac'">
+        <i class="bi bi-apple"></i> Mac / Linux
+      </button>
+      <button type="button" [class.active]="captureOs === 'windows'" (click)="captureOs = 'windows'">
+        <i class="bi bi-windows"></i> Windows
+      </button>
+    </div>
+
+    <ol class="setup-steps">
+      <li>
+        <span class="step-title">Open {{ captureTerminalName }} on your own computer</span>
+        <span class="step-detail">{{ captureTerminalHint }}</span>
+      </li>
+
+      <li>
+        <span class="step-title">Paste this command and press Enter</span>
+        <span class="step-detail">
+          It's already set up for {{ connectTarget?.name }} — nothing to edit. The first run takes a minute
+          while it downloads a browser.
+        </span>
+        <div class="command-row">
+          <code>{{ captureCommand }}</code>
+          <button type="button" class="copy-btn" (click)="copyCommand(captureCommand)">
+            <i class="bi" [class.bi-clipboard]="copiedCommand !== captureCommand" [class.bi-check-lg]="copiedCommand === captureCommand"></i>
+            {{ copiedCommand === captureCommand ? 'Copied' : 'Copy' }}
+          </button>
+        </div>
+      </li>
+
+      <li>
+        <span class="step-title">Log in to {{ connectTarget?.name }} in the window that opens</span>
+        <span class="step-detail">
+          A browser window opens by itself — log in as you normally would, including any 2FA code. A second
+          smaller window may also open; you can ignore it. When you're fully logged in, <strong>close the
+          browser window</strong>. That's what saves the session.
+        </span>
+      </li>
+
+      <li>
+        <span class="step-title">Print the saved session and copy it</span>
+        <span class="step-detail">
+          Back in {{ captureTerminalName }}, run this. It prints one long line — select all of it and copy.
+        </span>
+        <div class="command-row">
+          <code>{{ printFileCommand }}</code>
+          <button type="button" class="copy-btn" (click)="copyCommand(printFileCommand)">
+            <i class="bi" [class.bi-clipboard]="copiedCommand !== printFileCommand" [class.bi-check-lg]="copiedCommand === printFileCommand"></i>
+            {{ copiedCommand === printFileCommand ? 'Copied' : 'Copy' }}
+          </button>
+        </div>
+      </li>
+    </ol>
+
     <div class="textarea-field">
-      <label>Session JSON</label>
+      <label>5. Paste it here</label>
       <textarea
-        rows="10"
+        rows="8"
         class="storage-state-input"
         [(ngModel)]="connectStorageState"
         [ngModelOptions]="{ standalone: true }"
-        placeholder="Paste the contents of session.json here..."></textarea>
-      <p class="field-hint">Generate it with <code>npx playwright&#64;latest codegen --save-storage=session.json &lt;platform login URL&gt;</code>, log in, close the window, then paste the file's contents. This is your live login — stored encrypted.</p>
+        placeholder='Paste the session here — it starts with {"cookies":[...'></textarea>
+      <p class="field-hint">
+        <i class="bi bi-shield-lock"></i>
+        This is a live login for your account — treat it like a password. It's encrypted before being stored,
+        and never shown again.
+      </p>
     </div>
+
+    <details class="troubleshoot">
+      <summary>It didn't work</summary>
+      <ul>
+        <li><strong>"npx: command not found"</strong> — you need Node.js. Install the LTS version from nodejs.org, then reopen {{ captureTerminalName }} and try again.</li>
+        <li><strong>Nothing printed / "No such file"</strong> — the file saves wherever {{ captureTerminalName }} was pointed. Run the print command in the same window you ran the first command in, without changing folders.</li>
+        <li><strong>It says expired right after connecting</strong> — the browser window was probably closed before the login finished. Redo it and make sure you can see your feed before closing.</li>
+      </ul>
+    </details>
   </div>
 
   <div dialog-footer>
