@@ -1,7 +1,7 @@
 import { Channel, Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
 import { leadService } from './lead.service';
-import { normalizePhone } from './lead.service';
+import { normalizeDomain, normalizePhone } from './lead.service';
 import { recordResponseForInbound } from './experiment.service';
 import { recomputeLeadEnrichment } from './lead-enrichment.service';
 import { notify } from './notification.service';
@@ -53,6 +53,35 @@ async function resolveOrgFromRecipient(input: InboundMessage): Promise<string | 
 // Never left to the AI — a match hard-flags the lead before any agent runs.
 const OPT_OUT_RE =
   /^\s*(stop|stopall|stop all|unsubscribe|cancel|end|quit|optout|opt out|remove me|revoke)\s*[.!]*\s*$/i;
+
+/** Free/shared mailbox providers — a sender domain here identifies nobody. */
+const FREE_EMAIL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'yahoo.com', 'ymail.com', 'hotmail.com',
+  'outlook.com', 'live.com', 'msn.com', 'aol.com', 'icloud.com', 'me.com',
+  'proton.me', 'protonmail.com', 'gmx.com', 'mail.com', 'zoho.com',
+]);
+
+/**
+ * Last-resort match: tie a reply to a lead by the sender's email DOMAIN.
+ *
+ * Contact-form enquiries are answered by whoever picks up the shared inbox, and
+ * colleagues get cc'd into threads — so replies routinely arrive from an
+ * address we have never recorded. Without this they'd be dropped as unmatched.
+ * Free mail providers are excluded: a gmail.com sender says nothing about which
+ * company they belong to and would collide across every lead.
+ */
+async function findLeadByEmailDomain(
+  fromEmail: string | undefined,
+  organizationId: string | undefined
+): Promise<{ id: string; organizationId: string } | null> {
+  if (!fromEmail) return null;
+  const domain = normalizeDomain(fromEmail.split('@')[1]);
+  if (!domain || FREE_EMAIL_DOMAINS.has(domain)) return null;
+  return prisma.lead.findFirst({
+    where: { domain, ...(organizationId ? { organizationId } : {}) },
+    select: { id: true, organizationId: true },
+  });
+}
 
 async function findContact(input: InboundMessage) {
   if (input.contactId) {
@@ -128,6 +157,15 @@ export async function handleInbound(input: InboundMessage): Promise<{
       leadId = contact.leadId;
       contactId = contact.id;
       organizationId = contact.organizationId;
+    } else {
+      // Nobody we know sent this — fall back to the sender's company domain so
+      // replies from unrecorded colleagues (and contact-form enquiries) still
+      // land on the right lead. No contact is attached; the thread is enough.
+      const lead = await findLeadByEmailDomain(input.fromEmail, organizationId);
+      if (lead) {
+        leadId = lead.id;
+        organizationId = lead.organizationId;
+      }
     }
   }
   if (!leadId || !organizationId) {
