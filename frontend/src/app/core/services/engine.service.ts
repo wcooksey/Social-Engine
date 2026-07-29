@@ -27,6 +27,10 @@ export class EngineService {
     return this.api.get<EngineChat>(`/api/engine/chats/${id}`);
   }
 
+  deleteChat(id: string): Observable<void> {
+    return this.api.delete<void>(`/api/engine/chats/${id}`);
+  }
+
   /**
    * Start a run. Returns as soon as the run exists — the run itself continues
    * server-side, followed via streamRun(). Nothing about it dies with this

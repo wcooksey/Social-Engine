@@ -51,8 +51,16 @@ export class EngineSessionService {
 
   // --- Conversation ------------------------------------------------------
 
-  openChat(chatId: string, force = false): void {
-    if (!force && this.activeChatId() === chatId && this.messages().length) return;
+  /**
+   * `onLoaded` fires once the messages are in place, so the caller can scroll
+   * to the newest one — the load is async, so scrolling before it lands would
+   * leave you at the top of the thread.
+   */
+  openChat(chatId: string, force = false, onLoaded?: () => void): void {
+    if (!force && this.activeChatId() === chatId && this.messages().length) {
+      onLoaded?.();
+      return;
+    }
 
     this.activeChatId.set(chatId);
     this.loadingMessages.set(true);
@@ -61,6 +69,7 @@ export class EngineSessionService {
         this.messages.set(chat.messages ?? []);
         this.loadingMessages.set(false);
         this.reattachIfLive(chatId);
+        onLoaded?.();
       },
       error: () => this.loadingMessages.set(false)
     });

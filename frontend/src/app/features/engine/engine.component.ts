@@ -11,11 +11,12 @@ import { VoiceAgentEvent, VoiceAgentService } from '../../core/services/voice-ag
 import { ModelPickerComponent } from './model-picker/model-picker.component';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 import { ChatAmbientComponent } from '../../shared/components/chat-ambient/chat-ambient.component';
+import { SwitchComponent } from '../../shared/components/switch/switch.component';
 
 @Component({
   selector: 'app-engine',
   standalone: true,
-  imports: [CommonModule, FormsModule, ModelPickerComponent, MarkdownPipe, ChatAmbientComponent],
+  imports: [CommonModule, FormsModule, ModelPickerComponent, MarkdownPipe, ChatAmbientComponent, SwitchComponent],
   templateUrl: './engine.component.html',
   styleUrl: './engine.component.scss'
 })
@@ -41,6 +42,7 @@ export class EngineComponent implements OnInit, OnDestroy {
   draft = '';
   /** Start the NEXT run parked, stepping through one action at a time. */
   watchNextRun = false;
+  deletingChatId = signal<string | null>(null);
 
   /** Snapshot of the draft text captured when the mic was last (re)started. */
   private voiceBaseDraft = '';
@@ -200,8 +202,35 @@ export class EngineComponent implements OnInit, OnDestroy {
 
   selectChat(chat: EngineChatSummary): void {
     if (this.sending()) return;
-    this.session.openChat(chat.id, true);
-    this.scrollToBottom();
+    // Scroll only once the messages are actually in the DOM — opening a
+    // conversation should land you at the latest message, not the first.
+    this.session.openChat(chat.id, true, () => this.scrollToBottom());
+  }
+
+  /** Remove a conversation. Confirmed, since the thread isn't recoverable. */
+  deleteChat(chat: EngineChatSummary, event: Event): void {
+    event.stopPropagation();
+    if (this.deletingChatId()) return;
+    if (this.sending() && this.activeChatId() === chat.id) {
+      this.toast.warning('This conversation has a run in progress — stop it first');
+      return;
+    }
+    if (!confirm(`Delete "${chat.title || 'New conversation'}"? This can't be undone.`)) return;
+
+    this.deletingChatId.set(chat.id);
+    this.engineService.deleteChat(chat.id).subscribe({
+      next: () => {
+        this.deletingChatId.set(null);
+        this.chats.update((list) => list.filter((c) => c.id !== chat.id));
+        // Clear the thread if the open conversation is the one that just went.
+        if (this.activeChatId() === chat.id) this.session.startNewChat();
+        this.toast.success('Conversation deleted');
+      },
+      error: () => {
+        this.deletingChatId.set(null);
+        this.toast.error('Could not delete that conversation');
+      }
+    });
   }
 
   startNewChat(): void {

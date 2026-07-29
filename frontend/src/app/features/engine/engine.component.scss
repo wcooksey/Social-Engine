@@ -79,28 +79,19 @@
 .chat-list-item {
   display: flex;
   align-items: center;
-  gap: $spacing-sm;
-  padding: $spacing-sm;
   border-radius: $border-radius-md;
-  border: none;
-  background: transparent;
   color: var(--text-primary);
-  cursor: pointer;
-  text-align: left;
   font-size: $font-size-sm;
   transition: all $transition-fast;
 
-  i {
-    flex-shrink: 0;
-    color: var(--text-tertiary);
-  }
-
-  .chat-title {
-    @include truncate;
-  }
-
   &:hover {
     background: var(--bg-tertiary);
+
+    // Delete stays out of the way until the row is hovered, so the list reads
+    // as titles rather than a column of trash icons.
+    .chat-delete-btn {
+      opacity: 1;
+    }
   }
 
   &.active {
@@ -110,6 +101,64 @@
     i {
       color: $primary-blue;
     }
+  }
+}
+
+/* The row's main click target — opening the conversation. */
+.chat-list-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font-size: inherit;
+
+  i {
+    flex-shrink: 0;
+    color: var(--text-tertiary);
+  }
+
+  .chat-title {
+    @include truncate;
+  }
+}
+
+.chat-delete-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-right: $spacing-xs;
+  border: none;
+  border-radius: $border-radius-sm;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: all $transition-fast;
+
+  &:hover {
+    background: rgba($error-red, 0.15);
+    color: $error-red;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+
+  // Always reachable by keyboard even though it's hover-revealed.
+  &:focus-visible {
+    opacity: 1;
+    outline: 2px solid $primary-blue;
   }
 }
 
@@ -402,16 +451,15 @@
       }
     }
 
+    // Your own messages sit on a solid blue bubble, so this badge is read
+    // against blue in BOTH themes — orange-on-blue was low contrast and worst
+    // in light mode. White reads cleanly on the bubble either way.
     &.human-badge {
-      background: rgba($secondary-orange, 0.2);
-      color: $secondary-orange;
-      border: 1px solid rgba($secondary-orange, 0.4);
+      background: rgba(255, 255, 255, 0.22);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.35);
 
-      :host-context([data-theme="light"]) & {
-        background: rgba($secondary-orange, 0.1);
-        color: darken($secondary-orange, 12%);
-        border: 1px solid rgba($secondary-orange, 0.2);
-      }
+      i { color: #fff; }
     }
   }
 }
@@ -668,17 +716,15 @@
 .watch-toggle {
   display: inline-flex;
   align-items: center;
-  gap: $spacing-xs;
+  gap: $spacing-sm;
   margin-bottom: $spacing-sm;
   padding: 2px $spacing-sm;
+  user-select: none;
+}
+
+.watch-toggle-label {
   font-size: $font-size-xs;
   color: var(--text-tertiary);
-  cursor: pointer;
-  user-select: none;
-
-  input { cursor: pointer; }
-
-  &:hover { color: var(--text-secondary); }
 }
 
 .listening-hint {
