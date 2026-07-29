@@ -343,7 +343,158 @@
   margin-top: $spacing-sm;
 }
 
+/* --- Guided social session capture ------------------------------------- */
+
+.os-switch {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  margin-bottom: $spacing-md;
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px $spacing-sm;
+    border-radius: $border-radius-full;
+    border: 1px solid var(--border-primary);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: $font-size-xs;
+    cursor: pointer;
+    transition: all $transition-fast;
+
+    &:hover { color: var(--text-primary); }
+
+    &.active {
+      background: rgba($primary-blue, 0.15);
+      border-color: $primary-blue;
+      color: $primary-blue;
+    }
+  }
+}
+
+.os-switch-label {
+  font-size: $font-size-xs;
+  color: var(--text-tertiary);
+  margin-right: $spacing-xs;
+}
+
+.setup-steps {
+  list-style: none;
+  counter-reset: step;
+  margin: 0 0 $spacing-lg;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+
+  li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 32px;
+
+    // Numbered markers so the sequence is unmistakable to a non-technical user.
+    &::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: $primary-blue;
+      color: #fff;
+      font-size: $font-size-xs;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  }
+}
+
+.step-title {
+  display: block;
+  font-size: $font-size-sm;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.step-detail {
+  display: block;
+  margin-top: 2px;
+  font-size: $font-size-xs;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.command-row {
+  display: flex;
+  align-items: stretch;
+  gap: $spacing-xs;
+  margin-top: $spacing-sm;
+
+  code {
+    flex: 1;
+    min-width: 0;
+    padding: $spacing-sm $spacing-md;
+    border-radius: $border-radius-md;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    font-size: $font-size-xs;
+    color: var(--text-primary);
+    // Long commands scroll rather than wrapping mid-flag, which would make a
+    // manual re-type wrong.
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}
+
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 0 $spacing-md;
+  border-radius: $border-radius-md;
+  border: 1px solid $primary-blue;
+  background: rgba($primary-blue, 0.12);
+  color: $primary-blue;
+  font-size: $font-size-xs;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all $transition-fast;
+
+  &:hover { background: rgba($primary-blue, 0.22); }
+}
+
+.troubleshoot {
+  margin-top: $spacing-md;
+  font-size: $font-size-xs;
+  color: var(--text-secondary);
+
+  summary {
+    cursor: pointer;
+    color: var(--text-tertiary);
+    user-select: none;
+
+    &:hover { color: var(--text-secondary); }
+  }
+
+  ul {
+    margin: $spacing-sm 0 0;
+    padding-left: $spacing-lg;
+    display: flex;
+    flex-direction: column;
+    gap: $spacing-xs;
+    line-height: 1.5;
+  }
+}
+
 .connect-account-form {
+  .field-hint i { color: $warning-yellow; }
+
   .textarea-field {
     display: flex;
     flex-direction: column;
