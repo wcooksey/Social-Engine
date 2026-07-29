@@ -33,6 +33,12 @@ export type RunControlAction = 'pause' | 'resume' | 'cancel' | 'step' | 'watch_o
 export interface IndexedEvent {
   index: number;
   event: StreamEvent;
+  /**
+   * A state snapshot sent on attach rather than a real buffered event. It has
+   * no position of its own, so clients must NOT advance their resume cursor
+   * past it — doing so swallows the next real event.
+   */
+  snapshot?: boolean;
 }
 
 /** Pushed to subscribers whenever a run's control state changes. */
@@ -47,7 +53,7 @@ export interface RunStatusEvent {
 
 export type StreamEvent = EngineEvent | RunStatusEvent;
 
-type Subscriber = (item: { index: number; event: StreamEvent }) => void;
+type Subscriber = (item: IndexedEvent) => void;
 
 interface ActiveRun {
   runId: string;
@@ -173,8 +179,12 @@ export function subscribe(
     if (item.index >= fromIndex) subscriber(item);
   }
   // Tell the newcomer where things stand (paused? parked? already finished?).
+  // Flagged as a snapshot and given the LAST consumed index, not nextIndex:
+  // nextIndex belongs to the event that hasn't happened yet, and a client that
+  // recorded it as seen would discard that event when it arrives.
   subscriber({
-    index: run.nextIndex,
+    index: run.nextIndex - 1,
+    snapshot: true,
     event: {
       type: 'run_status',
       runId: run.runId,

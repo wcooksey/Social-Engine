@@ -172,11 +172,29 @@ router.get(
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    // Reverse proxies buffer responses by default, which for SSE means the
+    // client sees NOTHING until the response ends — indistinguishable from a
+    // hung request. This opts the stream out of that buffering.
+    res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
 
-    const unsubscribe = runRegistry.subscribe(req.params.runId, organizationId, fromIndex, (item) =>
-      sseWrite(res, item)
-    );
+    let closed = false;
+    let endTimer: NodeJS.Timeout | null = null;
+
+    const unsubscribe = runRegistry.subscribe(req.params.runId, organizationId, fromIndex, (item) => {
+      sseWrite(res, item);
+
+      // Close the stream once the run is over. Leaving it open forever leaks a
+      // connection per run, and any buffering proxy in front of us withholds
+      // the whole response until it ends — the client would never see a thing.
+      if (item.event.type === 'done') {
+        finish();
+      } else if (item.event.type === 'run_status' && item.event.phase === 'finished') {
+        // A chat run publishes 'done' just after this with the saved message id;
+        // give it a moment to arrive before hanging up.
+        if (!endTimer) endTimer = setTimeout(finish, 2000);
+      }
+    });
 
     if (!unsubscribe) {
       // Not live: rebuild the timeline from the durable record and close.
@@ -208,13 +226,26 @@ router.get(
       return;
     }
 
+    // Heartbeat keeps intermediaries from dropping an idle connection while the
+    // agent is thinking between events.
     const heartbeat = setInterval(() => res.write(': keep-alive\n\n'), 15000);
-    const close = () => {
+
+    function cleanup(): void {
+      if (closed) return;
+      closed = true;
       clearInterval(heartbeat);
-      unsubscribe();
-    };
-    req.on('close', close);
-    res.on('close', close);
+      if (endTimer) clearTimeout(endTimer);
+      unsubscribe?.();
+    }
+
+    function finish(): void {
+      if (closed) return;
+      cleanup();
+      res.end();
+    }
+
+    req.on('close', cleanup);
+    res.on('close', cleanup);
   })
 );
 

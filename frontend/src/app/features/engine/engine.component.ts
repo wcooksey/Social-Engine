@@ -340,11 +340,22 @@ export class EngineComponent implements OnInit, OnDestroy {
     return map[toolName] || 'bi-gear';
   }
 
+  /**
+   * A chip should read like "searched leads — Tampa", never a wall of JSON.
+   * Tool results arrive as a JSON blob, so summarize rather than print it: name
+   * the action, and add the most useful detail from the arguments.
+   */
   toolLabel(event: EngineToolEvent): string {
-    if (event.summary) return event.summary;
+    const action = event.toolName.replace(/_/g, ' ');
     const input = event.input as Record<string, unknown> | undefined;
-    const detail = input?.['companyName'] || input?.['name'] || input?.['query'];
-    return detail ? `${event.toolName} — ${detail}` : event.toolName;
+    for (const key of ['companyName', 'groupName', 'name', 'query', 'search', 'email', 'objective']) {
+      const value = input?.[key];
+      if (typeof value === 'string' && value.trim()) {
+        const detail = value.trim();
+        return `${action} — ${detail.length > 48 ? `${detail.slice(0, 48)}…` : detail}`;
+      }
+    }
+    return action;
   }
 
   trackByMessageId(index: number, message: EngineMessage): string {
