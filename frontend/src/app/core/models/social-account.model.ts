@@ -27,9 +27,21 @@ export interface ConnectSocialAccountResponse {
   status: SocialAccountStatus;
 }
 
+/** Why a session check failed — a checkpoint and a dead cookie need opposite fixes. */
+export type ValidationReason =
+  | 'ok'
+  | 'checkpoint'
+  | 'login_wall'
+  | 'unreadable_state'
+  | 'browser_error';
+
 export interface ValidateSocialAccountResponse {
   id: string;
   status: SocialAccountStatus;
   lastValidatedAt?: string;
   live: boolean;
+  reason?: ValidationReason;
+  /** Operator-facing next step. */
+  detail?: string;
+  finalUrl?: string;
 }

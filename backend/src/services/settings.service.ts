@@ -38,6 +38,8 @@ export const ORG_SETTING_DEFS: OrgSettingDef[] = [
   // lands on the inbound webhook and threads onto the lead automatically.
   { key: 'OUTREACH_SENDER_NAME', label: 'Your name (contact forms)', group: 'email', secret: false, placeholder: 'e.g. Will Cooksey' },
   { key: 'OUTREACH_SENDER_PHONE', label: 'Your phone (contact forms)', group: 'email', secret: false, placeholder: 'many forms require one' },
+  // The link the phone agent texts when someone asks to see the product mid-call.
+  { key: 'DEMO_VIDEO_URL', label: 'Demo video link', group: 'email', secret: false, placeholder: 'https://... — texted/emailed on request' },
 
   { key: 'TWILIO_ACCOUNT_SID', label: 'Twilio Account SID', group: 'sms', secret: false },
   { key: 'TWILIO_AUTH_TOKEN', label: 'Twilio Auth Token', group: 'sms', secret: true },
@@ -111,6 +113,8 @@ export interface ResolvedOrgConfig {
   mailgun: { apiKey: string; domain: string; fromEmail: string };
   /** Who we present as when filling a prospect's contact form. */
   outreachIdentity: { name: string; phone: string };
+  /** Demo link the agents can send when a prospect asks to see it. */
+  demoVideoUrl: string;
   twilio: { accountSid: string; authToken: string; fromNumber: string };
   vapi: {
     apiKey: string;
@@ -128,7 +132,7 @@ export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgC
   const [
     anthropic, openai, gemini, xai, deepseek,
     searchKey, searchProvider, placesKey, apolloKey,
-    mgKey, mgDomain, mgFrom, senderName, senderPhone,
+    mgKey, mgDomain, mgFrom, senderName, senderPhone, demoUrl,
     twSid, twToken, twFrom,
     vpKey, vpPhone, vpSecret, vpModel, vpVoiceProvider, vpVoiceId,
     elKey, elVoiceId, elLlm,
@@ -136,7 +140,7 @@ export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgC
     g('ANTHROPIC_API_KEY'), g('OPENAI_API_KEY'), g('GEMINI_API_KEY'), g('XAI_API_KEY'), g('DEEPSEEK_API_KEY'),
     g('SEARCH_API_KEY'), g('SEARCH_API_PROVIDER'), g('GOOGLE_PLACES_API_KEY'), g('APOLLO_API_KEY'),
     g('MAILGUN_API_KEY'), g('MAILGUN_DOMAIN'), g('MAILGUN_FROM_EMAIL'),
-    g('OUTREACH_SENDER_NAME'), g('OUTREACH_SENDER_PHONE'),
+    g('OUTREACH_SENDER_NAME'), g('OUTREACH_SENDER_PHONE'), g('DEMO_VIDEO_URL'),
     g('TWILIO_ACCOUNT_SID'), g('TWILIO_AUTH_TOKEN'), g('TWILIO_FROM_NUMBER'),
     g('VAPI_API_KEY'), g('VAPI_PHONE_NUMBER_ID'), g('VAPI_WEBHOOK_SECRET'),
     g('VAPI_ASSISTANT_MODEL'), g('VAPI_VOICE_PROVIDER'), g('VAPI_VOICE_ID'),
@@ -147,6 +151,7 @@ export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgC
     search: { apiKey: searchKey, provider: searchProvider || 'brave', googlePlacesApiKey: placesKey, apolloApiKey: apolloKey },
     mailgun: { apiKey: mgKey, domain: mgDomain, fromEmail: mgFrom },
     outreachIdentity: { name: senderName, phone: senderPhone },
+    demoVideoUrl: demoUrl,
     twilio: { accountSid: twSid, authToken: twToken, fromNumber: twFrom },
     vapi: {
       apiKey: vpKey,

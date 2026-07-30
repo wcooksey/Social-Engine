@@ -13,4 +13,8 @@ export interface ModelOption {
 export interface ModelsResponse {
   models: ModelOption[];
   current: string;
+  /** The Sandbox call coach's model — set separately from the Engine's. */
+  coachCurrent: string;
+  /** True while the coach has no model of its own and follows the Engine's. */
+  coachIsInherited: boolean;
 }

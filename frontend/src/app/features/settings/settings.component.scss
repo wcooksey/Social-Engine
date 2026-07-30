@@ -266,6 +266,58 @@
   }
 }
 
+/* Explains a failed session check. A toast is too short for the fix, and the
+   fix differs sharply between a checkpoint and a dead cookie. */
+.session-issue {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-sm;
+  padding: $spacing-md;
+  border-radius: $border-radius-md;
+  background: var(--bg-tertiary);
+  border: 1px solid $warning-yellow;
+  color: var(--text-secondary);
+  font-size: $font-size-sm;
+  margin-bottom: $spacing-md;
+
+  // A challenged login is recoverable without re-capturing, so it reads as
+  // information rather than an error.
+  &--checkpoint {
+    border-color: $primary-blue;
+
+    > i { color: $primary-blue; }
+  }
+
+  > i {
+    color: $warning-yellow;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  strong {
+    display: block;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+
+  p {
+    margin: 0;
+    line-height: 1.5;
+  }
+}
+
+.session-issue-close {
+  margin-left: auto;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: $font-size-xs;
+
+  &:hover { color: var(--text-primary); }
+}
+
 .encryption-warning {
   display: flex;
   align-items: flex-start;

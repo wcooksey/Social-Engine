@@ -12,7 +12,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const org = await prisma.organization.findUnique({
       where: { id: req.user!.organizationId },
-      select: { engineModel: true },
+      select: { engineModel: true, coachModel: true },
     });
     const orgConfig = await getOrgConfig(req.user!.organizationId);
     res.json({
@@ -27,6 +27,10 @@ router.get(
           recommended: m.recommended ?? false,
         })),
         current: org?.engineModel || config.engine.model,
+        // The Sandbox call coach picks its own model; null here means it
+        // inherits the Engine's.
+        coachCurrent: org?.coachModel || org?.engineModel || config.engine.model,
+        coachIsInherited: !org?.coachModel,
       },
     });
   })

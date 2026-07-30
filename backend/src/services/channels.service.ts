@@ -169,6 +169,13 @@ export async function placeVapiCall(
      *  (sent as the X-Vapi-Secret header). Set per-call so no Vapi dashboard
      *  Server URL config is needed. */
     server?: { url: string; secret: string };
+    /**
+     * Actions the assistant may take DURING the call — texting a link, checking
+     * the calendar, booking, capturing a callback. Vapi calls back to our
+     * webhook mid-conversation and speaks the result, so "I'll text that over
+     * right now" actually happens while they're still on the line.
+     */
+    tools?: unknown[];
   },
   creds: VoiceCreds
 ): Promise<SendResult> {
@@ -193,11 +200,15 @@ export async function placeVapiCall(
             messages: [{ role: 'system', content: opts.systemPrompt }],
           },
           voice: { provider: creds.voiceProvider, voiceId: creds.voiceId },
+          ...(opts.tools?.length ? { tools: opts.tools } : {}),
           ...(opts.server
             ? {
                 server: { url: opts.server.url, secret: opts.server.secret },
-                // Only need the end-of-call report delivered to our webhook.
-                serverMessages: ['end-of-call-report'],
+                // tool-calls must be delivered too, or mid-call actions never
+                // reach us and the assistant only *claims* it sent the text.
+                serverMessages: opts.tools?.length
+                  ? ['end-of-call-report', 'tool-calls']
+                  : ['end-of-call-report'],
               }
             : {}),
           ...(opts.voicemailMessage

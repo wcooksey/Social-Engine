@@ -192,6 +192,55 @@ something real happens: it calls *you* with the actual call persona and VOICE
 playbooks, and shows the resolved system prompt — the thing to edit when the
 bot says something you don't like.
 
+A rehearsal call carries the same mid-call tools a live call gets, so you hear
+the bot offer to text a link or book a time. The webhook recognises a rehearsal
+(`metadata.sandbox`) and performs no sends and no writes; only
+`check_availability` runs for real, because reading the calendar is harmless and
+the times it then offers you are genuine ones.
+
+### The phone agent: outcomes, mid-call actions, and a coach
+
+Three pieces, each solving something the others can't.
+
+**Outcomes** (`call-outcome.service.ts`). Vapi returns an `endedReason`, a
+summary and a transcript — prose. Every post-call decision used to depend on an
+agent reading that and improvising, and nothing could be counted. `classifyCall`
+maps it to a fixed taxonomy (reached decision maker, gatekeeper, callback
+requested, voicemail, wrong/bad number, not interested, do-not-call, failed),
+trusting the provider's `endedReason` first and reading the transcript only once
+a conversation actually happened. Consequences are enforced in code, not left to
+an agent: a do-not-call sets `doNotContact`, a dead number is cleared from the
+lead and re-scored for enrichment, and an opted-out lead gets no follow-up job.
+
+**Mid-call actions** (`call-tools.service.ts`). Vapi delivers `tool-calls` to
+the same webhook mid-conversation and speaks the result, so "I'll text that over
+right now" happens while they're still on the line rather than ten minutes later
+via a follow-up job. Four tools: text a demo/booking link, read real calendar
+openings, book (refusing to double-book, notifying the org, emailing the .ics),
+and record a callback time as a `CALLER` job.
+
+Two constraints shape it. The SMS destination is **always** the number we
+dialled or the one on the lead, never one spoken during the call — the
+transcript is untrusted input and a tool that texts arbitrary numbers on request
+is an open relay. And tools are gated on what is actually configured, with the
+system prompt describing only the ones attached to that call: an assistant told
+it can text with no SMS channel promises a text that never arrives, which is
+worse than not offering.
+
+**The coach** (`call-coach.service.ts`). Deciding what the bot should *say* is a
+different job from executing, so it is a different AI: a plain conversation on
+its own model (`Organization.coachModel`, independent of `engineModel` — the
+Engine runs all day and is picked for cost, while tuning a script is one
+conversation worth the best model available). It sees three things the Engine
+never assembles in one place: the verbatim prompt live calls run on, the active
+VOICE playbooks, and the outcome distribution of the last 150 calls.
+
+It has exactly one tool, `propose_playbook`, and proposals are **returned, never
+applied** — `POST /api/sandbox/coach/apply` is a separate call behind an explicit
+click, because changing how every future call is conducted is a decision a person
+makes from a diff they can read. Call summaries are wrapped in the coach's prompt
+as data from strangers on the phone, never as instructions.
+
 ### Run control: runs outlive their request
 
 An Engine run used to *be* its HTTP request — `engineService.run()` was awaited

@@ -454,6 +454,19 @@
       </div>
     }
 
+    @if (sessionIssue) {
+      <div class="session-issue" [class.session-issue--checkpoint]="sessionIssueReason === 'checkpoint'">
+        <i class="bi" [class.bi-shield-exclamation]="sessionIssueReason === 'checkpoint'" [class.bi-exclamation-triangle]="sessionIssueReason !== 'checkpoint'"></i>
+        <div>
+          <strong>{{ sessionIssueReason === 'checkpoint' ? 'Login challenged, not expired' : 'Session check failed' }}</strong>
+          <p>{{ sessionIssue }}</p>
+        </div>
+        <button type="button" class="session-issue-close" (click)="sessionIssue = null" title="Dismiss">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+    }
+
     <div class="social-accounts-grid">
       @for (card of socialPlatforms; track card.platform) {
         <div class="social-account-card" *ngIf="accountFor(card.platform) as account; else notConnectedCard">

@@ -1,9 +1,17 @@
 import { Component, ElementRef, OnInit, ViewChild, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { SandboxAction, SandboxChannel, SandboxService } from '../../core/services/sandbox.service';
+import {
+  CoachContext,
+  CoachProposal,
+  SandboxAction,
+  SandboxChannel,
+  SandboxService
+} from '../../core/services/sandbox.service';
 import { LeadsService } from '../../core/services/leads.service';
+import { ModelsService } from '../../core/services/models.service';
 import { ToastService } from '../../core/services/toast.service';
+import { apiErrorMessage } from '../../core/utils/api-error';
 import { Lead } from '../../core/models/lead.model';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { ButtonComponent } from '../../shared/components/button/button.component';
@@ -16,6 +24,12 @@ interface SandboxTurn {
   role: 'user' | 'assistant';
   content: string;
   actions?: SandboxAction[];
+}
+
+interface CoachTurnView {
+  role: 'user' | 'assistant';
+  content: string;
+  proposals?: (CoachProposal & { applied?: boolean; applying?: boolean })[];
 }
 
 /**
@@ -45,7 +59,7 @@ interface SandboxTurn {
   styleUrl: './sandbox.component.scss'
 })
 export class SandboxComponent implements OnInit {
-  tab = signal<'chat' | 'voice'>('chat');
+  tab = signal<'chat' | 'voice' | 'coach'>('chat');
 
   // --- Conversation rehearsal ---
   channel: SandboxChannel = 'EMAIL';
@@ -64,9 +78,18 @@ export class SandboxComponent implements OnInit {
   hasVoicePlaybooks = signal(true);
   showPrompt = signal(false);
 
+  // --- Call coach ---
+  coachTurns = signal<CoachTurnView[]>([]);
+  coachDraft = '';
+  coachThinking = signal(false);
+  coachContext = signal<CoachContext | null>(null);
+  coachModel = '';
+  showCallPrompt = signal(false);
+
   leads = signal<Lead[]>([]);
 
   @ViewChild('threadEnd') threadEnd?: ElementRef<HTMLDivElement>;
+  @ViewChild('coachEnd') coachEnd?: ElementRef<HTMLDivElement>;
 
   channelOptions: SelectOption[] = [
     { label: 'Email', value: 'EMAIL' },
@@ -86,9 +109,19 @@ export class SandboxComponent implements OnInit {
     "Sure, what times are you free this week?"
   ];
 
+  /** Openers for the coach — the questions worth its first answer. */
+  coachExamples = [
+    'Our biggest problem is getting past the receptionist. What should the bot say?',
+    'Write me an opening line for calling used car dealerships cold.',
+    'Look at the outcomes below — what is the single biggest thing to fix?',
+    'A GM says "just email me something". What should the bot do?',
+    'How should the bot handle "we already have a vendor for that"?'
+  ];
+
   constructor(
     private sandbox: SandboxService,
     private leadsService: LeadsService,
+    private modelsService: ModelsService,
     private toast: ToastService
   ) {}
 
@@ -99,6 +132,18 @@ export class SandboxComponent implements OnInit {
       error: () => this.leads.set([])
     });
     this.refreshCallPrompt();
+    this.modelsService.getModels().subscribe({
+      next: (res) => (this.coachModel = res.coachCurrent || res.current),
+      error: () => undefined
+    });
+    this.loadCoachContext();
+  }
+
+  get modelOptions(): SelectOption[] {
+    return this.modelsService.modelOptionsWithCurrent().map((m) => ({
+      label: `${m.label}${m.configured ? '' : ' (no API key)'}`,
+      value: m.id
+    }));
   }
 
   get leadOptions(): SelectOption[] {
@@ -157,7 +202,7 @@ export class SandboxComponent implements OnInit {
         },
         error: (err) => {
           this.thinking.set(false);
-          this.toast.error(err?.error?.error?.message || 'Rehearsal failed');
+          this.toast.error(apiErrorMessage(err, 'Rehearsal failed'));
         }
       });
   }
@@ -214,8 +259,121 @@ export class SandboxComponent implements OnInit {
         },
         error: (err) => {
           this.calling.set(false);
-          this.toast.error(err?.error?.error?.message || 'Could not place the call');
+          this.toast.error(apiErrorMessage(err, 'Could not place the call'));
         }
       });
+  }
+
+  // --- Call coach --------------------------------------------------------
+
+  loadCoachContext(): void {
+    this.sandbox.coachContext().subscribe({
+      next: (ctx) => this.coachContext.set(ctx),
+      error: () => this.coachContext.set(null)
+    });
+  }
+
+  /** The coach's model is its own; changing it here doesn't touch the Engine. */
+  onCoachModelChange(id: string): void {
+    if (!id) return;
+    this.modelsService.setCoachModel(id).subscribe({
+      next: () => this.toast.success('Coach model updated'),
+      error: (err) => this.toast.error(apiErrorMessage(err, 'Could not change the model'))
+    });
+  }
+
+  useCoachExample(text: string): void {
+    this.coachDraft = text;
+  }
+
+  resetCoach(): void {
+    this.coachTurns.set([]);
+    this.coachDraft = '';
+  }
+
+  handleCoachKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      this.askCoach();
+    }
+  }
+
+  askCoach(): void {
+    const message = this.coachDraft.trim();
+    if (!message || this.coachThinking()) return;
+    this.coachDraft = '';
+
+    this.coachTurns.update((list) => [...list, { role: 'user', content: message }]);
+    this.coachThinking.set(true);
+    this.scrollCoachToBottom();
+
+    const messages = this.coachTurns().map((t) => ({ role: t.role, content: t.content }));
+    this.sandbox.coach({ messages, model: this.coachModel || undefined }).subscribe({
+      next: (res) => {
+        this.coachThinking.set(false);
+        this.coachTurns.update((list) => [
+          ...list,
+          {
+            role: 'assistant',
+            content: res.reply || '(no reply)',
+            proposals: res.proposals?.map((p) => ({ ...p }))
+          }
+        ]);
+        this.scrollCoachToBottom();
+      },
+      error: (err) => {
+        this.coachThinking.set(false);
+        this.toast.error(apiErrorMessage(err, 'The coach could not answer'));
+      }
+    });
+  }
+
+  /** Applying is deliberately a separate click — this changes every future call. */
+  applyProposal(turnIndex: number, proposalIndex: number): void {
+    const turn = this.coachTurns()[turnIndex];
+    const proposal = turn?.proposals?.[proposalIndex];
+    if (!proposal || proposal.applied || proposal.applying) return;
+
+    this.updateProposal(turnIndex, proposalIndex, { applying: true });
+    this.sandbox
+      .applyProposal({
+        playbookId: proposal.playbookId,
+        name: proposal.name,
+        instructions: proposal.instructions
+      })
+      .subscribe({
+        next: (res) => {
+          this.updateProposal(turnIndex, proposalIndex, { applying: false, applied: true });
+          this.toast.success(res.note);
+          // The prompt and playbook list the coach reasons from just changed.
+          this.loadCoachContext();
+          this.refreshCallPrompt();
+        },
+        error: (err) => {
+          this.updateProposal(turnIndex, proposalIndex, { applying: false });
+          this.toast.error(apiErrorMessage(err, 'Could not apply the playbook'));
+        }
+      });
+  }
+
+  private updateProposal(
+    turnIndex: number,
+    proposalIndex: number,
+    patch: { applied?: boolean; applying?: boolean }
+  ): void {
+    this.coachTurns.update((list) =>
+      list.map((turn, i) =>
+        i !== turnIndex
+          ? turn
+          : {
+              ...turn,
+              proposals: turn.proposals?.map((p, j) => (j === proposalIndex ? { ...p, ...patch } : p))
+            }
+      )
+    );
+  }
+
+  private scrollCoachToBottom(): void {
+    setTimeout(() => this.coachEnd?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'end' }), 0);
   }
 }

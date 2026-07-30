@@ -108,54 +108,132 @@ export async function upsertAccount(input: {
 }
 
 /**
- * Open the platform with the stored session and check whether we're still
- * logged in. Updates the account status. Returns true if the login is live.
+ * Why a session check failed. "Expired" was previously reported for every
+ * failure, which is actively misleading: a security checkpoint and a dead
+ * cookie need opposite responses (approve the login vs. re-capture it), and
+ * telling someone to re-capture when Facebook is challenging the login sends
+ * them round a loop that can never succeed.
  */
-export async function validateAccount(accountId: string, organizationId: string): Promise<boolean> {
+export type ValidationReason =
+  | 'ok'
+  | 'checkpoint' // platform is challenging the login (new device/IP)
+  | 'login_wall' // genuinely not authenticated — cookies missing or dead
+  | 'unreadable_state' // stored blob won't decrypt/parse
+  | 'browser_error'; // couldn't even complete the probe
+
+export interface ValidationResult {
+  live: boolean;
+  reason: ValidationReason;
+  /** Operator-facing next step. */
+  detail: string;
+  /** Where the probe actually landed — the evidence behind the verdict. */
+  finalUrl?: string;
+}
+
+/**
+ * Open the platform with the stored session and check whether we're still
+ * logged in, updating the account status and reporting WHY when it isn't.
+ */
+export async function validateAccount(
+  accountId: string,
+  organizationId: string
+): Promise<ValidationResult> {
   const account = await prisma.socialAccount.findFirst({
     where: { id: accountId, organizationId },
   });
-  if (!account) return false;
+  if (!account) {
+    return { live: false, reason: 'browser_error', detail: 'Account not found.' };
+  }
 
   const platform = (Object.keys(PLATFORM_ENUM) as PlatformKey[]).find(
     (k) => PLATFORM_ENUM[k] === account.platform
   )!;
   const probe = PLATFORM_PROBE[platform];
 
+  const platformLabel = platform.charAt(0).toUpperCase() + platform.slice(1);
+
   let state: Record<string, unknown>;
   try {
     state = JSON.parse(decrypt(account.encryptedState));
   } catch {
     await prisma.socialAccount.update({ where: { id: account.id }, data: { status: 'ERROR' } });
-    return false;
+    return {
+      live: false,
+      reason: 'unreadable_state',
+      detail:
+        'The stored session could not be read. If the server encryption key changed since it was saved, reconnect the account to store it again.',
+    };
+  }
+
+  // A quick shape check catches the most common paste mistake before we spend a
+  // browser launch on it: pasting a fragment of session.json, or the wrong file.
+  const cookieCount = Array.isArray((state as { cookies?: unknown[] }).cookies)
+    ? (state as { cookies: unknown[] }).cookies.length
+    : 0;
+  if (cookieCount === 0) {
+    await prisma.socialAccount.update({ where: { id: account.id }, data: { status: 'EXPIRED' } });
+    return {
+      live: false,
+      reason: 'login_wall',
+      detail:
+        'The saved session contains no cookies, so it was never a logged-in session. Re-run the capture command, make sure you are fully logged in before closing the browser window, and paste the whole file.',
+    };
   }
 
   const session = new BrowserSession();
   try {
     await session.open({ storageState: state });
     const obs = await session.goto(probe.url);
+
+    // A checkpoint is NOT an expired cookie — the platform recognises the
+    // session and is challenging it, typically because it was captured on your
+    // machine and is now being replayed from the server.
+    const challenged = /\/checkpoint|\/challenge|two_step_verification|login_approval/i.test(obs.url);
     const loggedOut =
       probe.loggedOutUrl.test(obs.url) ||
       (!!probe.loggedOutText && probe.loggedOutText.test(obs.text));
+
     // Refresh cookies while we're here to extend the session.
     const refreshed = await session.exportState();
     await session.close();
 
+    const live = !loggedOut && !challenged;
     await prisma.socialAccount.update({
       where: { id: account.id },
       data: {
-        status: loggedOut ? 'EXPIRED' : 'CONNECTED',
+        status: live ? 'CONNECTED' : 'EXPIRED',
         lastValidatedAt: new Date(),
-        ...(loggedOut ? {} : { encryptedState: encrypt(JSON.stringify(refreshed)) }),
+        ...(live ? { encryptedState: encrypt(JSON.stringify(refreshed)) } : {}),
       },
     });
-    return !loggedOut;
-  } catch {
+
+    if (live) {
+      return { live: true, reason: 'ok', detail: 'Session is live.', finalUrl: obs.url };
+    }
+    if (challenged) {
+      return {
+        live: false,
+        reason: 'checkpoint',
+        finalUrl: obs.url,
+        detail: `${platformLabel} is challenging this login with a security checkpoint rather than rejecting it — it usually does this the first time a session is used from somewhere new, which is exactly what happens when a session captured on your computer is replayed from the server. Re-capturing will NOT fix it. Open ${platformLabel} on your own device, approve the login attempt (look for a recent unrecognised-login alert, or Settings → Security → Where you're logged in), then test again.`,
+      };
+    }
+    return {
+      live: false,
+      reason: 'login_wall',
+      finalUrl: obs.url,
+      detail: `${platformLabel} served a login page, so the session is not authenticating. Re-capture it, and before closing the capture browser confirm you can actually see your feed — closing at the login screen saves a logged-out session.`,
+    };
+  } catch (err) {
     await session.close().catch(() => undefined);
     await prisma.socialAccount.update({
       where: { id: account.id },
       data: { status: 'ERROR', lastValidatedAt: new Date() },
     });
-    return false;
+    return {
+      live: false,
+      reason: 'browser_error',
+      detail: `The check could not run: ${err instanceof Error ? err.message : 'browser failed to start'}. This is a problem on our side, not with your session.`,
+    };
   }
 }

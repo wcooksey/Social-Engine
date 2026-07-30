@@ -26,6 +26,10 @@ model Organization {
 
   // AI model powering the Engine (null = server default)
   engineModel String?
+  // Model for the Sandbox call coach. Separate on purpose: the Engine runs all
+  // day and is tuned for cost, while tuning the phone script is a one-off
+  // conversation worth spending the best available model on.
+  coachModel String?
 
   // Autonomy guardrails
   dailySendCap Int     @default(200)

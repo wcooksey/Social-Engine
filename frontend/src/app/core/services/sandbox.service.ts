@@ -27,7 +27,57 @@ export interface SandboxCallResult {
   vapiCallId?: string;
   usedVoicePlaybooks: boolean;
   systemPrompt: string;
+  capabilities?: CallCapabilities;
+  midCallActions?: string;
   note: string;
+}
+
+export interface CallCapabilities {
+  canText: boolean;
+  canBook: boolean;
+}
+
+export interface CoachPlaybook {
+  id: string;
+  name: string;
+  scopeLabel: string;
+  channel: string;
+  instructions: string;
+  priority: number;
+}
+
+export interface CoachOutcomeStat {
+  outcome: string;
+  label: string;
+  count: number;
+  share: number;
+}
+
+export interface CoachContext {
+  callPrompt: string;
+  voicePlaybooks: CoachPlaybook[];
+  outcomes: CoachOutcomeStat[];
+  totalCalls: number;
+  recentCalls: { outcome: string; summary: string; at: string }[];
+  capabilities: CallCapabilities;
+  model: string;
+  modelIsInherited: boolean;
+}
+
+/** A playbook the coach wrote. Not active until you apply it. */
+export interface CoachProposal {
+  playbookId?: string;
+  replaces?: { name: string; instructions: string };
+  name: string;
+  instructions: string;
+  rationale: string;
+}
+
+export interface CoachTurn {
+  reply: string;
+  proposals: CoachProposal[];
+  model: string;
+  usage: { inputTokens: number; outputTokens: number };
 }
 
 /** Rehearsal APIs: exercise the real AI behaviour without touching a prospect. */
@@ -53,5 +103,29 @@ export class SandboxService {
 
   callMe(input: { to: string; leadId?: string; objective?: string; firstMessage?: string }): Observable<SandboxCallResult> {
     return this.api.post<SandboxCallResult>('/api/sandbox/call-me', input);
+  }
+
+  // --- Call coach ---------------------------------------------------------
+
+  coachContext(): Observable<CoachContext> {
+    return this.api.get<CoachContext>('/api/sandbox/coach/context');
+  }
+
+  coach(input: {
+    messages: { role: 'user' | 'assistant'; content: string }[];
+    model?: string;
+  }): Observable<CoachTurn> {
+    return this.api.post<CoachTurn>('/api/sandbox/coach', input);
+  }
+
+  applyProposal(input: {
+    playbookId?: string;
+    name: string;
+    instructions: string;
+  }): Observable<{ playbookId: string; created: boolean; note: string }> {
+    return this.api.post<{ playbookId: string; created: boolean; note: string }>(
+      '/api/sandbox/coach/apply',
+      input
+    );
   }
 }
