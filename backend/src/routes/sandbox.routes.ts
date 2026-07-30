@@ -9,6 +9,8 @@ import { getVoicePlaybookText } from '../services/playbook.service';
 import { getOrgConfig, type ResolvedOrgConfig } from '../services/settings.service';
 import * as channels from '../services/channels.service';
 import { buildCallTools } from '../services/call-tools.service';
+import { gatherCoachContext, runCoachTurn } from '../services/call-coach.service';
+import { LlmNotConfiguredError } from '../engine/llm/llm.service';
 
 /**
  * Sandbox: rehearse the AI's BEHAVIOUR before it meets a real prospect.
@@ -278,6 +280,111 @@ router.post(
           ? 'Calling you now with your real voice playbooks loaded — this is what a lead hears.'
           : 'Calling you now. No VOICE playbooks are active, so the bot is running on its base instructions only — add one to shape how it talks.',
       },
+    });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Call coach — a strategist for the phone script, on its own model
+// ---------------------------------------------------------------------------
+
+/** What the coach is looking at: the live prompt, the playbooks, the results. */
+router.get(
+  '/coach/context',
+  asyncHandler(async (req, res) => {
+    const [ctx, org] = await Promise.all([
+      gatherCoachContext(req.user!.organizationId),
+      prisma.organization.findUnique({
+        where: { id: req.user!.organizationId },
+        select: { coachModel: true, engineModel: true },
+      }),
+    ]);
+    res.json({
+      success: true,
+      data: {
+        ...ctx,
+        model: org?.coachModel || org?.engineModel || config.engine.model,
+        modelIsInherited: !org?.coachModel,
+      },
+    });
+  })
+);
+
+/** One turn with the coach. Proposals come back for approval; nothing is applied. */
+router.post(
+  '/coach',
+  asyncHandler(async (req, res) => {
+    const raw = Array.isArray(req.body?.messages) ? req.body.messages : [];
+    const messages = raw
+      .filter((m: unknown): m is { role: string; content: string } =>
+        !!m && typeof (m as { content?: unknown }).content === 'string'
+      )
+      .map((m: { role: string; content: string }) => ({
+        role: (m.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
+        content: String(m.content),
+      }));
+    if (!messages.length) throw new AppError('messages is required');
+    if (messages[messages.length - 1].role !== 'user') {
+      throw new AppError('The last message must be from you');
+    }
+
+    const model = req.body?.model ? String(req.body.model) : undefined;
+    try {
+      const result = await runCoachTurn({
+        organizationId: req.user!.organizationId,
+        messages,
+        model,
+      });
+      res.json({ success: true, data: result });
+    } catch (err) {
+      if (err instanceof LlmNotConfiguredError) throw new AppError(err.message, 400);
+      throw err;
+    }
+  })
+);
+
+/**
+ * Apply a proposal. Deliberately a separate, explicit call: the coach can write
+ * a playbook but only a person puts it in front of prospects.
+ */
+router.post(
+  '/coach/apply',
+  asyncHandler(async (req, res) => {
+    const name = String(req.body?.name || '').trim();
+    const instructions = String(req.body?.instructions || '').trim();
+    if (!name) throw new AppError('name is required');
+    if (!instructions) throw new AppError('instructions is required');
+
+    const playbookId = req.body?.playbookId ? String(req.body.playbookId) : undefined;
+    if (playbookId) {
+      const existing = await prisma.playbook.findFirst({
+        where: { id: playbookId, organizationId: req.user!.organizationId },
+      });
+      if (!existing) throw new AppError('Playbook not found', 404);
+      const updated = await prisma.playbook.update({
+        where: { id: existing.id },
+        data: { name: name.slice(0, 120), instructions: instructions.slice(0, 12000) },
+      });
+      res.json({
+        success: true,
+        data: { playbookId: updated.id, created: false, note: `Updated "${updated.name}" — it applies to the next call placed.` },
+      });
+      return;
+    }
+
+    const created = await prisma.playbook.create({
+      data: {
+        organizationId: req.user!.organizationId,
+        name: name.slice(0, 120),
+        instructions: instructions.slice(0, 12000),
+        channel: 'VOICE',
+        scope: 'GLOBAL',
+        isActive: true,
+      },
+    });
+    res.json({
+      success: true,
+      data: { playbookId: created.id, created: true, note: `Created "${created.name}" — it applies to the next call placed.` },
     });
   })
 );

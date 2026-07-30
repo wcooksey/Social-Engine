@@ -331,3 +331,183 @@
   max-height: 46vh;
   overflow-y: auto;
 }
+
+// --- Call coach -----------------------------------------------------------
+// Chat on the left, what it can see on the right — the context panel is the
+// point, since the coach's advice is only as good as the data behind it.
+.coach-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: $spacing-lg;
+  align-items: start;
+
+  @include responsive($breakpoint-lg) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.coach-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 620px;
+}
+
+.coach-thread {
+  max-height: 58vh;
+}
+
+.coach-side {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+
+  h3 { margin: 0; }
+}
+
+.side-heading {
+  margin-top: $spacing-sm !important;
+  padding-top: $spacing-md;
+  border-top: 1px solid var(--border-primary);
+}
+
+.side-block {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.side-label {
+  font-size: $font-size-xs;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+
+.outcome-list,
+.playbook-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  li {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: $spacing-sm;
+    font-size: $font-size-xs;
+    color: var(--text-secondary);
+  }
+}
+
+.outcome-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outcome-count {
+  flex-shrink: 0;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+
+  em {
+    color: var(--text-tertiary);
+    font-style: normal;
+    margin-left: 4px;
+  }
+}
+
+.playbook-list li {
+  justify-content: flex-start;
+
+  i { color: $primary-blue; }
+  em { color: var(--text-tertiary); font-style: normal; font-size: $font-size-xs; }
+}
+
+.cap-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+}
+
+// A proposal is a change to every future call, so it reads as a document with
+// an explicit action — never something that looks already applied.
+.proposal {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  margin-top: $spacing-md;
+  padding: $spacing-md;
+  border-radius: $border-radius-md;
+  background: var(--bg-card);
+  border: 1px solid rgba($primary-blue, 0.35);
+  align-items: flex-start;
+}
+
+.proposal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: $spacing-sm;
+
+  strong { font-size: $font-size-sm; color: var(--text-primary); }
+}
+
+.proposal-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: $font-size-xs;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+
+  i { color: $primary-blue; }
+}
+
+.proposal-why {
+  margin: 0;
+  font-size: $font-size-xs;
+  color: var(--text-secondary);
+}
+
+.proposal-body {
+  width: 100%;
+  margin: 0;
+  padding: $spacing-sm;
+  border-radius: $border-radius-sm;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  font-size: $font-size-xs;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.proposal-diff {
+  width: 100%;
+  font-size: $font-size-xs;
+  color: var(--text-tertiary);
+
+  summary { cursor: pointer; }
+
+  pre {
+    margin: $spacing-xs 0 0;
+    padding: $spacing-sm;
+    border-radius: $border-radius-sm;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+    color: var(--text-secondary);
+  }
+}

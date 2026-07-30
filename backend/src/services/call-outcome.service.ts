@@ -95,7 +95,7 @@ const NEXT_ACTION: Record<CallOutcome, string> = {
     'The call failed on our side, not theirs. This is not a signal about the lead — let the cadence retry, and if it fails repeatedly flag the voice channel for a human to check.',
 };
 
-const LABEL: Record<CallOutcome, string> = {
+export const LABEL_FOR_OUTCOME: Record<CallOutcome, string> = {
   reached_decision_maker: 'Reached decision maker',
   reached_someone: 'Spoke to someone (not the target)',
   gatekeeper: 'Blocked by gatekeeper',
@@ -127,7 +127,7 @@ export function classifyCall(input: {
     retireNumber: over?.retireNumber ?? false,
     optOut: over?.optOut ?? false,
     nextAction: NEXT_ACTION[outcome],
-    label: LABEL[outcome],
+    label: LABEL_FOR_OUTCOME[outcome],
   });
 
   // An explicit "stop calling" outranks everything, including a provider reason.

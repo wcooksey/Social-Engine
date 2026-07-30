@@ -75,11 +75,20 @@ export class ModelsService {
     return models;
   });
 
+  private readonly _coachModel = signal<string | null>(null);
+  /** The call coach's model. Follows the Engine's until set explicitly. */
+  readonly coachModel = this._coachModel.asReadonly();
+
+  private readonly _coachIsInherited = signal(true);
+  readonly coachIsInherited = this._coachIsInherited.asReadonly();
+
   getModels(): Observable<ModelsResponse> {
     return this.api.get<ModelsResponse>('/api/models').pipe(
       tap(res => {
         this._models.set(res.models);
         this._currentModel.set(res.current);
+        this._coachModel.set(res.coachCurrent ?? res.current);
+        this._coachIsInherited.set(res.coachIsInherited ?? true);
         this._loaded.set(true);
       })
     );
@@ -88,7 +97,21 @@ export class ModelsService {
   setModel(id: string): Observable<{ engineModel?: string | null } | unknown> {
     return this.api.patch<{ engineModel?: string | null }>('/api/organizations/mine', { engineModel: id }).pipe(
       // Trust the value the server actually stored, not just what we sent.
-      tap(org => this._currentModel.set((org && org.engineModel) || id))
+      tap(org => {
+        this._currentModel.set((org && org.engineModel) || id);
+        // A coach that hasn't been pinned follows the Engine, so keep it in step.
+        if (this._coachIsInherited()) this._coachModel.set((org && org.engineModel) || id);
+      })
+    );
+  }
+
+  /** Pin the coach to its own model, independent of whatever the Engine runs on. */
+  setCoachModel(id: string): Observable<{ coachModel?: string | null } | unknown> {
+    return this.api.patch<{ coachModel?: string | null }>('/api/organizations/mine', { coachModel: id }).pipe(
+      tap(org => {
+        this._coachModel.set((org && org.coachModel) || id);
+        this._coachIsInherited.set(false);
+      })
     );
   }
 

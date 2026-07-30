@@ -11,6 +11,9 @@
       <button type="button" [class.active]="tab() === 'voice'" (click)="tab.set('voice')">
         <i class="bi bi-telephone"></i> Voice
       </button>
+      <button type="button" [class.active]="tab() === 'coach'" (click)="tab.set('coach')">
+        <i class="bi bi-mortarboard"></i> Call coach
+      </button>
     </div>
   </div>
 
@@ -122,7 +125,7 @@
         </div>
       </app-card>
     </div>
-  } @else {
+  } @else if (tab() === 'voice') {
     <div class="voice-layout">
       <app-card padding="lg">
         <h3>Have the calling bot call you</h3>
@@ -189,6 +192,181 @@
         </p>
         @if (showPrompt()) {
           <pre class="prompt-preview">{{ callPrompt() || 'Could not build the prompt.' }}</pre>
+        }
+      </app-card>
+    </div>
+  } @else {
+    <div class="coach-layout">
+      <app-card padding="lg" class="coach-card">
+        <div class="thread-header">
+          <div>
+            <h3>Call coach</h3>
+            <p class="hint hint--tight">
+              A strategist for the phone script — not the Engine. It can see the exact prompt your calls
+              run on, your voice playbooks, and how the last {{ coachContext()?.totalCalls || 0 }} calls
+              actually went. It writes playbooks; you decide whether to use them.
+            </p>
+          </div>
+        </div>
+
+        <div class="thread coach-thread">
+          @if (!coachTurns().length) {
+            <div class="thread-empty">
+              <i class="bi bi-mortarboard"></i>
+              <p>Tell it what's going wrong on the phones — or ask it what to fix first.</p>
+            </div>
+          }
+
+          @for (turn of coachTurns(); track ti; let ti = $index) {
+            <div class="turn" [class.turn--prospect]="turn.role === 'user'">
+              <div class="turn-bubble">
+                <span class="turn-who">{{ turn.role === 'user' ? 'You' : 'Coach' }}</span>
+                @if (turn.role === 'assistant') {
+                  <div class="turn-body" [innerHTML]="turn.content | markdown"></div>
+                } @else {
+                  <p class="turn-body">{{ turn.content }}</p>
+                }
+
+                @for (proposal of turn.proposals; track pi; let pi = $index) {
+                  <div class="proposal">
+                    <div class="proposal-head">
+                      <span class="proposal-kind">
+                        <i class="bi bi-file-earmark-text"></i>
+                        {{ proposal.playbookId ? 'Rewrite of' : 'New playbook' }}
+                      </span>
+                      <strong>{{ proposal.name }}</strong>
+                    </div>
+                    <p class="proposal-why">{{ proposal.rationale }}</p>
+                    <pre class="proposal-body">{{ proposal.instructions }}</pre>
+                    @if (proposal.replaces) {
+                      <details class="proposal-diff">
+                        <summary>What it replaces</summary>
+                        <pre>{{ proposal.replaces.instructions }}</pre>
+                      </details>
+                    }
+                    @if (proposal.applied) {
+                      <app-badge variant="success" size="sm">
+                        <i class="bi bi-check2"></i> Active — applies to the next call
+                      </app-badge>
+                    } @else {
+                      <app-button
+                        variant="primary"
+                        size="sm"
+                        icon="bi-check2-circle"
+                        [loading]="!!proposal.applying"
+                        (clicked)="applyProposal(ti, pi)">
+                        {{ proposal.playbookId ? 'Replace the playbook' : 'Use this playbook' }}
+                      </app-button>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+          }
+
+          @if (coachThinking()) {
+            <div class="turn">
+              <div class="turn-bubble turn-bubble--thinking">
+                <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+              </div>
+            </div>
+          }
+          <div #coachEnd></div>
+        </div>
+
+        <div class="composer">
+          <textarea
+            rows="2"
+            placeholder="What should the bot do differently?"
+            [(ngModel)]="coachDraft"
+            (keydown)="handleCoachKeydown($event)">
+          </textarea>
+          <app-button
+            variant="primary"
+            icon="bi-send"
+            [loading]="coachThinking()"
+            [disabled]="!coachDraft.trim()"
+            (clicked)="askCoach()">
+            Ask
+          </app-button>
+        </div>
+      </app-card>
+
+      <app-card padding="lg" class="coach-side">
+        <h3>Its model</h3>
+        <app-select
+          [options]="modelOptions"
+          [(ngModel)]="coachModel"
+          [showPlaceholderOption]="false"
+          (selectionChange)="onCoachModelChange(coachModel)">
+        </app-select>
+        <p class="hint hint--tight">
+          Separate from the Engine's model on purpose. The Engine runs all day, so it's picked for cost;
+          this is one conversation, so pick the smartest thing you have.
+        </p>
+
+        <h3 class="side-heading">What it's looking at</h3>
+        @if (coachContext(); as ctx) {
+          @if (ctx.totalCalls) {
+            <ul class="outcome-list">
+              @for (o of ctx.outcomes; track o.outcome) {
+                <li>
+                  <span class="outcome-label">{{ o.label }}</span>
+                  <span class="outcome-count">{{ o.count }} <em>{{ o.share }}%</em></span>
+                </li>
+              }
+            </ul>
+            <p class="hint hint--tight">Last {{ ctx.totalCalls }} completed calls.</p>
+          } @else {
+            <p class="hint">
+              No completed calls yet, so there's no outcome data to reason from. It'll work from the script
+              alone until calls start landing.
+            </p>
+          }
+
+          <div class="cap-row">
+            <app-badge [variant]="ctx.capabilities.canText ? 'success' : 'neutral'" size="sm">
+              <i class="bi bi-chat-text"></i> {{ ctx.capabilities.canText ? 'Can text mid-call' : 'No mid-call texting' }}
+            </app-badge>
+            <app-badge [variant]="ctx.capabilities.canBook ? 'success' : 'neutral'" size="sm">
+              <i class="bi bi-calendar-check"></i> {{ ctx.capabilities.canBook ? 'Can book mid-call' : 'No mid-call booking' }}
+            </app-badge>
+          </div>
+
+          <div class="side-block">
+            <span class="side-label">Active voice playbooks</span>
+            @if (ctx.voicePlaybooks.length) {
+              <ul class="playbook-list">
+                @for (p of ctx.voicePlaybooks; track p.id) {
+                  <li><i class="bi bi-file-earmark-text"></i> {{ p.name }} <em>{{ p.channel }}</em></li>
+                }
+              </ul>
+            } @else {
+              <p class="hint hint--tight">None — every call runs on the base prompt alone.</p>
+            }
+          </div>
+
+          <app-button variant="ghost" size="sm" (clicked)="showCallPrompt.set(!showCallPrompt())">
+            {{ showCallPrompt() ? 'Hide' : 'Show' }} the live call prompt
+          </app-button>
+          @if (showCallPrompt()) {
+            <pre class="prompt-preview">{{ ctx.callPrompt }}</pre>
+          }
+        } @else {
+          <p class="hint">Could not load the call context.</p>
+        }
+
+        <div class="examples">
+          <span class="examples-label">Start here</span>
+          @for (example of coachExamples; track example) {
+            <button type="button" class="example-chip" (click)="useCoachExample(example)">{{ example }}</button>
+          }
+        </div>
+
+        @if (coachTurns().length) {
+          <app-button variant="ghost" size="sm" icon="bi-arrow-counterclockwise" (clicked)="resetCoach()">
+            Start over
+          </app-button>
         }
       </app-card>
     </div>
