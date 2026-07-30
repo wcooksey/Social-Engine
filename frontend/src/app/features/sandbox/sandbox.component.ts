@@ -11,6 +11,7 @@ import {
 import { LeadsService } from '../../core/services/leads.service';
 import { ModelsService } from '../../core/services/models.service';
 import { ToastService } from '../../core/services/toast.service';
+import { apiErrorMessage } from '../../core/utils/api-error';
 import { Lead } from '../../core/models/lead.model';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { ButtonComponent } from '../../shared/components/button/button.component';
@@ -201,7 +202,7 @@ export class SandboxComponent implements OnInit {
         },
         error: (err) => {
           this.thinking.set(false);
-          this.toast.error(err?.error?.error?.message || 'Rehearsal failed');
+          this.toast.error(apiErrorMessage(err, 'Rehearsal failed'));
         }
       });
   }
@@ -258,7 +259,7 @@ export class SandboxComponent implements OnInit {
         },
         error: (err) => {
           this.calling.set(false);
-          this.toast.error(err?.error?.error?.message || 'Could not place the call');
+          this.toast.error(apiErrorMessage(err, 'Could not place the call'));
         }
       });
   }
@@ -277,7 +278,7 @@ export class SandboxComponent implements OnInit {
     if (!id) return;
     this.modelsService.setCoachModel(id).subscribe({
       next: () => this.toast.success('Coach model updated'),
-      error: (err) => this.toast.error(err?.error?.error?.message || 'Could not change the model')
+      error: (err) => this.toast.error(apiErrorMessage(err, 'Could not change the model'))
     });
   }
 
@@ -322,7 +323,7 @@ export class SandboxComponent implements OnInit {
       },
       error: (err) => {
         this.coachThinking.set(false);
-        this.toast.error(err?.error?.error?.message || 'The coach could not answer');
+        this.toast.error(apiErrorMessage(err, 'The coach could not answer'));
       }
     });
   }
@@ -350,7 +351,7 @@ export class SandboxComponent implements OnInit {
         },
         error: (err) => {
           this.updateProposal(turnIndex, proposalIndex, { applying: false });
-          this.toast.error(err?.error?.error?.message || 'Could not apply the playbook');
+          this.toast.error(apiErrorMessage(err, 'Could not apply the playbook'));
         }
       });
   }

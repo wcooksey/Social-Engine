@@ -205,6 +205,12 @@
   letter-spacing: 0.04em;
   color: var(--text-tertiary);
   margin-bottom: 2px;
+
+  // Tertiary grey disappears against the blue bubble, badly in light mode.
+  .turn--prospect & {
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
 }
 
 .turn-body {

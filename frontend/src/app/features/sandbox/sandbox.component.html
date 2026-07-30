@@ -346,12 +346,6 @@
             }
           </div>
 
-          <app-button variant="ghost" size="sm" (clicked)="showCallPrompt.set(!showCallPrompt())">
-            {{ showCallPrompt() ? 'Hide' : 'Show' }} the live call prompt
-          </app-button>
-          @if (showCallPrompt()) {
-            <pre class="prompt-preview">{{ ctx.callPrompt }}</pre>
-          }
         } @else {
           <p class="hint">Could not load the call context.</p>
         }
@@ -367,6 +361,16 @@
           <app-button variant="ghost" size="sm" icon="bi-arrow-counterclockwise" (clicked)="resetCoach()">
             Start over
           </app-button>
+        }
+
+        <!-- Last, and collapsed: it's long enough to bury everything above it. -->
+        @if (coachContext(); as ctx) {
+          <app-button variant="ghost" size="sm" (clicked)="showCallPrompt.set(!showCallPrompt())">
+            {{ showCallPrompt() ? 'Hide' : 'Show' }} the live call prompt
+          </app-button>
+          @if (showCallPrompt()) {
+            <pre class="prompt-preview">{{ ctx.callPrompt }}</pre>
+          }
         }
       </app-card>
     </div>
