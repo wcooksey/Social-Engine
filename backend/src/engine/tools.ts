@@ -47,6 +47,7 @@ import { runBrowserAgent } from './browser/browser-agent.service';
 import { AgentRole, defaultRoleForJobType } from './roles';
 import { evaluateGoalProgress } from '../services/autopilot.service';
 import { buildCallSystemPrompt } from './prompts';
+import { buildCallTools } from '../services/call-tools.service';
 import { researchService } from './research.service';
 
 export interface ToolContext {
@@ -1842,6 +1843,23 @@ const executors: Record<string, ToolExecutor> = {
     const voicePlaybooks = await getVoicePlaybookText(ctx.organizationId);
     const contactName = contact ? `${contact.firstName} ${contact.lastName || ''}`.trim() : undefined;
 
+    // Mid-call actions only exist if the webhook can reach us — Vapi delivers
+    // tool calls over the same server URL as the end-of-call report.
+    const canReceiveToolCalls = !!orgConfig.vapi.webhookSecret;
+    const bookingLink = canReceiveToolCalls
+      ? await prisma.bookingLink.findFirst({
+          where: { organizationId: ctx.organizationId, active: true },
+          select: { id: true },
+        })
+      : null;
+    const capabilities = {
+      canText: canReceiveToolCalls && channels.isSmsConfigured(orgConfig.twilio),
+      canBook: !!bookingLink,
+    };
+    const callTools = canReceiveToolCalls
+      ? buildCallTools({ hasSms: capabilities.canText, hasBookingLink: capabilities.canBook })
+      : [];
+
     const systemPrompt = buildCallSystemPrompt({
       organizationName: org?.name || 'our company',
       objective: input.objective,
@@ -1853,6 +1871,7 @@ const executors: Record<string, ToolExecutor> = {
         recentTimeline: recentActivities.map((a) => `${a.type}: ${a.summary}`),
       },
       voicePlaybooks,
+      capabilities,
     });
     const firstMessage = `Hi${contactName ? ` ${contactName.split(' ')[0]}` : ''}, this is the assistant calling on behalf of ${org?.name || 'our team'} — do you have a quick minute?`;
 
@@ -1869,8 +1888,11 @@ const executors: Record<string, ToolExecutor> = {
           organizationId: ctx.organizationId,
           leadId: lead.id,
           agentRunId: ctx.runId,
+          // Recorded so a mid-call text can only ever go to the dialled number.
+          toNumber,
           ...(input.campaignId ? { campaignId: input.campaignId } : {}),
         },
+        ...(callTools.length ? { tools: callTools } : {}),
         // Tell Vapi to POST the end-of-call report to our webhook — no Vapi
         // dashboard Server URL config needed.
         ...(orgConfig.vapi.webhookSecret
@@ -1900,6 +1922,9 @@ const executors: Record<string, ToolExecutor> = {
       called: true,
       to: toNumber,
       vapiCallId: delivery.externalId,
+      midCallActions: callTools.length
+        ? `The assistant can act during this call: ${capabilities.canText ? 'text a demo/booking link, ' : ''}${capabilities.canBook ? 'read the calendar and book a meeting, ' : ''}record a callback time.`
+        : 'No mid-call actions — set the Vapi webhook secret in Settings to let the assistant text links and book meetings while on the call.',
       note: 'Call in progress — the transcript and outcome will appear on the lead timeline when the call ends.',
     };
   },

@@ -6,8 +6,9 @@ import { roleMiddleware } from '../middleware/auth.middleware';
 import { engineService } from '../engine/engine.service';
 import { buildCallSystemPrompt } from '../engine/prompts';
 import { getVoicePlaybookText } from '../services/playbook.service';
-import { getOrgConfig } from '../services/settings.service';
+import { getOrgConfig, type ResolvedOrgConfig } from '../services/settings.service';
 import * as channels from '../services/channels.service';
+import { buildCallTools } from '../services/call-tools.service';
 
 /**
  * Sandbox: rehearse the AI's BEHAVIOUR before it meets a real prospect.
@@ -144,6 +145,9 @@ router.get(
       }
     }
 
+    const cfg = await getOrgConfig(req.user!.organizationId);
+    const capabilities = await sandboxCallCapabilities(req.user!.organizationId, cfg);
+
     res.json({
       success: true,
       data: {
@@ -152,8 +156,10 @@ router.get(
           objective,
           lead,
           voicePlaybooks,
+          capabilities,
         }),
         hasVoicePlaybooks: !!voicePlaybooks,
+        capabilities,
       },
     });
   })
@@ -161,6 +167,22 @@ router.get(
 
 function defaultCallObjective(): string {
   return 'Introduce yourself, find out whether they are the right person for this, and book a short demo if there is interest.';
+}
+
+/**
+ * Which mid-call actions a rehearsal should advertise. Mirrors what a real call
+ * would get, so the script you tune is the script that runs.
+ */
+async function sandboxCallCapabilities(organizationId: string, cfg: ResolvedOrgConfig) {
+  const bookingLink = await prisma.bookingLink.findFirst({
+    where: { organizationId, active: true },
+    select: { id: true },
+  });
+  const reachable = !!cfg.vapi.webhookSecret;
+  return {
+    canText: reachable && channels.isSmsConfigured(cfg.twilio),
+    canBook: reachable && !!bookingLink,
+  };
 }
 
 /**
@@ -204,11 +226,21 @@ router.post(
       }
     }
 
+    // The rehearsal gets the same mid-call tools a real call would, so you hear
+    // the bot offer to text a link or book a time. The webhook recognises
+    // sandbox calls and performs no sends and no writes — only the calendar
+    // read is real, so the times it offers you are genuine ones.
+    const capabilities = await sandboxCallCapabilities(req.user!.organizationId, cfg);
+    const callTools = cfg.vapi.webhookSecret
+      ? buildCallTools({ hasSms: capabilities.canText, hasBookingLink: capabilities.canBook })
+      : [];
+
     const systemPrompt = buildCallSystemPrompt({
       organizationName: org?.name || 'our company',
       objective,
       lead,
       voicePlaybooks,
+      capabilities,
     });
 
     const result = await channels.placeVapiCall(
@@ -221,6 +253,7 @@ router.post(
         voicemailMessage: `Hi, this is ${org?.name || 'the team'} calling. I'll try again another time.`,
         // Marked as a rehearsal so webhook handling can tell it from real calls.
         metadata: { organizationId: req.user!.organizationId, sandbox: 'true' },
+        ...(callTools.length ? { tools: callTools } : {}),
         ...(cfg.vapi.webhookSecret
           ? { server: { url: `${config.appPublicUrl}/api/webhooks/vapi`, secret: cfg.vapi.webhookSecret } }
           : {}),
@@ -237,6 +270,10 @@ router.post(
         vapiCallId: result.externalId,
         usedVoicePlaybooks: !!voicePlaybooks,
         systemPrompt,
+        capabilities,
+        midCallActions: callTools.length
+          ? 'Mid-call actions are loaded — ask to see the demo or to book a time and it will offer real calendar openings. Nothing is actually sent or booked on a rehearsal.'
+          : 'No mid-call actions on this rehearsal — set the Vapi webhook secret in Settings to hear the bot text links and book meetings.',
         note: voicePlaybooks
           ? 'Calling you now with your real voice playbooks loaded — this is what a lead hears.'
           : 'Calling you now. No VOICE playbooks are active, so the bot is running on its base instructions only — add one to shape how it talks.',
