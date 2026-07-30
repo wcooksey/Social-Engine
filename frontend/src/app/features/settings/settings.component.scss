@@ -75,6 +75,31 @@
   justify-content: flex-end;
 }
 
+.section-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: $spacing-sm;
+}
+
+.admin-link {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+  padding: $spacing-sm $spacing-md;
+  font-size: $font-size-sm;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-decoration: none;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: $border-radius-md;
+
+  &:hover {
+    border-color: $primary-blue;
+    color: $primary-blue;
+  }
+}
+
 .engine-model-description {
   color: var(--text-secondary);
   font-size: $font-size-sm;

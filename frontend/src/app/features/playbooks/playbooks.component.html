@@ -35,6 +35,9 @@
               @if (!playbook.isActive) {
                 <app-badge variant="neutral" size="sm">Inactive</app-badge>
               }
+              @if (identitySummary(playbook); as identity) {
+                <app-badge variant="purple" size="sm"><i class="bi bi-person-badge"></i> Sends as {{ identity }}</app-badge>
+              }
             </div>
 
             <p class="playbook-instructions">{{ playbook.instructions }}</p>
@@ -133,6 +136,66 @@
         <label>Active</label>
         <app-switch [(ngModel)]="form.isActive" [ngModelOptions]="{ standalone: true }"></app-switch>
       </div>
+    </div>
+
+    <div class="identity-section">
+      <button type="button" class="identity-toggle" (click)="showIdentity.set(!showIdentity())">
+        <i [class]="showIdentity() ? 'bi bi-chevron-down' : 'bi bi-chevron-right'"></i>
+        <span>Sender identity</span>
+        <span class="identity-toggle-hint">Optional — send this playbook's outreach as a specific person or business</span>
+      </button>
+
+      @if (showIdentity()) {
+        <div class="identity-fields">
+          <p class="identity-intro">
+            Leave blank to send as your organization. Fill this in when one account works several employees or sells
+            several services — the Engine writes in this voice and the message actually goes out under this name.
+            When more than one playbook matches a lead, the most specific one wins (group, campaign, or status beats global).
+          </p>
+
+          <div class="form-row">
+            <app-input
+              label="Person"
+              placeholder="e.g. Dana Reeves"
+              [(ngModel)]="form.identityName"
+              [ngModelOptions]="{ standalone: true }">
+            </app-input>
+            <app-input
+              label="Job title"
+              placeholder="e.g. Service Manager"
+              [(ngModel)]="form.identityTitle"
+              [ngModelOptions]="{ standalone: true }">
+            </app-input>
+          </div>
+
+          <app-input
+            label="Business name"
+            placeholder="e.g. Northwind HVAC"
+            helperText="Shown to leads instead of your organization name"
+            [(ngModel)]="form.identityOrgName"
+            [ngModelOptions]="{ standalone: true }">
+          </app-input>
+
+          <app-input
+            label="Reply-to email"
+            type="email"
+            placeholder="dana@yourdomain.com"
+            helperText="Must be on your Mailgun sending domain — otherwise the org address is used"
+            [(ngModel)]="form.identityEmail"
+            [ngModelOptions]="{ standalone: true }">
+          </app-input>
+
+          <div class="textarea-field">
+            <label>Email signature</label>
+            <textarea
+              rows="4"
+              [(ngModel)]="form.identitySignature"
+              [ngModelOptions]="{ standalone: true }"
+              placeholder="Dana Reeves&#10;Service Manager, Northwind HVAC&#10;(555) 010-0100"></textarea>
+            <p class="field-hint">Appended to outbound email sent under this playbook.</p>
+          </div>
+        </div>
+      }
     </div>
   </div>
 

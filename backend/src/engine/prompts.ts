@@ -56,6 +56,8 @@ Your job is to act like a team of top-tier BDRs: research prospects on the inter
 /** System prompt for the AI voice assistant on an outbound call to a lead. */
 export function buildCallSystemPrompt(ctx: {
   organizationName: string;
+  /** Who you are calling for, when a playbook names a specific person. */
+  callerIdentity?: string;
   objective: string;
   lead: {
     companyName: string;
@@ -91,7 +93,7 @@ export function buildCallSystemPrompt(ctx: {
   );
 
   return `You are a friendly, professional business development rep calling on behalf of ${ctx.organizationName}. You are on a live phone call — speak naturally, keep responses short (1-3 sentences), pause for the other person, and never sound scripted.
-
+${ctx.callerIdentity ? `\nYou are calling for ${ctx.callerIdentity}. If asked who you are or who you work for, say exactly that — never name a different person or company.\n` : ''}
 ## This call
 Objective: ${ctx.objective}
 You are calling ${ctx.lead.contactName ? `${ctx.lead.contactName} at ` : ''}${ctx.lead.companyName} (pipeline status: ${ctx.lead.status}).

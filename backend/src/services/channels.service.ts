@@ -38,10 +38,42 @@ export function isEmailConfigured(creds: EmailCreds): boolean {
   return !!(creds.apiKey && creds.domain);
 }
 
-/** Sender address for a set of email creds (configured address, else noreply@domain). */
+/**
+ * Bare sender address (no display name) for a set of email creds. Accepts a
+ * plain address or a pasted `Name <addr@x>` form and returns just the address,
+ * falling back to noreply@<domain>.
+ */
 export function senderAddress(creds: EmailCreds): string {
   const configured = creds.fromEmail?.trim();
-  return configured || `noreply@${creds.domain}`;
+  if (configured) {
+    // If someone pasted "Name <addr@x>", keep only the address inside the brackets.
+    const bracketed = configured.match(/<([^>]+)>/);
+    const addr = (bracketed ? bracketed[1] : configured).trim();
+    if (addr.includes('@')) return addr;
+  }
+  return `noreply@${creds.domain}`;
+}
+
+/**
+ * RFC 5322 From header value: `"Display Name" <addr@x>`. The display name is
+ * quoted and escaped so commas, angle brackets, etc. in an org name can't
+ * produce an address Mailgun rejects.
+ */
+export function fromHeader(
+  fromName: string | undefined,
+  creds: EmailCreds,
+  /** Per-send sender address; ignored unless it sits on the Mailgun domain. */
+  fromEmail?: string
+): string {
+  const override = fromEmail?.trim().toLowerCase();
+  const addr =
+    override && override.endsWith(`@${creds.domain.trim().toLowerCase()}`)
+      ? override
+      : senderAddress(creds);
+  const name = (fromName || 'Social Engine').replace(/[\r\n]/g, ' ').trim();
+  if (!name) return addr;
+  const escaped = name.replace(/(["\\])/g, '\\$1');
+  return `"${escaped}" <${addr}>`;
 }
 
 export interface IcsAttachment {
@@ -54,6 +86,10 @@ export interface SendEmailOptions {
   subject: string;
   body: string;
   fromName?: string;
+  /** Sender address for this send; ignored unless on the Mailgun domain. */
+  fromEmail?: string;
+  /** Where replies should go, when it differs from the sender address. */
+  replyTo?: string;
   /** Optional HTML alternative part. */
   html?: string;
   /** RFC 2369 List-Unsubscribe target (mailto: or https:). Adds one-click too. */
@@ -65,12 +101,13 @@ export interface SendEmailOptions {
 export async function sendEmail(opts: SendEmailOptions, creds: EmailCreds): Promise<SendResult> {
   if (!isEmailConfigured(creds)) return { sent: false, error: 'Email channel not configured' };
 
-  const from = `${opts.fromName || 'Social Engine'} <${senderAddress(creds)}>`;
+  const from = fromHeader(opts.fromName, creds, opts.fromEmail);
 
   // Multipart form so we can attach an .ics calendar invite alongside the text.
   const form = new FormData();
   form.append('from', from);
   form.append('to', opts.to);
+  if (opts.replyTo?.trim()) form.append('h:Reply-To', opts.replyTo.trim());
   form.append('subject', opts.subject);
   form.append('text', opts.body);
   if (opts.html) form.append('html', opts.html);

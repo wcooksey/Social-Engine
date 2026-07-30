@@ -49,6 +49,37 @@ router.post(
   })
 );
 
+// Update your own name / email. An email change returns fresh tokens because
+// it rotates the token version.
+router.patch(
+  '/me',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const data = await authService.updateProfile(req.user!.userId, {
+      firstName: req.body?.firstName,
+      lastName: req.body?.lastName,
+      email: req.body?.email,
+      currentPassword: req.body?.currentPassword,
+    });
+    res.json({ success: true, data });
+  })
+);
+
+// Change your own password. Signs out every other session and returns a fresh
+// token pair for this one.
+router.post(
+  '/me/password',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const data = await authService.changePassword(
+      req.user!.userId,
+      req.body?.currentPassword,
+      req.body?.newPassword
+    );
+    res.json({ success: true, data });
+  })
+);
+
 // Toggle whether this user receives notification/digest emails.
 router.patch(
   '/me/notifications',

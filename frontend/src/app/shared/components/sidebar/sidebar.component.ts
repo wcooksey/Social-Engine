@@ -12,6 +12,22 @@ interface NavItem {
   route: string;
 }
 
+const BASE_NAV_ITEMS: NavItem[] = [
+  { icon: 'bi-grid-1x2', label: 'Dashboard', route: '/dashboard' },
+  { icon: 'bi-stars', label: 'Engine', route: '/engine' },
+  { icon: 'bi-chat-left-text', label: 'Inbox', route: '/inbox' },
+  { icon: 'bi-building', label: 'Leads', route: '/leads' },
+  { icon: 'bi-collection', label: 'Groups', route: '/groups' },
+  { icon: 'bi-megaphone', label: 'Campaigns', route: '/campaigns' },
+  { icon: 'bi-journal-text', label: 'Playbooks', route: '/playbooks' },
+  { icon: 'bi-bar-chart', label: 'Experiments', route: '/experiments' },
+  { icon: 'bi-calendar3', label: 'Calendar', route: '/calendar' },
+  { icon: 'bi-broadcast', label: 'Live', route: '/live' },
+  { icon: 'bi-beaker', label: 'Sandbox', route: '/sandbox' },
+  { icon: 'bi-activity', label: 'Activity', route: '/activity' },
+  { icon: 'bi-gear', label: 'Settings', route: '/settings' }
+];
+
 @Component({
   selector: 'app-sidebar',
   standalone: true,
@@ -22,21 +38,12 @@ interface NavItem {
 export class SidebarComponent {
   currentUser = computed(() => this.authService.currentUser());
 
-  navItems: NavItem[] = [
-    { icon: 'bi-grid-1x2', label: 'Dashboard', route: '/dashboard' },
-    { icon: 'bi-stars', label: 'Engine', route: '/engine' },
-    { icon: 'bi-chat-left-text', label: 'Inbox', route: '/inbox' },
-    { icon: 'bi-building', label: 'Leads', route: '/leads' },
-    { icon: 'bi-collection', label: 'Groups', route: '/groups' },
-    { icon: 'bi-megaphone', label: 'Campaigns', route: '/campaigns' },
-    { icon: 'bi-journal-text', label: 'Playbooks', route: '/playbooks' },
-    { icon: 'bi-bar-chart', label: 'Experiments', route: '/experiments' },
-    { icon: 'bi-calendar3', label: 'Calendar', route: '/calendar' },
-    { icon: 'bi-broadcast', label: 'Live', route: '/live' },
-    { icon: 'bi-beaker', label: 'Sandbox', route: '/sandbox' },
-    { icon: 'bi-activity', label: 'Activity', route: '/activity' },
-    { icon: 'bi-gear', label: 'Settings', route: '/settings' }
-  ];
+  /** Admin is appended only for the super admin — everyone else never sees it. */
+  navItems = computed<NavItem[]>(() =>
+    this.currentUser()?.isSuperAdmin
+      ? [...BASE_NAV_ITEMS, { icon: 'bi-shield-lock', label: 'Admin', route: '/admin' }]
+      : BASE_NAV_ITEMS
+  );
 
   constructor(
     private authService: AuthService,

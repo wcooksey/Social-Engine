@@ -2,7 +2,7 @@ import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { PlaybooksService, PlaybookInput } from '../../core/services/playbooks.service';
-import { Playbook, PlaybookChannel, PlaybookScope } from '../../core/models/playbook.model';
+import { Playbook, PlaybookChannel, PlaybookScope, hasIdentity } from '../../core/models/playbook.model';
 import { LeadGroupsService } from '../../core/services/lead-groups.service';
 import { CampaignsService } from '../../core/services/campaigns.service';
 import { LeadStatus } from '../../core/models/lead.model';
@@ -49,6 +49,8 @@ export class PlaybooksComponent implements OnInit {
 
   showDialog = signal(false);
   saving = signal(false);
+  // Identity is an advanced option — collapsed unless the playbook uses one.
+  showIdentity = signal(false);
   editingPlaybook: Playbook | null = null;
 
   groupOptions: SelectOption[] = [];
@@ -95,7 +97,12 @@ export class PlaybooksComponent implements OnInit {
       channel: 'ALL',
       instructions: '',
       isActive: true,
-      priority: 0
+      priority: 0,
+      identityName: '',
+      identityOrgName: '',
+      identityTitle: '',
+      identityEmail: '',
+      identitySignature: ''
     };
   }
 
@@ -129,6 +136,7 @@ export class PlaybooksComponent implements OnInit {
   openCreate(): void {
     this.editingPlaybook = null;
     this.form = this.emptyForm();
+    this.showIdentity.set(false);
     this.showDialog.set(true);
   }
 
@@ -143,9 +151,28 @@ export class PlaybooksComponent implements OnInit {
       channel: playbook.channel,
       instructions: playbook.instructions,
       isActive: playbook.isActive,
-      priority: playbook.priority
+      priority: playbook.priority,
+      identityName: playbook.identityName ?? '',
+      identityOrgName: playbook.identityOrgName ?? '',
+      identityTitle: playbook.identityTitle ?? '',
+      identityEmail: playbook.identityEmail ?? '',
+      identitySignature: playbook.identitySignature ?? ''
     };
+    this.showIdentity.set(hasIdentity(playbook));
     this.showDialog.set(true);
+  }
+
+  /** One-line "who this sends as", or null when it inherits the organization. */
+  identitySummary(playbook: Playbook): string | null {
+    if (!hasIdentity(playbook)) return null;
+    const who = playbook.identityName?.trim();
+    const brand = playbook.identityOrgName?.trim();
+    const title = playbook.identityTitle?.trim();
+    if (who && brand) return title ? `${who}, ${title} at ${brand}` : `${who} at ${brand}`;
+    if (who) return title ? `${who}, ${title}` : who;
+    if (brand) return brand;
+    if (playbook.identityEmail) return playbook.identityEmail;
+    return 'Custom sign-off';
   }
 
   onScopeChange(): void {

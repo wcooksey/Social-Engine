@@ -13,6 +13,11 @@ export interface PlaybookInput {
   instructions: string;
   isActive?: boolean;
   priority?: number;
+  identityName?: string | null;
+  identityOrgName?: string | null;
+  identityTitle?: string | null;
+  identityEmail?: string | null;
+  identitySignature?: string | null;
 }
 
 @Injectable({ providedIn: 'root' })

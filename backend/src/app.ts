@@ -8,6 +8,7 @@ import path from 'path';
 import { config } from './config/environment';
 import { authMiddleware } from './middleware/auth.middleware';
 import { errorMiddleware } from './middleware/error.middleware';
+import adminRoutes from './routes/admin.routes';
 import agentRoutes from './routes/agent.routes';
 import authRoutes from './routes/auth.routes';
 import bookingLinksRoutes from './routes/booking-links.routes';
@@ -89,6 +90,8 @@ app.use('/api/social-accounts', apiRateLimit, authMiddleware, socialAccountsRout
 app.use('/api/test', apiRateLimit, authMiddleware, testRoutes);
 app.use('/api/sandbox', apiRateLimit, authMiddleware, sandboxRoutes);
 app.use('/api/experiments', apiRateLimit, authMiddleware, experimentsRoutes);
+// Cross-tenant operator routes; the router itself enforces super admin.
+app.use('/api/admin', apiRateLimit, authMiddleware, adminRoutes);
 
 // Webhooks: no auth middleware; validated inside handlers
 const webhookRateLimit = rateLimit({ windowMs: 60 * 1000, max: 600 });

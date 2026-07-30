@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { authGuard, guestGuard } from './core/guards/auth.guard';
+import { authGuard, guestGuard, superAdminGuard } from './core/guards/auth.guard';
 import { LayoutComponent } from './shared/components/layout/layout.component';
 
 export const routes: Routes = [
@@ -87,6 +87,12 @@ export const routes: Routes = [
       {
         path: 'settings',
         loadComponent: () => import('./features/settings/settings.component').then(m => m.SettingsComponent)
+      },
+      {
+        // Super admin only. /api/admin enforces the same rule server-side.
+        path: 'admin',
+        canActivate: [superAdminGuard],
+        loadComponent: () => import('./features/admin/admin.component').then(m => m.AdminComponent)
       },
       {
         path: '',

@@ -8,10 +8,30 @@
     <app-card padding="lg" class="section-card">
       <h3>Profile</h3>
       <div class="form-row">
-        <app-input label="First name" [ngModel]="user.firstName" [ngModelOptions]="{ standalone: true }" [disabled]="true"></app-input>
-        <app-input label="Last name" [ngModel]="user.lastName" [ngModelOptions]="{ standalone: true }" [disabled]="true"></app-input>
+        <app-input label="First name" [(ngModel)]="profileForm.firstName" [ngModelOptions]="{ standalone: true }"></app-input>
+        <app-input label="Last name" [(ngModel)]="profileForm.lastName" [ngModelOptions]="{ standalone: true }"></app-input>
       </div>
-      <app-input label="Email" [ngModel]="user.email" [ngModelOptions]="{ standalone: true }" [disabled]="true"></app-input>
+      <app-input label="Email" type="email" [(ngModel)]="profileForm.email" [ngModelOptions]="{ standalone: true }"></app-input>
+
+      @if (emailChanged) {
+        <app-input
+          label="Current password"
+          type="password"
+          helperText="Required to change your email — it's your sign-in identity."
+          [(ngModel)]="profilePassword"
+          [ngModelOptions]="{ standalone: true }">
+        </app-input>
+      }
+
+      <div class="section-actions">
+        <app-button
+          variant="primary"
+          [loading]="savingProfile"
+          [disabled]="!profileDirty"
+          (clicked)="saveProfile()">
+          Save profile
+        </app-button>
+      </div>
 
       <div class="kill-switch-row notify-row">
         <div class="kill-switch-label">
@@ -22,10 +42,43 @@
       </div>
     </app-card>
 
+    <app-card padding="lg" class="section-card">
+      <h3>Password</h3>
+      <p class="integrations-intro">Changing your password signs you out everywhere else. This device stays signed in.</p>
+      <app-input label="Current password" type="password" [(ngModel)]="passwordForm.current" [ngModelOptions]="{ standalone: true }"></app-input>
+      <div class="form-row">
+        <app-input label="New password" type="password" helperText="At least 8 characters" [(ngModel)]="passwordForm.next" [ngModelOptions]="{ standalone: true }"></app-input>
+        <app-input label="Confirm new password" type="password" [(ngModel)]="passwordForm.confirm" [ngModelOptions]="{ standalone: true }"></app-input>
+      </div>
+      <div class="section-actions">
+        <app-button
+          variant="primary"
+          [loading]="savingPassword"
+          [disabled]="!passwordForm.current || !passwordForm.next || !passwordForm.confirm"
+          (clicked)="changePassword()">
+          Change password
+        </app-button>
+      </div>
+    </app-card>
+
     @if (user.organization) {
       <app-card padding="lg" class="section-card">
         <h3>Organization</h3>
-        <app-input label="Organization name" [ngModel]="user.organization.name" [ngModelOptions]="{ standalone: true }" [disabled]="true"></app-input>
+        <app-input
+          label="Organization name"
+          helperText="Used as the sender name on outreach, unless a playbook overrides it."
+          [(ngModel)]="orgName"
+          [ngModelOptions]="{ standalone: true }">
+        </app-input>
+        <div class="section-actions">
+          <app-button
+            variant="primary"
+            [loading]="savingOrgName"
+            [disabled]="!orgName.trim() || orgName.trim() === user.organization.name"
+            (clicked)="saveOrgName()">
+            Save name
+          </app-button>
+        </div>
 
         <div class="guardrails">
           <div class="guardrail-row">
@@ -400,42 +453,14 @@
 
   @if (isSuperAdmin()) {
     <app-card padding="lg" class="section-card">
-      <h3>Platform (super admin)</h3>
+      <h3>Platform administration</h3>
       <p class="integrations-intro">
-        These knobs apply across every organization on this deployment. Concurrency changes take effect within seconds;
-        the worker poll interval applies after the next restart.
+        Deployment-wide controls — every organization, every user, and the Engine concurrency knobs — live on the Admin
+        page. Only your account can see it.
       </p>
-
-      @if (loadingPlatform) {
-        <p class="loading-hint">Loading platform settings…</p>
-      } @else {
-        <div class="settings-fields">
-          @for (setting of platformSettings(); track setting.key) {
-            <div class="setting-row">
-              <div class="setting-label-col">
-                <span class="setting-label">{{ setting.label }}</span>
-                <app-badge variant="neutral" size="sm">default {{ setting.default }}</app-badge>
-              </div>
-              <div class="setting-input-col">
-                <app-input
-                  type="number"
-                  [(ngModel)]="platformEdits[setting.key]"
-                  [ngModelOptions]="{ standalone: true }">
-                </app-input>
-              </div>
-              <div class="setting-actions">
-                <app-button
-                  variant="primary"
-                  size="sm"
-                  [loading]="savingPlatformKey === setting.key"
-                  (clicked)="savePlatformSetting(setting)">
-                  Save
-                </app-button>
-              </div>
-            </div>
-          }
-        </div>
-      }
+      <div class="section-actions">
+        <a routerLink="/admin" class="admin-link"><i class="bi bi-shield-lock"></i> Open Admin</a>
+      </div>
     </app-card>
   }
 

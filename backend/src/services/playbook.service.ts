@@ -5,6 +5,8 @@ export interface PlaybookForPrompt {
   scopeLabel: string;
   channel: string;
   instructions: string;
+  /** "Send as" line, when the playbook carries a sender identity. */
+  identityLabel?: string;
 }
 
 /**
@@ -34,8 +36,30 @@ export async function getActivePlaybooks(organizationId: string): Promise<Playbo
       scopeLabel,
       channel: p.channel,
       instructions: p.instructions,
+      identityLabel: identityLabel(p),
     };
   });
+}
+
+/** One-line summary of a playbook's sender identity, or undefined if it has none. */
+function identityLabel(p: {
+  identityName: string | null;
+  identityOrgName: string | null;
+  identityTitle: string | null;
+  identityEmail: string | null;
+  identitySignature: string | null;
+}): string | undefined {
+  const who = p.identityName?.trim();
+  const brand = p.identityOrgName?.trim();
+  const title = p.identityTitle?.trim();
+  if (!who && !brand && !title && !p.identityEmail && !p.identitySignature) return undefined;
+
+  const parts: string[] = [];
+  if (who) parts.push(title ? `${who}, ${title}` : who);
+  if (brand) parts.push(who ? `of ${brand}` : brand);
+  else if (title && !who) parts.push(title);
+  const sig = p.identitySignature?.trim();
+  return `Send as: ${parts.join(' ') || 'the organization'}${sig ? `\nSign off with:\n${sig}` : ''}`;
 }
 
 export function formatPlaybooksForPrompt(playbooks: PlaybookForPrompt[]): string {
@@ -43,10 +67,15 @@ export function formatPlaybooksForPrompt(playbooks: PlaybookForPrompt[]): string
   const blocks = playbooks
     .map((p) => {
       const channelNote = p.channel !== 'ALL' ? ` [${p.channel} channel only]` : '';
-      return `### ${p.name}${channelNote}\n${p.scopeLabel}\n${p.instructions}`;
+      const identity = p.identityLabel ? `\n${p.identityLabel}` : '';
+      return `### ${p.name}${channelNote}\n${p.scopeLabel}${identity}\n${p.instructions}`;
     })
     .join('\n\n');
-  return `\n\n## Playbooks (protocols set by your team — FOLLOW THESE)\nWhen working a lead, apply every playbook whose scope matches it (group, campaign, or status). Channel-tagged playbooks apply only to that channel; VOICE playbooks define how phone calls should be conducted.\n\n${blocks}`;
+  const anyIdentity = playbooks.some((p) => p.identityLabel);
+  const identityNote = anyIdentity
+    ? `\nSome playbooks carry a "Send as" identity — the person and business that outreach under them comes from. When a playbook matching your lead has one, write in that identity's voice and sign as them, never as another playbook's identity. The platform sets the real sender name on the message to match, so do not contradict it.\n`
+    : '';
+  return `\n\n## Playbooks (protocols set by your team — FOLLOW THESE)\nWhen working a lead, apply every playbook whose scope matches it (group, campaign, or status). Channel-tagged playbooks apply only to that channel; VOICE playbooks define how phone calls should be conducted.\n${identityNote}\n${blocks}`;
 }
 
 /** Playbooks that shape a phone call: global voice ones plus matching scopes. */

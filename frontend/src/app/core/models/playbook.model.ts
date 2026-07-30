@@ -15,4 +15,23 @@ export interface Playbook {
   isActive: boolean;
   priority: number;
   createdAt: string;
+
+  // Sender identity — who outreach under this playbook presents as. All
+  // optional; blank falls back to the organization.
+  identityName?: string | null;
+  identityOrgName?: string | null;
+  identityTitle?: string | null;
+  identityEmail?: string | null;
+  identitySignature?: string | null;
+}
+
+/** True when a playbook overrides any part of the sender identity. */
+export function hasIdentity(playbook: Playbook): boolean {
+  return !!(
+    playbook.identityName ||
+    playbook.identityOrgName ||
+    playbook.identityTitle ||
+    playbook.identityEmail ||
+    playbook.identitySignature
+  );
 }

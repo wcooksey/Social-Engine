@@ -85,11 +85,34 @@ value → `env` fallback → `unset`). Resolution precedence everywhere is **DB 
 default**, so existing env-based deployments keep working untouched.
 
 Platform-wide knobs that affect every organization — engine max iterations, global worker
-concurrency, per-org concurrency cap, and worker poll interval — are gated behind a super-admin
-section, unlocked only for the account whose email matches the `SUPER_ADMIN_EMAIL` environment
-variable. Concurrency changes apply within ~10s (the worker re-reads them each drain); the poll
-interval applies on the next restart. Only `DATABASE_URL`, the JWT secrets, `APP_ENCRYPTION_KEY`,
+concurrency, per-org concurrency cap, and worker poll interval — live on the **Admin** page,
+unlocked only for the account whose email matches the `SUPER_ADMIN_EMAIL` environment variable.
+Concurrency changes apply within ~10s (the worker re-reads them each drain); the poll interval
+applies on the next restart. Only `DATABASE_URL`, the JWT secrets, `APP_ENCRYPTION_KEY`,
 `SUPER_ADMIN_EMAIL`, and `INBOUND_WEBHOOK_SECRET` must live in the environment.
+
+### Admin (super admin)
+
+`/api/admin/*` is the only cross-tenant surface in the API; the whole router sits behind
+`superAdminMiddleware`, and super admin is an email match rather than a `Role` — the enum stays
+`OWNER | ADMIN | MEMBER`. It exposes platform totals and 7-day spend, an organization list with
+usage, the per-org safety levers (pause, daily send cap, social autonomy), and user suspension /
+role changes. It deliberately cannot read another tenant's leads, conversations, or integration
+keys, and there is no impersonation. Changing a user's role or active state revokes their tokens,
+since both are baked into issued JWTs. Because super admin is decided by email, `PATCH /api/auth/me`
+refuses to move an existing account onto `SUPER_ADMIN_EMAIL`; claiming it at registration remains
+the intended bootstrap.
+
+### Sender identity
+
+Outreach defaults to the organization name, but a playbook can carry a sender identity — person,
+title, business, reply-to address, signature — so one account can work several employees or sell
+several services without separate organizations. `resolveSenderIdentity` picks it deterministically
+at send time (scoped playbook beats GLOBAL, then priority, then age; the winner is used whole), so
+the From header, the signature, and the AI's voice-call introduction cannot drift from each other
+or depend on the model remembering. A reply-to address is honored only when it sits on the org's
+Mailgun sending domain. Inbox replies resolve the same identity, so a thread never changes sender
+mid-conversation.
 
 ### Hardening
 

@@ -760,6 +760,18 @@ model Playbook {
   isActive     Boolean         @default(true)
   priority     Int             @default(100)
 
+  // --- Sending identity (all optional) ------------------------------------
+  // Who outreach run under this playbook presents as. Lets one account work
+  // several employees or several services it sells without needing a separate
+  // organization for each. Resolved deterministically at send time — the
+  // highest-priority active playbook whose scope matches the lead and that has
+  // an identity wins; anything blank falls back to the organization.
+  identityName      String? // person the outreach comes from, e.g. "Dana Reeves"
+  identityOrgName   String? // business/brand to present as
+  identityTitle     String? // job title — used in prompts and the call intro
+  identityEmail     String? // From/Reply-To; ignored unless on the Mailgun domain
+  identitySignature String? // sign-off appended to outbound email
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

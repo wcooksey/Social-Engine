@@ -9,6 +9,30 @@ const includeRelations = {
   campaign: { select: { id: true, name: true } },
 } as const;
 
+// Sender identity — all optional, blank clears the field back to the org default.
+const IDENTITY_FIELDS = [
+  'identityName',
+  'identityOrgName',
+  'identityTitle',
+  'identityEmail',
+  'identitySignature',
+] as const;
+
+/** Trimmed identity values from a request body; empty string means "clear". */
+function identityData(body: Record<string, unknown>): Record<string, string | null> {
+  const data: Record<string, string | null> = {};
+  for (const key of IDENTITY_FIELDS) {
+    if (!(key in body)) continue;
+    const raw = body[key];
+    const value = raw === null || raw === undefined ? '' : String(raw).trim();
+    if (key === 'identityEmail' && value && !value.includes('@')) {
+      throw new AppError('Reply-to must be a valid email address');
+    }
+    data[key] = value || null;
+  }
+  return data;
+}
+
 async function validateScopeTarget(
   body: Record<string, unknown>,
   organizationId: string
@@ -65,6 +89,7 @@ router.post(
         instructions: req.body.instructions,
         isActive: req.body.isActive ?? true,
         priority: req.body.priority ?? 100,
+        ...identityData(req.body),
       },
       include: includeRelations,
     });
@@ -80,7 +105,7 @@ router.patch(
     });
     if (!existing) throw new AppError('Playbook not found', 404);
 
-    const data: Record<string, unknown> = {};
+    const data: Record<string, unknown> = { ...identityData(req.body) };
     for (const key of ['name', 'instructions', 'channel', 'isActive', 'priority'] as const) {
       if (key in req.body) data[key] = req.body[key];
     }

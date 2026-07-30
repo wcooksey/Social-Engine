@@ -1,13 +1,14 @@
 import { Component, OnInit, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { OrganizationService } from '../../core/services/organization.service';
 import { ThemeService } from '../../core/services/theme.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ModelsService } from '../../core/services/models.service';
 import { SettingsService } from '../../core/services/settings.service';
-import { OrgSetting, OrgSettingGroup, PlatformSetting } from '../../core/models/settings.model';
+import { OrgSetting, OrgSettingGroup } from '../../core/models/settings.model';
 import { SocialAccountsService } from '../../core/services/social-accounts.service';
 import { SocialAccount, SocialPlatform, SocialPlatformParam } from '../../core/models/social-account.model';
 import { BookingLinksService } from '../../core/services/booking-links.service';
@@ -126,6 +127,7 @@ function availabilityFromRows(rows: DayAvailabilityRow[]): Availability {
   imports: [
     CommonModule,
     FormsModule,
+    RouterLink,
     CardComponent,
     InputComponent,
     ButtonComponent,
@@ -165,12 +167,6 @@ export class SettingsComponent implements OnInit {
       settings: all.filter(s => s.group === group)
     })).filter(g => g.settings.length > 0);
   });
-
-  // Platform (super-admin) settings
-  loadingPlatform = true;
-  platformSettings = computed(() => this.settingsService.platformSettings());
-  platformEdits: Record<string, string> = {};
-  savingPlatformKey: string | null = null;
 
   // Engine model
   loadingModels = true;
@@ -212,6 +208,20 @@ export class SettingsComponent implements OnInit {
   // Email notifications
   notifyByEmail = true;
   savingNotifyByEmail = false;
+
+  // Profile. Changing the email rotates the login identity, so the server asks
+  // for the current password and hands back fresh tokens.
+  profileForm = { firstName: '', lastName: '', email: '' };
+  profilePassword = '';
+  savingProfile = false;
+
+  // Password change
+  passwordForm = { current: '', next: '', confirm: '' };
+  savingPassword = false;
+
+  // Organization name (guardrails below have their own save button)
+  orgName = '';
+  savingOrgName = false;
 
   // Booking links
   bookingLinks: BookingLink[] = [];
@@ -259,8 +269,11 @@ export class SettingsComponent implements OnInit {
   ) {}
 
   ngOnInit(): void {
+    this.resetProfileForm();
+
     this.organizationService.getMine().subscribe({
       next: org => {
+        this.orgName = org.name;
         this.dailySendCap = org.dailySendCap;
         this.quietHoursStart = hourToTime(org.quietHoursStart);
         this.quietHoursEnd = hourToTime(org.quietHoursEnd);
@@ -296,13 +309,125 @@ export class SettingsComponent implements OnInit {
     // Seed the notifications toggle from the cached user, then refresh from /me.
     this.notifyByEmail = this.authService.currentUser()?.notifyByEmail ?? true;
     this.authService.me().subscribe({
-      next: user => { this.notifyByEmail = user.notifyByEmail ?? true; },
+      next: user => {
+        this.notifyByEmail = user.notifyByEmail ?? true;
+        this.resetProfileForm();
+      },
       error: () => {}
     });
+  }
 
-    if (this.isSuperAdmin()) {
-      this.loadPlatformSettings();
+  // --- Profile -------------------------------------------------------------
+
+  private resetProfileForm(): void {
+    const user = this.authService.currentUser();
+    this.profileForm = {
+      firstName: user?.firstName ?? '',
+      lastName: user?.lastName ?? '',
+      email: user?.email ?? ''
+    };
+    this.profilePassword = '';
+  }
+
+  /** True once the email box differs from the signed-in address. */
+  get emailChanged(): boolean {
+    const current = (this.authService.currentUser()?.email ?? '').toLowerCase();
+    return this.profileForm.email.trim().toLowerCase() !== current;
+  }
+
+  get profileDirty(): boolean {
+    const user = this.authService.currentUser();
+    return (
+      this.profileForm.firstName.trim() !== (user?.firstName ?? '') ||
+      this.profileForm.lastName.trim() !== (user?.lastName ?? '') ||
+      this.emailChanged
+    );
+  }
+
+  saveProfile(): void {
+    if (!this.profileForm.firstName.trim()) {
+      this.toast.error('First name cannot be empty');
+      return;
     }
+    if (this.emailChanged && !this.profilePassword) {
+      this.toast.error('Enter your current password to change your email address');
+      return;
+    }
+
+    this.savingProfile = true;
+    this.authService
+      .updateProfile({
+        firstName: this.profileForm.firstName.trim(),
+        lastName: this.profileForm.lastName.trim(),
+        email: this.profileForm.email.trim(),
+        ...(this.emailChanged ? { currentPassword: this.profilePassword } : {})
+      })
+      .subscribe({
+        next: () => {
+          this.savingProfile = false;
+          this.profilePassword = '';
+          this.resetProfileForm();
+          this.toast.success('Profile updated');
+        },
+        error: err => {
+          this.savingProfile = false;
+          this.toast.error(this.errorMessage(err, 'Failed to update your profile'));
+        }
+      });
+  }
+
+  changePassword(): void {
+    if (this.passwordForm.next !== this.passwordForm.confirm) {
+      this.toast.error('New passwords do not match');
+      return;
+    }
+    if (this.passwordForm.next.length < 8) {
+      this.toast.error('New password must be at least 8 characters');
+      return;
+    }
+
+    this.savingPassword = true;
+    this.authService.changePassword(this.passwordForm.current, this.passwordForm.next).subscribe({
+      next: () => {
+        this.savingPassword = false;
+        this.passwordForm = { current: '', next: '', confirm: '' };
+        this.toast.success('Password changed — other devices have been signed out');
+      },
+      error: err => {
+        this.savingPassword = false;
+        this.toast.error(this.errorMessage(err, 'Failed to change your password'));
+      }
+    });
+  }
+
+  saveOrgName(): void {
+    const name = this.orgName.trim();
+    if (!name) {
+      this.toast.error('Organization name cannot be empty');
+      return;
+    }
+
+    this.savingOrgName = true;
+    this.organizationService.updateMine({ name }).subscribe({
+      next: () => {
+        this.savingOrgName = false;
+        // The name is part of the cached user payload the header reads from.
+        this.authService.me().subscribe();
+        this.toast.success('Organization name updated');
+      },
+      error: err => {
+        this.savingOrgName = false;
+        this.toast.error(this.errorMessage(err, 'Failed to update the organization name'));
+      }
+    });
+  }
+
+  /** Pull the server's message out of an HttpErrorResponse, or fall back. */
+  private errorMessage(err: unknown, fallback: string): string {
+    const e = err as { error?: { error?: { message?: string } | string; message?: string } };
+    const inner = e?.error?.error;
+    if (typeof inner === 'string') return inner;
+    return inner?.message || e?.error?.message || fallback;
   }
 
   loadOrgSettings(): void {
@@ -319,21 +444,6 @@ export class SettingsComponent implements OnInit {
       error: () => {
         this.loadingSettings = false;
         this.toast.error('Failed to load integration settings');
-      }
-    });
-  }
-
-  loadPlatformSettings(): void {
-    this.loadingPlatform = true;
-    this.settingsService.getPlatformSettings().subscribe({
-      next: res => {
-        this.platformEdits = {};
-        for (const s of res.settings) this.platformEdits[s.key] = String(s.value);
-        this.loadingPlatform = false;
-      },
-      error: () => {
-        this.loadingPlatform = false;
-        this.toast.error('Failed to load platform settings');
       }
     });
   }
@@ -379,26 +489,6 @@ export class SettingsComponent implements OnInit {
       error: () => {
         this.savingSettingKey = null;
         this.toast.error(`Failed to clear ${setting.label}`);
-      }
-    });
-  }
-
-  savePlatformSetting(setting: PlatformSetting): void {
-    const value = this.platformEdits[setting.key];
-    if (value === null || value === undefined || value === '' || isNaN(Number(value))) {
-      this.toast.error(`${setting.label} must be a number`);
-      return;
-    }
-    this.savingPlatformKey = setting.key;
-    this.settingsService.setPlatformSetting(setting.key, Number(value)).subscribe({
-      next: () => {
-        this.savingPlatformKey = null;
-        this.toast.success(`${setting.label} saved`);
-      },
-      error: (err) => {
-        this.savingPlatformKey = null;
-        const message = err?.error?.error?.message || err?.error?.message || `Failed to save ${setting.label}`;
-        this.toast.error(message);
       }
     });
   }

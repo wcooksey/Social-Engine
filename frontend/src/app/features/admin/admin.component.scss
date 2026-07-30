@@ -1,0 +1,239 @@
+@import '../../../assets/styles/variables';
+@import '../../../assets/styles/mixins';
+
+.admin-page {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.page-header {
+  margin-bottom: $spacing-lg;
+
+  .subtitle {
+    color: var(--text-secondary);
+    margin-top: $spacing-xs;
+  }
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: $spacing-md;
+  margin-bottom: $spacing-lg;
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.stat-label {
+  font-size: $font-size-xs;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.stat-value {
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--text-primary);
+}
+
+.stat-sub {
+  font-size: $font-size-xs;
+  color: var(--text-secondary);
+}
+
+.tab-bar {
+  display: flex;
+  gap: $spacing-xs;
+  margin-bottom: $spacing-lg;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.tab {
+  padding: $spacing-sm $spacing-md;
+  font-size: $font-size-sm;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+}
+
+.tab--active {
+  color: $primary-blue;
+  border-bottom-color: $primary-blue;
+}
+
+.section-card {
+  margin-bottom: $spacing-lg;
+
+  h3 {
+    margin-bottom: $spacing-md;
+  }
+}
+
+.card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $spacing-sm;
+
+  h3 {
+    margin-bottom: 0;
+  }
+}
+
+.section-intro {
+  margin: 0 0 $spacing-md;
+  font-size: $font-size-sm;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  max-width: 720px;
+}
+
+.loading-hint {
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+}
+
+.search-row {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-md;
+
+  app-input {
+    flex: 1;
+    max-width: 360px;
+  }
+}
+
+// Wide tables scroll inside the card rather than pushing the page sideways.
+.table-scroll {
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: $font-size-sm;
+
+  th,
+  td {
+    padding: $spacing-sm $spacing-md;
+    text-align: left;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border-secondary);
+  }
+
+  th {
+    font-size: $font-size-xs;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+  }
+
+  .num {
+    text-align: right;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+}
+
+.row--paused {
+  opacity: 0.55;
+}
+
+.cell-primary {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.cell-sub {
+  margin-top: 2px;
+  font-size: $font-size-xs;
+  color: var(--text-secondary);
+}
+
+.cap-cell {
+  width: 110px;
+}
+
+.cap-input {
+  width: 80px;
+  padding: 4px $spacing-sm;
+  font-family: $font-family-primary;
+  font-size: $font-size-sm;
+  text-align: right;
+  color: var(--text-primary);
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-secondary);
+  border-radius: $border-radius-sm;
+
+  &:focus {
+    outline: none;
+    border-color: $primary-blue;
+  }
+}
+
+.role-cell {
+  min-width: 130px;
+}
+
+.engine-cell {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+// Shared shape with the org integration rows on the Settings page.
+.settings-fields {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.setting-row {
+  display: grid;
+  grid-template-columns: 1fr 200px auto;
+  align-items: center;
+  gap: $spacing-md;
+
+  @include responsive($breakpoint-md) {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+}
+
+.setting-label-col {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.setting-label {
+  font-size: $font-size-sm;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.setting-actions {
+  display: flex;
+  gap: $spacing-xs;
+}

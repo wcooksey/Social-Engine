@@ -22,6 +22,12 @@ import {
   saveStorageState,
 } from '../services/social-account.service';
 import { getOrgConfig } from '../services/settings.service';
+import {
+  identityFromName,
+  identityIntro,
+  resolveSenderIdentity,
+  withSignature,
+} from '../services/identity.service';
 import { sweepSocialInbox } from './social-inbox.service';
 import { sourceBusinesses } from '../services/places.service';
 import * as coverage from '../services/coverage.service';
@@ -711,7 +717,7 @@ export const engineTools: Anthropic.Tool[] = [
   {
     name: 'create_playbook',
     description:
-      'Create a new playbook (protocol) the team/you will follow. Scope it to everything, a group, a campaign, or a lead status, and optionally a channel (VOICE = call script).',
+      'Create a new playbook (protocol) the team/you will follow. Scope it to everything, a group, a campaign, or a lead status, and optionally a channel (VOICE = call script). A playbook can also carry a sender identity — set the identity* fields when this outreach should go out as a specific person or business rather than the organization (one account running several employees or several services it sells).',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -725,6 +731,14 @@ export const engineTools: Anthropic.Tool[] = [
           enum: ['NEW', 'RESEARCHING', 'CONTACTED', 'ENGAGED', 'INTERESTED', 'NOT_INTERESTED', 'CUSTOMER', 'ARCHIVED'],
         },
         channel: { type: 'string', enum: ['ALL', 'EMAIL', 'SMS', 'VOICE'] },
+        identityName: { type: 'string', description: 'Person this outreach comes from, e.g. "Dana Reeves".' },
+        identityOrgName: { type: 'string', description: 'Business/brand to present as instead of the organization.' },
+        identityTitle: { type: 'string', description: 'Job title for that person, e.g. "Service Manager".' },
+        identityEmail: {
+          type: 'string',
+          description: 'From/Reply-To address. Only takes effect if it is on the org\'s Mailgun sending domain.',
+        },
+        identitySignature: { type: 'string', description: 'Sign-off appended to email sent under this playbook.' },
       },
       required: ['name', 'instructions'],
     },
@@ -805,7 +819,7 @@ export const engineTools: Anthropic.Tool[] = [
       properties: {
         topic: {
           type: 'string',
-          enum: ['overview', 'settings', 'channels_setup', 'outreach_flow', 'sourcing_enrichment', 'booking_meetings', 'monitoring', 'safety'],
+          enum: ['overview', 'settings', 'channels_setup', 'outreach_flow', 'sourcing_enrichment', 'booking_meetings', 'sandbox', 'run_control', 'monitoring', 'lead_status', 'safety', 'playbooks_identity'],
           description: 'Omit to get the full guide',
         },
       },
@@ -1684,6 +1698,15 @@ const executors: Record<string, ToolExecutor> = {
     }
 
     const orgConfig = await getOrgConfig(ctx.organizationId);
+    // Whose name this goes out under — decided by playbook scope, not by the
+    // model, so the header and the body can't disagree.
+    const identity = await resolveSenderIdentity(ctx.organizationId, {
+      lead: { id: lead.id, groupId: lead.groupId, status: lead.status },
+      channel: 'EMAIL',
+      mailgunDomain: orgConfig.mailgun.domain,
+    });
+    const body = withSignature(input.body, identity);
+
     const blocked = await outboundBlockReason(ctx.organizationId, lead);
     const draftReason = await draftOnlyReason(
       input.campaignId,
@@ -1699,7 +1722,7 @@ const executors: Record<string, ToolExecutor> = {
         contactId: contact.id,
         channel: 'EMAIL',
         subject: input.subject,
-        body: input.body,
+        body,
         campaignId: input.campaignId,
         status: blocked ? 'draft_blocked' : 'draft_pending_approval',
         activityType: 'EMAIL_SENT',
@@ -1708,13 +1731,14 @@ const executors: Record<string, ToolExecutor> = {
       return { sent: false, drafted: true, ...result, note: draftReason };
     }
 
-    const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
     const delivery = await channels.sendEmail(
       {
         to: contact.email,
         subject: input.subject,
-        body: input.body,
-        fromName: org?.name,
+        body,
+        fromName: identityFromName(identity),
+        fromEmail: identity.email,
+        replyTo: identity.email,
         // One-click unsubscribe (List-Unsubscribe header) — deliverability + CAN-SPAM.
         unsubscribeUrl: `${config.appPublicUrl}/api/public/unsubscribe?c=${signToken(contact.id)}`,
       },
@@ -1729,7 +1753,7 @@ const executors: Record<string, ToolExecutor> = {
       contactId: contact.id,
       channel: 'EMAIL',
       subject: input.subject,
-      body: input.body,
+      body,
       campaignId: input.campaignId,
       status: 'sent',
       activityType: 'EMAIL_SENT',
@@ -1737,7 +1761,14 @@ const executors: Record<string, ToolExecutor> = {
       experimentVariantId: input.experimentVariantId,
       externalId: delivery.externalId,
     });
-    return { sent: true, to: contact.email, externalId: delivery.externalId, ...result };
+    return {
+      sent: true,
+      to: contact.email,
+      sentAs: identityFromName(identity),
+      ...(identity.playbookName ? { identityFrom: `playbook "${identity.playbookName}"` } : {}),
+      externalId: delivery.externalId,
+      ...result,
+    };
   },
 
   send_sms: async (input, ctx) => {
@@ -1834,7 +1865,10 @@ const executors: Record<string, ToolExecutor> = {
       };
     }
 
-    const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
+    const identity = await resolveSenderIdentity(ctx.organizationId, {
+      lead: { id: lead.id, groupId: lead.groupId, status: lead.status },
+      channel: 'VOICE',
+    });
     const recentActivities = await prisma.activity.findMany({
       where: { leadId: lead.id },
       orderBy: { createdAt: 'desc' },
@@ -1861,7 +1895,8 @@ const executors: Record<string, ToolExecutor> = {
       : [];
 
     const systemPrompt = buildCallSystemPrompt({
-      organizationName: org?.name || 'our company',
+      organizationName: identity.orgName,
+      callerIdentity: identity.personName ? identityIntro(identity) : undefined,
       objective: input.objective,
       lead: {
         companyName: lead.companyName,
@@ -1873,11 +1908,14 @@ const executors: Record<string, ToolExecutor> = {
       voicePlaybooks,
       capabilities,
     });
-    const firstMessage = `Hi${contactName ? ` ${contactName.split(' ')[0]}` : ''}, this is the assistant calling on behalf of ${org?.name || 'our team'} — do you have a quick minute?`;
+    const caller = identity.personName
+      ? `${identity.personName}'s assistant`
+      : 'the assistant';
+    const firstMessage = `Hi${contactName ? ` ${contactName.split(' ')[0]}` : ''}, this is ${caller} calling on behalf of ${identity.orgName} — do you have a quick minute?`;
 
     const voicemailMessage =
       input.voicemailMessage ||
-      `Hi, this is the assistant calling from ${org?.name || 'our office'} for ${lead.companyName}. Sorry we missed you — we'll follow up by text or email shortly. Have a great day!`;
+      `Hi, this is ${caller} calling from ${identity.orgName} for ${lead.companyName}. Sorry we missed you — we'll follow up by text or email shortly. Have a great day!`;
     const delivery = await channels.placeVapiCall(
       {
         toNumber,
@@ -2558,6 +2596,15 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
         channel: p.channel,
         isActive: p.isActive,
         instructions: p.instructions,
+        ...(p.identityName || p.identityOrgName || p.identityTitle
+          ? {
+              sendsAs: {
+                person: p.identityName || undefined,
+                business: p.identityOrgName || undefined,
+                title: p.identityTitle || undefined,
+              },
+            }
+          : {}),
       })),
     };
   },
@@ -2632,6 +2679,11 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
       else { scope = 'GLOBAL'; notes.push(`"${input.leadStatus}" is not a valid lead status — made it a global playbook`); }
     }
 
+    const identity = (value: unknown): string | undefined => {
+      const trimmed = String(value ?? '').trim();
+      return trimmed || undefined;
+    };
+
     const playbook = await prisma.playbook.create({
       data: {
         organizationId: ctx.organizationId,
@@ -2642,13 +2694,20 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
         campaignId,
         leadStatus: leadStatus as never,
         channel: channel as never,
+        identityName: identity(input.identityName),
+        identityOrgName: identity(input.identityOrgName),
+        identityTitle: identity(input.identityTitle),
+        identityEmail: identity(input.identityEmail),
+        identitySignature: identity(input.identitySignature),
       },
     });
+    const sendsAs = playbook.identityName || playbook.identityOrgName;
     return {
       playbookId: playbook.id,
       name: playbook.name,
       scope: playbook.scope,
       channel: playbook.channel,
+      ...(sendsAs ? { sendsAs } : {}),
       ...(notes.length ? { note: notes.join('; ') } : {}),
     };
   },

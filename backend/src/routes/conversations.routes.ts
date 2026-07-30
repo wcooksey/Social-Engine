@@ -6,6 +6,7 @@ import * as channels from '../services/channels.service';
 import { getOrgConfig } from '../services/settings.service';
 import { leadService } from '../services/lead.service';
 import { dispatchApprovedSocialDm } from '../services/social-send.service';
+import { identityFromName, resolveSenderIdentity, withSignature } from '../services/identity.service';
 
 const router = Router();
 
@@ -53,13 +54,22 @@ async function deliverOnConversation(
     if (!channels.isEmailConfigured(orgConfig.mailgun)) {
       throw new AppError('Email channel (Mailgun) is not configured — add it in Settings → Integrations.', 400);
     }
-    const org = await prisma.organization.findUnique({ where: { id: organizationId } });
+    // Replies go out under the same identity the outreach did, so a thread
+    // never changes sender halfway through.
+    const identity = await resolveSenderIdentity(organizationId, {
+      lead: { id: lead.id, groupId: lead.groupId, status: lead.status },
+      channel: 'EMAIL',
+      mailgunDomain: orgConfig.mailgun.domain,
+    });
     const delivery = await channels.sendEmail(
       {
         to: contact.email,
         subject: subject || conversation.subject || 'Re: our conversation',
-        body,
-        fromName: org?.name,
+        // Idempotent: an approved draft already carries the sign-off.
+        body: withSignature(body, identity),
+        fromName: identityFromName(identity),
+        fromEmail: identity.email,
+        replyTo: identity.email,
       },
       orgConfig.mailgun
     );

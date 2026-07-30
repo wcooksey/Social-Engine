@@ -41,10 +41,14 @@ npm run dev
 
 Integration keys (AI providers, Mailgun, Twilio, Vapi, web search) are
 configured **in-app** on the **Settings → Integrations & API keys** page — each
-organization sets its own, stored encrypted. Platform-wide knobs (engine
-iterations, worker concurrency, per-org caps) live behind a super-admin section
-on the same page, unlocked for the account whose email matches `SUPER_ADMIN_EMAIL`.
-Any of these also work as environment-variable fallbacks (see `.env.example`).
+organization sets its own, stored encrypted. Any of these also work as
+environment-variable fallbacks (see `.env.example`).
+
+Platform-wide controls live on a separate **Admin** page, in the sidebar only
+for the account whose email matches `SUPER_ADMIN_EMAIL`: every organization with
+its usage and 7-day spend, per-org pause / daily-cap / social-autonomy levers,
+user suspension and role changes, and the Engine limits (max iterations, worker
+concurrency, per-org concurrency, poll interval).
 
 ## Repository layout
 

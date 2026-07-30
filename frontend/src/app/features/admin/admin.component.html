@@ -1,0 +1,255 @@
+<div class="admin-page">
+  <div class="page-header">
+    <div>
+      <h1>Admin</h1>
+      <p class="subtitle">Every organization on this deployment — visible only to the super admin</p>
+    </div>
+  </div>
+
+  <div class="stat-grid">
+    @if (overview(); as o) {
+      <app-card padding="md" class="stat-card">
+        <span class="stat-label">Organizations</span>
+        <span class="stat-value">{{ o.organizations }}</span>
+      </app-card>
+      <app-card padding="md" class="stat-card">
+        <span class="stat-label">Users</span>
+        <span class="stat-value">{{ o.users }}</span>
+      </app-card>
+      <app-card padding="md" class="stat-card">
+        <span class="stat-label">Leads</span>
+        <span class="stat-value">{{ o.leads | number }}</span>
+      </app-card>
+      <app-card padding="md" class="stat-card">
+        <span class="stat-label">Running now</span>
+        <span class="stat-value">{{ o.runningNow }}</span>
+        <span class="stat-sub">{{ o.activeJobs }} queued</span>
+      </app-card>
+      <app-card padding="md" class="stat-card">
+        <span class="stat-label">Runs (7d)</span>
+        <span class="stat-value">{{ o.runsThisWeek | number }}</span>
+      </app-card>
+      <app-card padding="md" class="stat-card">
+        <span class="stat-label">Spend (7d)</span>
+        <span class="stat-value">{{ o.spendThisWeekUsd | currency:'USD' }}</span>
+        <span class="stat-sub">estimated, list prices</span>
+      </app-card>
+    } @else if (loadingOverview) {
+      <p class="loading-hint">Loading platform overview…</p>
+    }
+  </div>
+
+  <div class="tab-bar">
+    <button type="button" class="tab" [class.tab--active]="tab() === 'organizations'" (click)="tab.set('organizations')">
+      Organizations
+    </button>
+    <button type="button" class="tab" [class.tab--active]="tab() === 'users'" (click)="tab.set('users')">
+      Users
+    </button>
+    <button type="button" class="tab" [class.tab--active]="tab() === 'platform'" (click)="tab.set('platform')">
+      Engine limits
+    </button>
+  </div>
+
+  @if (tab() === 'organizations') {
+    <app-card padding="lg" class="section-card">
+      <div class="card-header-row">
+        <h3>Organizations</h3>
+        <app-button variant="ghost" size="sm" icon="bi-arrow-clockwise" (clicked)="loadOrganizations()">Refresh</app-button>
+      </div>
+      <p class="section-intro">
+        Safety levers only. Pausing an organization stops all autonomous research, outreach, and follow-ups for it
+        immediately. Their leads, conversations, and API keys are not readable from here.
+      </p>
+
+      @if (loadingOrgs) {
+        <p class="loading-hint">Loading organizations…</p>
+      } @else if (organizations().length === 0) {
+        <p class="loading-hint">No organizations yet.</p>
+      } @else {
+        <div class="table-scroll">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Organization</th>
+                <th class="num">Users</th>
+                <th class="num">Leads</th>
+                <th class="num">Spend 7d</th>
+                <th>Last run</th>
+                <th class="num">Daily cap</th>
+                <th>Social DMs</th>
+                <th>Engine</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (org of organizations(); track org.id) {
+                <tr [class.row--paused]="org.paused">
+                  <td>
+                    <div class="cell-primary">{{ org.name }}</div>
+                    <div class="cell-sub">{{ org.slug }} · {{ org.engineModel || 'server default model' }}</div>
+                  </td>
+                  <td class="num">{{ org.userCount }}</td>
+                  <td class="num">{{ org.leadCount | number }}</td>
+                  <td class="num">{{ org.spendThisWeekUsd | currency:'USD' }}</td>
+                  <td>{{ relativeTime(org.lastRunAt) }}</td>
+                  <td class="num cap-cell">
+                    <input
+                      type="number"
+                      class="cap-input"
+                      [(ngModel)]="capEdits[org.id]"
+                      [ngModelOptions]="{ standalone: true }"
+                      (blur)="saveCap(org)" />
+                  </td>
+                  <td>
+                    <app-switch
+                      size="sm"
+                      [ngModel]="org.socialAutonomy"
+                      (valueChange)="toggleSocialAutonomy(org, $event)"
+                      [disabled]="savingOrgId === org.id"
+                      [ngModelOptions]="{ standalone: true }">
+                    </app-switch>
+                  </td>
+                  <td>
+                    <div class="engine-cell">
+                      <app-switch
+                        size="sm"
+                        [ngModel]="!org.paused"
+                        (valueChange)="togglePaused(org, $event)"
+                        [disabled]="savingOrgId === org.id"
+                        [ngModelOptions]="{ standalone: true }">
+                      </app-switch>
+                      @if (org.paused) {
+                        <app-badge variant="warning" size="sm">Paused</app-badge>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </app-card>
+  }
+
+  @if (tab() === 'users') {
+    <app-card padding="lg" class="section-card">
+      <div class="card-header-row">
+        <h3>Users</h3>
+        <app-button variant="ghost" size="sm" icon="bi-arrow-clockwise" (clicked)="loadUsers()">Refresh</app-button>
+      </div>
+      <p class="section-intro">
+        Suspending an account or changing its role signs that person out of every device immediately. The 200 most
+        recently created accounts are shown — search to narrow.
+      </p>
+
+      <div class="search-row">
+        <app-input
+          placeholder="Search by name or email…"
+          [(ngModel)]="userSearch"
+          [ngModelOptions]="{ standalone: true }"
+          (keyup.enter)="loadUsers()">
+        </app-input>
+        <app-button variant="secondary" (clicked)="loadUsers()">Search</app-button>
+      </div>
+
+      @if (loadingUsers) {
+        <p class="loading-hint">Loading users…</p>
+      } @else if (users().length === 0) {
+        <p class="loading-hint">No users match that search.</p>
+      } @else {
+        <div class="table-scroll">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Organization</th>
+                <th>Role</th>
+                <th>Last login</th>
+                <th>Active</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (user of users(); track user.id) {
+                <tr [class.row--paused]="!user.isActive">
+                  <td>
+                    <div class="cell-primary">
+                      {{ fullName(user) }}
+                      @if (user.isSuperAdmin) {
+                        <app-badge variant="purple" size="sm">Super admin</app-badge>
+                      }
+                    </div>
+                    <div class="cell-sub">{{ user.email }}</div>
+                  </td>
+                  <td>{{ user.organization.name }}</td>
+                  <td class="role-cell">
+                    <app-select
+                      size="sm"
+                      [options]="roleOptions"
+                      [showPlaceholderOption]="false"
+                      [ngModel]="user.role"
+                      (selectionChange)="changeRole(user, $event)"
+                      [disabled]="savingUserId === user.id"
+                      [ngModelOptions]="{ standalone: true }">
+                    </app-select>
+                  </td>
+                  <td>{{ relativeTime(user.lastLoginAt) }}</td>
+                  <td>
+                    <app-switch
+                      size="sm"
+                      [ngModel]="user.isActive"
+                      (valueChange)="toggleUserActive(user, $event)"
+                      [disabled]="savingUserId === user.id || user.isSuperAdmin"
+                      [ngModelOptions]="{ standalone: true }">
+                    </app-switch>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </app-card>
+  }
+
+  @if (tab() === 'platform') {
+    <app-card padding="lg" class="section-card">
+      <h3>Engine limits</h3>
+      <p class="section-intro">
+        These apply across every organization on this deployment. Concurrency changes take effect within seconds; the
+        worker poll interval applies after the next restart.
+      </p>
+
+      @if (loadingPlatform) {
+        <p class="loading-hint">Loading engine limits…</p>
+      } @else {
+        <div class="settings-fields">
+          @for (setting of platformSettings(); track setting.key) {
+            <div class="setting-row">
+              <div class="setting-label-col">
+                <span class="setting-label">{{ setting.label }}</span>
+                <app-badge variant="neutral" size="sm">default {{ setting.default }}</app-badge>
+              </div>
+              <div class="setting-input-col">
+                <app-input
+                  type="number"
+                  [(ngModel)]="platformEdits[setting.key]"
+                  [ngModelOptions]="{ standalone: true }">
+                </app-input>
+              </div>
+              <div class="setting-actions">
+                <app-button
+                  variant="primary"
+                  size="sm"
+                  [loading]="savingPlatformKey === setting.key"
+                  (clicked)="savePlatformSetting(setting)">
+                  Save
+                </app-button>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </app-card>
+  }
+</div>

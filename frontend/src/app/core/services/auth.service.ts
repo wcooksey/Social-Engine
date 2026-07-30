@@ -16,6 +16,24 @@ export interface RegisterData {
   organizationName: string;
 }
 
+export interface ProfileUpdate {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  /** Required only when changing the email address. */
+  currentPassword?: string;
+}
+
+/**
+ * Endpoints that rotate the token version (email change, password change)
+ * return a fresh pair alongside the user so the caller stays signed in.
+ */
+interface UserWithTokens {
+  user: User;
+  token?: string;
+  refreshToken?: string;
+}
+
 const TOKEN_KEY = 'token';
 const REFRESH_TOKEN_KEY = 'refreshToken';
 
@@ -67,6 +85,18 @@ export class AuthService {
     );
   }
 
+  updateProfile(update: ProfileUpdate): Observable<UserWithTokens> {
+    return this.api.patch<UserWithTokens>('/api/auth/me', update).pipe(
+      tap(res => this.applyUserWithTokens(res))
+    );
+  }
+
+  changePassword(currentPassword: string, newPassword: string): Observable<UserWithTokens> {
+    return this.api
+      .post<UserWithTokens>('/api/auth/me/password', { currentPassword, newPassword })
+      .pipe(tap(res => this.applyUserWithTokens(res)));
+  }
+
   updateNotifications(notifyByEmail: boolean): Observable<User> {
     return this.api.patch<User>('/api/auth/me/notifications', { notifyByEmail }).pipe(
       tap(user => {
@@ -98,6 +128,16 @@ export class AuthService {
 
   isAuthenticated(): boolean {
     return !!this.token;
+  }
+
+  /** Store the updated user, plus rotated tokens when the server sent some. */
+  private applyUserWithTokens(res: UserWithTokens): void {
+    if (res.token && res.refreshToken) {
+      localStorage.setItem(TOKEN_KEY, res.token);
+      localStorage.setItem(REFRESH_TOKEN_KEY, res.refreshToken);
+    }
+    localStorage.setItem('user', JSON.stringify(res.user));
+    this.currentUserSignal.set(res.user);
   }
 
   private setAuthData(data: AuthTokens): void {

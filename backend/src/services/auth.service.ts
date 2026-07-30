@@ -153,6 +153,104 @@ class AuthService {
     });
   }
 
+  /**
+   * Update the signed-in user's own name and email. Changing the email rotates
+   * the login identity, so it requires the current password and invalidates
+   * every issued token — the caller gets a fresh pair back.
+   */
+  async updateProfile(
+    userId: string,
+    input: { firstName?: string; lastName?: string; email?: string; currentPassword?: string }
+  ) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new AppError('User not found', 404);
+
+    const data: { firstName?: string; lastName?: string; email?: string; tokenVersion?: { increment: number } } = {};
+
+    if (input.firstName !== undefined) {
+      const firstName = input.firstName.trim();
+      if (!firstName) throw new AppError('First name cannot be empty');
+      data.firstName = firstName;
+    }
+    if (input.lastName !== undefined) data.lastName = input.lastName.trim();
+
+    const newEmail = input.email?.toLowerCase().trim();
+    const emailChanged = !!newEmail && newEmail !== user.email;
+    if (emailChanged) {
+      if (!newEmail!.includes('@')) throw new AppError('Enter a valid email address');
+      const valid = await bcrypt.compare(input.currentPassword || '', user.passwordHash);
+      if (!valid) throw new AppError('Current password is incorrect', 401);
+
+      // Super admin is decided by email match, so letting any account rename
+      // itself into SUPER_ADMIN_EMAIL would be a free privilege escalation.
+      // (Claiming it at registration is the intended bootstrap and still works.)
+      if (isSuperAdmin(newEmail) && !isSuperAdmin(user.email)) {
+        throw new AppError('That email address is reserved', 403);
+      }
+
+      const taken = await prisma.user.findUnique({ where: { email: newEmail! } });
+      if (taken) throw new AppError('An account with this email already exists', 409);
+
+      data.email = newEmail;
+      data.tokenVersion = { increment: 1 };
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data,
+      include: { organization: true },
+    });
+
+    const serialized = serializeUser(updated);
+    if (!emailChanged) return { user: serialized };
+
+    // Re-issue on the new token version so the caller isn't logged out.
+    const payload: JwtPayload = {
+      userId: updated.id,
+      email: updated.email,
+      organizationId: updated.organizationId,
+      role: updated.role,
+      tv: updated.tokenVersion,
+    };
+    return { ...issueTokens(payload), user: serialized };
+  }
+
+  /**
+   * Change the signed-in user's password. Bumps the token version so sessions
+   * on other devices die, then re-issues tokens for the caller.
+   */
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new AppError('User not found', 404);
+
+    const valid = await bcrypt.compare(currentPassword || '', user.passwordHash);
+    if (!valid) throw new AppError('Current password is incorrect', 401);
+    if (!newPassword || newPassword.length < 8) {
+      throw new AppError('New password must be at least 8 characters');
+    }
+    if (newPassword === currentPassword) {
+      throw new AppError('New password must be different from the current one');
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: await bcrypt.hash(newPassword, SALT_ROUNDS),
+        tokenVersion: { increment: 1 },
+      },
+      include: { organization: true },
+    });
+
+    const payload: JwtPayload = {
+      userId: updated.id,
+      email: updated.email,
+      organizationId: updated.organizationId,
+      role: updated.role,
+      tv: updated.tokenVersion,
+    };
+    return { ...issueTokens(payload), user: serializeUser(updated) };
+  }
+
   async setNotifyByEmail(userId: string, enabled: boolean) {
     const user = await prisma.user.update({
       where: { id: userId },
