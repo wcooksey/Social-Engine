@@ -205,6 +205,9 @@ export class SettingsComponent implements OnInit {
   savingConnect = false;
   testingAccountId: string | null = null;
   disconnectingAccountId: string | null = null;
+  /** Last failed session check, explained — a toast is too short for the fix. */
+  sessionIssue: string | null = null;
+  sessionIssueReason: string | null = null;
 
   // Email notifications
   notifyByEmail = true;
@@ -537,13 +540,23 @@ export class SettingsComponent implements OnInit {
 
   testAccount(account: SocialAccount): void {
     this.testingAccountId = account.id;
+    this.sessionIssue = null;
+    this.sessionIssueReason = null;
     this.socialAccountsService.validate(account.id).subscribe({
       next: (res) => {
         this.testingAccountId = null;
         if (res.live) {
           this.toast.success('Session is live and working');
         } else {
-          this.toast.warning('Session could not be validated — it may be expired');
+          // Show what actually happened. "May be expired" was a guess, and the
+          // wrong one for a checkpoint — where re-capturing can never work.
+          this.sessionIssue = res.detail || 'Session could not be validated.';
+          this.sessionIssueReason = res.reason ?? null;
+          this.toast.warning(
+            res.reason === 'checkpoint'
+              ? 'Login challenged by the platform — approve it on your device (details below)'
+              : res.detail || 'Session could not be validated — it may be expired'
+          );
         }
         this.loadSocialAccounts();
       },

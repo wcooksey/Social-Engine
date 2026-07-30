@@ -81,13 +81,18 @@ router.post(
 router.post(
   '/:id/validate',
   asyncHandler(async (req, res) => {
-    const live = await validateAccount(req.params.id, req.user!.organizationId);
+    const result = await validateAccount(req.params.id, req.user!.organizationId);
     const account = await prisma.socialAccount.findFirst({
       where: { id: req.params.id, organizationId: req.user!.organizationId },
       select: { id: true, status: true, lastValidatedAt: true },
     });
     if (!account) throw new AppError('Account not found', 404);
-    res.json({ success: true, data: { ...account, live } });
+    // reason/detail tell the operator what to actually DO — a checkpoint and a
+    // dead cookie look identical without them.
+    res.json({
+      success: true,
+      data: { ...account, live: result.live, reason: result.reason, detail: result.detail, finalUrl: result.finalUrl },
+    });
   })
 );
 

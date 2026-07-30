@@ -98,7 +98,15 @@ export class BrowserSession {
     this.browser = await chromium.launch({
       executablePath,
       headless: true,
-      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+      args: [
+        '--no-sandbox',
+        '--disable-dev-shm-usage',
+        // Without this, navigator.webdriver is true and the browser announces
+        // itself as automated. Social platforms check it and answer a perfectly
+        // valid session with a login wall or a checkpoint, which is
+        // indistinguishable from an expired login from our side.
+        '--disable-blink-features=AutomationControlled',
+      ],
       ...(proxyUrl ? { proxy: { server: proxyUrl, bypass } } : {}),
     });
     // Priority: a session object passed in (per-org social login) > a file
@@ -108,8 +116,15 @@ export class BrowserSession {
     this.context = await this.browser.newContext({
       viewport: { width: 1280, height: 900 },
       ignoreHTTPSErrors: true,
+      // Claim the platform we are actually on. The previous Windows UA
+      // contradicted navigator.platform ("Linux x86_64"), which is a one-line
+      // check for any bot detector — internal consistency beats picking the
+      // most common UA string.
       userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      // Locale/timezone are absent by default, another automation tell.
+      locale: 'en-US',
+      timezoneId: 'America/New_York',
       ...(storageState ? { storageState } : {}),
     });
     // SSRF guard: navigation targets are agent-chosen (and influenceable by
