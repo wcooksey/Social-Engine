@@ -36,7 +36,10 @@
 
   @include responsive($breakpoint-lg) {
     width: 100%;
-    max-height: 200px;
+    // Was 200px, which now has to hold a filter control and a group header per
+    // playbook as well as the conversations — at 200px a grouped list showed
+    // barely one row per group.
+    max-height: 300px;
   }
 }
 
@@ -243,6 +246,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: $spacing-md;
   // Horizontal padding matches .input-bar so the title and the model picker
   // line up with the chat input below instead of touching the card border.
@@ -280,16 +284,28 @@
   align-items: center;
   gap: $spacing-sm;
   flex-shrink: 0;
+
+  // Narrow screens can't fit the title and both pickers on one line, so the
+  // controls take their own row rather than one of them being dropped.
+  @include responsive($breakpoint-md) {
+    width: 100%;
+    flex-shrink: 1;
+  }
 }
 
 // Which line of business the open conversation belongs to. Capped so a long
 // playbook name can't crowd out the model picker beside it.
+//
+// Deliberately NOT hidden on small screens: this is the only way to file a
+// conversation, and a phone is exactly where someone starts a thread on the
+// move. The topbar wraps instead of dropping the control.
 .chat-playbook-picker {
   min-width: 0;
   max-width: 210px;
 
   @include responsive($breakpoint-md) {
-    display: none;
+    max-width: none;
+    flex: 1;
   }
 }
 
