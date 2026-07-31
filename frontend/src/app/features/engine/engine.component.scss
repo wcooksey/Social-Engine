@@ -141,6 +141,12 @@
     i {
       color: $primary-blue;
     }
+
+    // The conversation you are reading is the one you are most likely to want
+    // rid of, so its control doesn't wait to be hovered.
+    .chat-delete-btn {
+      opacity: 1;
+    }
   }
 }
 
@@ -184,6 +190,20 @@
   cursor: pointer;
   opacity: 0;
   transition: all $transition-fast;
+
+  // Revealing on row hover keeps the list reading as titles, but a touch screen
+  // has no hover state at all — there the button never appeared, which made
+  // conversations look undeletable rather than tidy. Show it outright wherever
+  // hovering isn't possible.
+  @media (hover: none) {
+    opacity: 1;
+  }
+
+  // Keyboard navigation doesn't fire the row's :hover either, so tabbing to an
+  // invisible control would be the same dead end.
+  &:focus-visible {
+    opacity: 1;
+  }
 
   &:hover {
     background: rgba($error-red, 0.15);
