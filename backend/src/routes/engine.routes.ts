@@ -6,13 +6,57 @@ import * as runRegistry from '../engine/run-registry';
 
 const router = Router();
 
+/** Playbook summary carried on every chat, so the list can be grouped by it. */
+const playbookSelect = { select: { id: true, name: true, isActive: true } } as const;
+
+const CHAT_SUMMARY_SELECT = {
+  id: true,
+  title: true,
+  updatedAt: true,
+  createdAt: true,
+  playbookId: true,
+  playbook: playbookSelect,
+} as const;
+
+/**
+ * Resolve a playbookId from a request body into something safe to write.
+ * Returns undefined when the caller didn't mention it (leave as-is), null to
+ * clear, or the validated id. Cross-org ids are rejected rather than silently
+ * ignored — a chat filed under another org's playbook would be invisible in
+ * both accounts.
+ */
+async function resolvePlaybookId(
+  body: Record<string, unknown> | undefined,
+  organizationId: string
+): Promise<string | null | undefined> {
+  if (!body || !('playbookId' in body)) return undefined;
+  const raw = body.playbookId;
+  if (raw === null || raw === undefined || raw === '') return null;
+  const playbook = await prisma.playbook.findFirst({
+    where: { id: String(raw), organizationId },
+    select: { id: true },
+  });
+  if (!playbook) throw new AppError('Playbook not found', 404);
+  return playbook.id;
+}
+
 router.get(
   '/chats',
   asyncHandler(async (req, res) => {
+    // ?playbookId=<id> narrows to one line of business; 'none' shows the
+    // conversations nobody has filed yet, which is where new chats land.
+    const filter = req.query.playbookId ? String(req.query.playbookId) : '';
+    const playbookWhere =
+      filter === 'none' ? { playbookId: null } : filter ? { playbookId: filter } : {};
+
     const chats = await prisma.engineChat.findMany({
-      where: { organizationId: req.user!.organizationId, userId: req.user!.userId },
+      where: {
+        organizationId: req.user!.organizationId,
+        userId: req.user!.userId,
+        ...playbookWhere,
+      },
       orderBy: { updatedAt: 'desc' },
-      select: { id: true, title: true, updatedAt: true, createdAt: true },
+      select: CHAT_SUMMARY_SELECT,
     });
     res.json({ success: true, data: chats });
   })
@@ -21,12 +65,15 @@ router.get(
 router.post(
   '/chats',
   asyncHandler(async (req, res) => {
+    const playbookId = await resolvePlaybookId(req.body, req.user!.organizationId);
     const chat = await prisma.engineChat.create({
       data: {
         organizationId: req.user!.organizationId,
         userId: req.user!.userId,
         title: req.body?.title || 'New conversation',
+        playbookId: playbookId ?? null,
       },
+      select: CHAT_SUMMARY_SELECT,
     });
     res.status(201).json({ success: true, data: chat });
   })
@@ -41,9 +88,34 @@ router.get(
         organizationId: req.user!.organizationId,
         userId: req.user!.userId,
       },
-      include: { messages: { orderBy: { createdAt: 'asc' } } },
+      include: { messages: { orderBy: { createdAt: 'asc' } }, playbook: playbookSelect },
     });
     if (!chat) throw new AppError('Chat not found', 404);
+    res.json({ success: true, data: chat });
+  })
+);
+
+/** File a conversation under a playbook (or rename it). */
+router.patch(
+  '/chats/:id',
+  asyncHandler(async (req, res) => {
+    const existing = await prisma.engineChat.findFirst({
+      where: { id: req.params.id, organizationId: req.user!.organizationId, userId: req.user!.userId },
+      select: { id: true },
+    });
+    if (!existing) throw new AppError('Chat not found', 404);
+
+    const playbookId = await resolvePlaybookId(req.body, req.user!.organizationId);
+    const title = typeof req.body?.title === 'string' ? req.body.title.trim() : undefined;
+
+    const chat = await prisma.engineChat.update({
+      where: { id: existing.id },
+      data: {
+        ...(playbookId === undefined ? {} : { playbookId }),
+        ...(title ? { title: title.slice(0, 120) } : {}),
+      },
+      select: CHAT_SUMMARY_SELECT,
+    });
     res.json({ success: true, data: chat });
   })
 );
@@ -109,6 +181,10 @@ router.post(
           trigger: 'USER_CHAT',
           objective: content,
           chatId: chat.id,
+          // Filing a chat under a playbook isn't just a label: the run is told
+          // which line of business it is working, so a Tampa freight thread
+          // isn't steered by the dealership playbook sitting next to it.
+          playbookId: chat.playbookId ?? undefined,
           watch: req.body?.watch === true,
           history: chat.messages.map((m) => ({
             role: m.role as 'user' | 'assistant',

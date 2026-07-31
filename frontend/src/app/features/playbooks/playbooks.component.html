@@ -44,6 +44,16 @@
           </div>
 
           <div class="playbook-actions">
+            <a
+              class="icon-btn conversations-btn"
+              [routerLink]="['/engine']"
+              [queryParams]="{ playbook: playbook.id }"
+              [title]="conversationsLabel(playbook)">
+              <i class="bi bi-chat-left-text"></i>
+              @if (chatCount(playbook); as count) {
+                <span class="conversations-count">{{ count }}</span>
+              }
+            </a>
             <button class="icon-btn" (click)="openEdit(playbook)" title="Edit"><i class="bi bi-pencil"></i></button>
             <button class="icon-btn icon-btn--danger" (click)="deletePlaybook(playbook)" title="Delete"><i class="bi bi-trash"></i></button>
           </div>

@@ -15,12 +15,21 @@ export class EngineService {
   private api = inject(ApiService);
   private authService = inject(AuthService);
 
-  listChats(): Observable<EngineChatSummary[]> {
-    return this.api.get<EngineChatSummary[]>('/api/engine/chats');
+  /**
+   * `playbookId` narrows the list to one line of business; pass 'none' for the
+   * conversations that haven't been filed anywhere yet.
+   */
+  listChats(playbookId?: string | null): Observable<EngineChatSummary[]> {
+    return this.api.get<EngineChatSummary[]>('/api/engine/chats', { playbookId });
   }
 
-  createChat(): Observable<EngineChatSummary> {
-    return this.api.post<EngineChatSummary>('/api/engine/chats', {});
+  createChat(playbookId?: string | null): Observable<EngineChatSummary> {
+    return this.api.post<EngineChatSummary>('/api/engine/chats', { playbookId: playbookId ?? null });
+  }
+
+  /** File a conversation under a playbook, or pass null to unfile it. */
+  setChatPlaybook(chatId: string, playbookId: string | null): Observable<EngineChatSummary> {
+    return this.api.patch<EngineChatSummary>(`/api/engine/chats/${chatId}`, { playbookId });
   }
 
   getChat(id: string): Observable<EngineChat> {

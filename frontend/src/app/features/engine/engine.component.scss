@@ -61,12 +61,52 @@
   }
 }
 
+// Narrows the sidebar to one line of business. Sits above the list rather than
+// inside it so it stays put while the conversations scroll.
+.playbook-filter {
+  flex-shrink: 0;
+}
+
 .chat-list {
   flex: 1;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: $spacing-xs;
+}
+
+// Bucket label. Sticky so you can still tell which line of business you are
+// looking at after scrolling into a long run of conversations.
+.chat-group-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  margin: $spacing-sm 0 $spacing-xs;
+  padding: $spacing-xs $spacing-sm;
+  background: var(--bg-card);
+  color: var(--text-tertiary);
+  font-size: $font-size-xs;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+
+  &:first-child {
+    margin-top: 0;
+  }
+
+  i {
+    flex-shrink: 0;
+  }
+}
+
+.chat-group-count {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-weight: 500;
+  color: var(--text-tertiary);
 }
 
 .chat-list-empty {
@@ -212,6 +252,24 @@
   i {
     color: $primary-blue;
     flex-shrink: 0;
+  }
+}
+
+.engine-topbar-controls {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  flex-shrink: 0;
+}
+
+// Which line of business the open conversation belongs to. Capped so a long
+// playbook name can't crowd out the model picker beside it.
+.chat-playbook-picker {
+  min-width: 0;
+  max-width: 210px;
+
+  @include responsive($breakpoint-md) {
+    display: none;
   }
 }
 

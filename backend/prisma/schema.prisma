@@ -775,6 +775,8 @@ model Playbook {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  engineChats EngineChat[]
+
   @@index([organizationId, isActive])
 }
 
@@ -903,6 +905,13 @@ model EngineChat {
   userId         String
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   title          String       @default("New conversation")
+  // Which line of business this conversation belongs to. One account can now
+  // work several industries at once (freight in Tampa, dealerships in Florida),
+  // and an untagged chat list gives no way to tell them apart. SetNull rather
+  // than Cascade: deleting a playbook must never delete the conversations that
+  // ran under it — the transcript is the record of what was actually done.
+  playbookId     String?
+  playbook       Playbook?    @relation(fields: [playbookId], references: [id], onDelete: SetNull)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -910,6 +919,7 @@ model EngineChat {
 
   @@index([organizationId, updatedAt])
   @@index([userId])
+  @@index([playbookId, updatedAt])
 }
 
 model EngineChatMessage {

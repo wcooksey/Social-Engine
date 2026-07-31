@@ -126,6 +126,22 @@
   }
 }
 
+// Opens the Engine filtered to this playbook's conversations. Widens to fit its
+// count rather than truncating it — the number is the reason to click.
+.conversations-btn {
+  width: auto;
+  min-width: 30px;
+  padding: 0 $spacing-sm;
+  gap: $spacing-xs;
+  text-decoration: none;
+}
+
+.conversations-count {
+  font-size: $font-size-xs;
+  font-weight: 600;
+  line-height: 1;
+}
+
 .playbook-form {
   display: flex;
   flex-direction: column;

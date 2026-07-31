@@ -1,6 +1,7 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { PlaybooksService, PlaybookInput } from '../../core/services/playbooks.service';
 import { Playbook, PlaybookChannel, PlaybookScope, hasIdentity } from '../../core/models/playbook.model';
 import { LeadGroupsService } from '../../core/services/lead-groups.service';
@@ -32,6 +33,7 @@ const LEAD_STATUSES: LeadStatus[] = [
   imports: [
     CommonModule,
     FormsModule,
+    RouterLink,
     CardComponent,
     ButtonComponent,
     InputComponent,
@@ -173,6 +175,17 @@ export class PlaybooksComponent implements OnInit {
     if (brand) return brand;
     if (playbook.identityEmail) return playbook.identityEmail;
     return 'Custom sign-off';
+  }
+
+  /** Engine conversations filed under this playbook. */
+  chatCount(playbook: Playbook): number {
+    return playbook._count?.engineChats ?? 0;
+  }
+
+  conversationsLabel(playbook: Playbook): string {
+    const count = this.chatCount(playbook);
+    if (!count) return `No Engine conversations yet — open one for ${playbook.name}`;
+    return `${count} Engine conversation${count === 1 ? '' : 's'} under ${playbook.name}`;
   }
 
   onScopeChange(): void {

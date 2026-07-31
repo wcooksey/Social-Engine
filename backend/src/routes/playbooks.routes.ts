@@ -7,6 +7,9 @@ const router = Router();
 const includeRelations = {
   group: { select: { id: true, name: true } },
   campaign: { select: { id: true, name: true } },
+  // How many Engine conversations are filed under this playbook — the count
+  // that makes each card a doorway into its own thread history.
+  _count: { select: { engineChats: true } },
 } as const;
 
 // Sender identity — all optional, blank clears the field back to the org default.
