@@ -13,11 +13,41 @@
       <p>Loading playbooks...</p>
     </div>
   } @else if (playbooks().length) {
+    <div class="selection-bar">
+      <label class="select-all">
+        <input
+          type="checkbox"
+          [checked]="allSelected()"
+          (change)="toggleAll($any($event.target).checked)"
+          aria-label="Select all playbooks" />
+        <span>Select all</span>
+      </label>
+
+      @if (selectedIds().size) {
+        <span class="selection-count">{{ selectedIds().size }} selected</span>
+        <app-button
+          variant="danger"
+          size="sm"
+          icon="bi-trash"
+          [loading]="bulkDeleting()"
+          (clicked)="deleteSelected()">
+          Delete selected
+        </app-button>
+        <app-button variant="ghost" size="sm" (clicked)="clearSelection()">Clear</app-button>
+      }
+    </div>
+
     <div class="playbooks-list">
       @for (playbook of playbooks(); track playbook.id) {
-        <app-card padding="lg" class="playbook-card">
+        <app-card padding="lg" class="playbook-card" [class.playbook-card--selected]="isSelected(playbook)">
           <div class="playbook-main">
             <div class="playbook-header">
+              <input
+                type="checkbox"
+                class="playbook-select"
+                [checked]="isSelected(playbook)"
+                (change)="toggleSelected(playbook, $any($event.target).checked)"
+                [attr.aria-label]="'Select ' + playbook.name" />
               <h3>{{ playbook.name }}</h3>
               <app-switch
                 size="sm"

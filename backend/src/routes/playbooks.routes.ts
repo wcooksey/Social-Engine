@@ -129,6 +129,27 @@ router.patch(
   })
 );
 
+/**
+ * Delete several playbooks at once — clearing out a whole line of business
+ * (every dealership protocol, say) without confirming one card at a time.
+ * Scoped by organizationId in the same statement as the ids, so a foreign id in
+ * the list simply matches nothing rather than deleting someone else's playbook.
+ * Engine conversations filed under these survive: the relation is SetNull, so
+ * they come back unfiled rather than disappearing with their instructions.
+ */
+router.post(
+  '/bulk-delete',
+  asyncHandler(async (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String).filter(Boolean) : [];
+    if (ids.length === 0) throw new AppError('ids must be a non-empty array');
+
+    const result = await prisma.playbook.deleteMany({
+      where: { id: { in: ids }, organizationId: req.user!.organizationId },
+    });
+    res.json({ success: true, data: { deleted: result.count, requested: ids.length } });
+  })
+);
+
 router.delete(
   '/:id',
   asyncHandler(async (req, res) => {
