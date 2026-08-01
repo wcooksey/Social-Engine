@@ -15,6 +15,8 @@ export interface Playbook {
   isActive: boolean;
   priority: number;
   createdAt: string;
+  /** Engine conversations filed under this playbook. */
+  _count?: { engineChats: number };
 
   // Sender identity — who outreach under this playbook presents as. All
   // optional; blank falls back to the organization.

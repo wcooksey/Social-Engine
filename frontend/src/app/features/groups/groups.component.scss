@@ -72,6 +72,15 @@
   }
 }
 
+// Edit + delete sit together so the card's own click target (open the leads)
+// keeps the whole of the rest of the card.
+.group-actions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  flex-shrink: 0;
+}
+
 .icon-btn {
   width: 30px;
   height: 30px;
@@ -87,6 +96,21 @@
   &:hover {
     background: var(--border-secondary);
   }
+
+  &--danger:hover {
+    background: var(--error-color);
+    color: white;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+}
+
+// Pushes Cancel/Save to the right of the dialog, leaving Delete on the left.
+.footer-spacer {
+  flex: 1;
 }
 
 .group-goal {

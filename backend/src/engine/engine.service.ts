@@ -1,7 +1,11 @@
 import { prisma } from '../config/database';
 import { config } from '../config/environment';
 import { isEmailConfigured, isSmsConfigured, isVoiceConfigured } from '../services/channels.service';
-import { formatPlaybooksForPrompt, getActivePlaybooks } from '../services/playbook.service';
+import {
+  formatPlaybooksForPrompt,
+  getActivePlaybooks,
+  getFocusPlaybookName,
+} from '../services/playbook.service';
 import { getOrgConfig, getPlatformEngineConfig } from '../services/settings.service';
 import { estimateCostUsd, ProviderKeys } from './llm/catalog';
 import { buildEngineSystemPrompt } from './prompts';
@@ -30,6 +34,12 @@ export interface RunEngineOptions {
   onEvent?: (event: EngineEvent) => void;
   /** Chat this run belongs to, so the UI can reattach to it by chat. */
   chatId?: string;
+  /**
+   * Playbook this run is working under, when the conversation is filed to one.
+   * Focuses the run on that line of business without hiding the other
+   * playbooks — global protocols still apply.
+   */
+  playbookId?: string;
   /**
    * Fires as soon as the AgentRun row exists — lets a caller return the runId
    * to the client immediately and let the run continue in the background.
@@ -149,12 +159,16 @@ class EngineService {
     const providerKeys: ProviderKeys = orgConfig.providerKeys;
 
     const playbooks = await getActivePlaybooks(options.organizationId);
+    const focusPlaybookName = options.playbookId
+      ? await getFocusPlaybookName(options.organizationId, options.playbookId)
+      : null;
     const system = buildEngineSystemPrompt({
       organizationName: organization.name,
       userName: user ? `${user.firstName} ${user.lastName}`.trim() : undefined,
       trigger: options.trigger,
       rolePersona: rolePersona(role),
       playbooksText: formatPlaybooksForPrompt(playbooks),
+      focusPlaybookName: focusPlaybookName ?? undefined,
       channels: {
         email: isEmailConfigured(orgConfig.mailgun),
         sms: isSmsConfigured(orgConfig.twilio),

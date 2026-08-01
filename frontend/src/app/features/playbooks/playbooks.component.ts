@@ -1,6 +1,7 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { PlaybooksService, PlaybookInput } from '../../core/services/playbooks.service';
 import { Playbook, PlaybookChannel, PlaybookScope, hasIdentity } from '../../core/models/playbook.model';
 import { LeadGroupsService } from '../../core/services/lead-groups.service';
@@ -32,6 +33,7 @@ const LEAD_STATUSES: LeadStatus[] = [
   imports: [
     CommonModule,
     FormsModule,
+    RouterLink,
     CardComponent,
     ButtonComponent,
     InputComponent,
@@ -46,6 +48,15 @@ const LEAD_STATUSES: LeadStatus[] = [
 export class PlaybooksComponent implements OnInit {
   playbooks = signal<Playbook[]>([]);
   loading = signal(true);
+
+  /**
+   * Multi-select for clearing out a whole line of business at once. Retiring a
+   * vertical means deleting every playbook that belongs to it, and doing that
+   * one card and one confirm at a time is the kind of chore people abandon
+   * halfway — leaving stale protocols in every future run's prompt.
+   */
+  selectedIds = signal<Set<string>>(new Set<string>());
+  bulkDeleting = signal(false);
 
   showDialog = signal(false);
   saving = signal(false);
@@ -111,6 +122,10 @@ export class PlaybooksComponent implements OnInit {
     this.playbooksService.list().subscribe({
       next: (playbooks) => {
         this.playbooks.set(playbooks);
+        // Drop ticks for playbooks that no longer exist, so a stale id can't
+        // sit in the selection and inflate the next "N selected" count.
+        const live = new Set(playbooks.map((p) => p.id));
+        this.selectedIds.update((current) => new Set([...current].filter((id) => live.has(id))));
         this.loading.set(false);
       },
       error: () => this.loading.set(false)
@@ -175,6 +190,84 @@ export class PlaybooksComponent implements OnInit {
     return 'Custom sign-off';
   }
 
+  // --- Multi-select ------------------------------------------------------
+
+  isSelected(playbook: Playbook): boolean {
+    return this.selectedIds().has(playbook.id);
+  }
+
+  toggleSelected(playbook: Playbook, checked: boolean): void {
+    this.selectedIds.update((current) => {
+      const next = new Set(current);
+      if (checked) next.add(playbook.id);
+      else next.delete(playbook.id);
+      return next;
+    });
+  }
+
+  allSelected(): boolean {
+    const list = this.playbooks();
+    return list.length > 0 && list.every((p) => this.selectedIds().has(p.id));
+  }
+
+  toggleAll(checked: boolean): void {
+    this.selectedIds.set(checked ? new Set(this.playbooks().map((p) => p.id)) : new Set<string>());
+  }
+
+  clearSelection(): void {
+    this.selectedIds.set(new Set<string>());
+  }
+
+  /** Playbooks currently ticked, in the order they appear on screen. */
+  selectedPlaybooks(): Playbook[] {
+    return this.playbooks().filter((p) => this.selectedIds().has(p.id));
+  }
+
+  /**
+   * Delete every ticked playbook. The confirm names them and says what happens
+   * to their Engine conversations — those survive, unfiled — because "delete 9
+   * playbooks?" alone doesn't tell you whether you are also about to lose the
+   * record of the work done under them.
+   */
+  deleteSelected(): void {
+    const targets = this.selectedPlaybooks();
+    if (targets.length === 0 || this.bulkDeleting()) return;
+
+    const names = targets.map((p) => `• ${p.name}`).join('\n');
+    const chats = targets.reduce((sum, p) => sum + this.chatCount(p), 0);
+    const chatNote = chats
+      ? `\n\n${chats} Engine conversation${chats === 1 ? '' : 's'} filed under them will be kept, but will no longer be filed under any playbook.`
+      : '';
+    if (!confirm(`Delete ${targets.length} playbook${targets.length === 1 ? '' : 's'}?\n\n${names}${chatNote}\n\nThis cannot be undone.`)) {
+      return;
+    }
+
+    this.bulkDeleting.set(true);
+    this.playbooksService.bulkDelete(targets.map((p) => p.id)).subscribe({
+      next: ({ deleted }) => {
+        this.bulkDeleting.set(false);
+        this.clearSelection();
+        this.toast.success(`Deleted ${deleted} playbook${deleted === 1 ? '' : 's'}`);
+        this.load();
+      },
+      error: () => {
+        this.bulkDeleting.set(false);
+        this.toast.error('Failed to delete the selected playbooks');
+      }
+    });
+  }
+
+  /** Engine conversations filed under this playbook. */
+  chatCount(playbook: Playbook): number {
+    return playbook._count?.engineChats ?? 0;
+  }
+
+  conversationsLabel(playbook: Playbook): string {
+    const count = this.chatCount(playbook);
+    if (!count) return `No Engine conversations yet — open one for ${playbook.name}`;
+    return `${count} Engine conversation${count === 1 ? '' : 's'} under ${playbook.name}`;
+  }
+
   onScopeChange(): void {
     this.form.groupId = null;
     this.form.campaignId = null;
@@ -230,7 +323,14 @@ export class PlaybooksComponent implements OnInit {
   deletePlaybook(playbook?: Playbook): void {
     const target = playbook ?? this.editingPlaybook;
     if (!target) return;
-    if (!confirm(`Delete the "${target.name}" playbook? This cannot be undone.`)) return;
+    // Say what happens to the conversations filed under it — they survive,
+    // unfiled — so deleting a playbook never feels like it might take the
+    // record of the work done under it along with it.
+    const chats = this.chatCount(target);
+    const chatNote = chats
+      ? ` Its ${chats} Engine conversation${chats === 1 ? '' : 's'} will be kept, but will no longer be filed under any playbook.`
+      : '';
+    if (!confirm(`Delete the "${target.name}" playbook?${chatNote} This cannot be undone.`)) return;
 
     this.saving.set(true);
     this.playbooksService.delete(target.id).subscribe({

@@ -39,4 +39,9 @@ export class PlaybooksService {
   delete(id: string): Observable<void> {
     return this.api.delete<void>(`/api/playbooks/${id}`);
   }
+
+  /** Delete several at once — clearing out a whole line of business. */
+  bulkDelete(ids: string[]): Observable<{ deleted: number; requested: number }> {
+    return this.api.post<{ deleted: number; requested: number }>('/api/playbooks/bulk-delete', { ids });
+  }
 }

@@ -13,7 +13,8 @@ import {
   EnrichmentTier,
   Lead,
   LeadGroup,
-  LeadsQuery
+  LeadsQuery,
+  formatLeadAddress
 } from '../../core/models/lead.model';
 import { ButtonComponent } from '../../shared/components/button/button.component';
 import { InputComponent } from '../../shared/components/input/input.component';
@@ -71,6 +72,10 @@ export class LeadsListComponent implements OnInit {
     companyName: '',
     website: '',
     phone: '',
+    // Sourced leads have carried a street address all along; without this field
+    // a hand-added lead could never have one, so the header would show city and
+    // state forever no matter what the detail page is now able to display.
+    address: '',
     city: '',
     state: '',
     industry: '',
@@ -123,18 +128,48 @@ export class LeadsListComponent implements OnInit {
     this.searchInput$.pipe(debounceTime(300), distinctUntilChanged()).subscribe(value => {
       this.search = value;
       this.page = 1;
+      this.syncUrl();
       this.load();
     });
   }
 
   ngOnInit(): void {
-    const groupIdParam = this.route.snapshot.queryParamMap.get('groupId');
-    if (groupIdParam) {
-      this.groupId = groupIdParam;
-    }
+    // Filters are restored from the URL, not just groupId — the URL is the
+    // single source of truth for what this list is showing, so a reload, a
+    // bookmark, a shared link and the browser Back button all land on the same
+    // filtered view instead of silently falling back to every lead in the org.
+    const params = this.route.snapshot.queryParamMap;
+    this.groupId = params.get('groupId') || '';
+    this.status = params.get('status') || '';
+    this.search = params.get('search') || '';
+    this.tier = (params.get('tier') as EnrichmentTier) || '';
+    this.quality = (params.get('quality') as QualityFilter) || '';
+    this.page = Number(params.get('page')) || 1;
+
     this.leadGroupsService.list().subscribe(groups => this.groups.set(groups));
     this.load();
     this.loadStats();
+  }
+
+  /**
+   * Mirror the current filters into the URL. `replaceUrl` keeps this out of the
+   * history stack — ticking through four filters shouldn't cost four presses of
+   * Back to leave the page — while still leaving the address bar accurate for
+   * whenever we DO push a new entry (opening a lead).
+   */
+  private syncUrl(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        groupId: this.groupId || null,
+        status: this.status || null,
+        search: this.search || null,
+        tier: this.tier || null,
+        quality: this.quality || null,
+        page: this.page > 1 ? this.page : null,
+      },
+      replaceUrl: true,
+    });
   }
 
   onSearchChange(value: string): void {
@@ -143,12 +178,14 @@ export class LeadsListComponent implements OnInit {
 
   onFilterChange(): void {
     this.page = 1;
+    this.syncUrl();
     this.load();
     this.loadStats();
   }
 
   onPageChange(page: number): void {
     this.page = page;
+    this.syncUrl();
     this.load();
   }
 
@@ -165,12 +202,14 @@ export class LeadsListComponent implements OnInit {
     // A tier chip and a preset would fight over the same columns — chips win.
     if (this.tier) this.quality = '';
     this.page = 1;
+    this.syncUrl();
     this.load();
   }
 
   onQualityChange(): void {
     if (this.quality) this.tier = '';
     this.page = 1;
+    this.syncUrl();
     this.load();
   }
 
@@ -262,7 +301,7 @@ export class LeadsListComponent implements OnInit {
   }
 
   openAddDialog(): void {
-    this.newLead = { companyName: '', website: '', phone: '', city: '', state: '', industry: '', groupId: '' };
+    this.newLead = { companyName: '', website: '', phone: '', address: '', city: '', state: '', industry: '', groupId: '' };
     this.showAddDialog.set(true);
   }
 
@@ -287,7 +326,11 @@ export class LeadsListComponent implements OnInit {
   }
 
   goToLead(lead: Lead): void {
-    this.router.navigate(['/leads', lead.id]);
+    // Hand the detail page the exact list we are leaving, so its "Back to
+    // Leads" returns to this group and these filters. Router state rather than
+    // a query param: it keeps the lead's own URL clean and shareable, and the
+    // browser persists it across a reload of the detail page.
+    this.router.navigate(['/leads', lead.id], { state: { returnUrl: this.router.url } });
   }
 
   statusBadgeVariant(status: string): BadgeVariant {
@@ -326,6 +369,15 @@ export class LeadsListComponent implements OnInit {
 
   location(lead: Lead): string {
     return [lead.city, lead.state].filter(Boolean).join(', ') || '—';
+  }
+
+  /**
+   * Full address for the location cell's tooltip. The column stays as city and
+   * state so the table doesn't blow out to a street line per row, but the
+   * street is one hover away rather than only on the detail page.
+   */
+  fullAddress(lead: Lead): string {
+    return formatLeadAddress(lead);
   }
 
   /** "2 emails · 1 phone" — the concrete answer to "can we contact them?". */

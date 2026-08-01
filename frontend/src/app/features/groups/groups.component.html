@@ -18,7 +18,16 @@
         <app-card class="group-card" [hoverable]="true" padding="lg" (click)="viewLeads(group)">
           <div class="group-header">
             <h3>{{ group.name }}</h3>
-            <button class="icon-btn" (click)="openEdit(group, $event)" title="Edit"><i class="bi bi-pencil"></i></button>
+            <div class="group-actions">
+              <button class="icon-btn" (click)="openEdit(group, $event)" title="Edit"><i class="bi bi-pencil"></i></button>
+              <button
+                class="icon-btn icon-btn--danger"
+                [disabled]="deleting()"
+                [title]="'Delete this group (its leads are kept, ungrouped)'"
+                (click)="deleteGroup(group, $event)">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
           </div>
           <p class="group-goal">{{ group.goal }}</p>
           @if (group.aiSummary) {
@@ -69,6 +78,10 @@
   </div>
 
   <div dialog-footer>
+    @if (editingGroup) {
+      <app-button variant="danger" [disabled]="saving()" [loading]="deleting()" (clicked)="deleteGroup()">Delete</app-button>
+    }
+    <div class="footer-spacer"></div>
     <app-button variant="ghost" (clicked)="showDialog.set(false)">Cancel</app-button>
     <app-button variant="primary" [loading]="saving()" [disabled]="!form.name.trim() || !form.goal.trim()" (clicked)="submit()">
       {{ editingGroup ? 'Save Changes' : 'Create Group' }}

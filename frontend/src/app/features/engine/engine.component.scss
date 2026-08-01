@@ -36,7 +36,10 @@
 
   @include responsive($breakpoint-lg) {
     width: 100%;
-    max-height: 200px;
+    // Was 200px, which now has to hold a filter control and a group header per
+    // playbook as well as the conversations — at 200px a grouped list showed
+    // barely one row per group.
+    max-height: 300px;
   }
 }
 
@@ -61,12 +64,52 @@
   }
 }
 
+// Narrows the sidebar to one line of business. Sits above the list rather than
+// inside it so it stays put while the conversations scroll.
+.playbook-filter {
+  flex-shrink: 0;
+}
+
 .chat-list {
   flex: 1;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: $spacing-xs;
+}
+
+// Bucket label. Sticky so you can still tell which line of business you are
+// looking at after scrolling into a long run of conversations.
+.chat-group-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  margin: $spacing-sm 0 $spacing-xs;
+  padding: $spacing-xs $spacing-sm;
+  background: var(--bg-card);
+  color: var(--text-tertiary);
+  font-size: $font-size-xs;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+
+  &:first-child {
+    margin-top: 0;
+  }
+
+  i {
+    flex-shrink: 0;
+  }
+}
+
+.chat-group-count {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-weight: 500;
+  color: var(--text-tertiary);
 }
 
 .chat-list-empty {
@@ -100,6 +143,12 @@
 
     i {
       color: $primary-blue;
+    }
+
+    // The conversation you are reading is the one you are most likely to want
+    // rid of, so its control doesn't wait to be hovered.
+    .chat-delete-btn {
+      opacity: 1;
     }
   }
 }
@@ -145,6 +194,20 @@
   opacity: 0;
   transition: all $transition-fast;
 
+  // Revealing on row hover keeps the list reading as titles, but a touch screen
+  // has no hover state at all — there the button never appeared, which made
+  // conversations look undeletable rather than tidy. Show it outright wherever
+  // hovering isn't possible.
+  @media (hover: none) {
+    opacity: 1;
+  }
+
+  // Keyboard navigation doesn't fire the row's :hover either, so tabbing to an
+  // invisible control would be the same dead end.
+  &:focus-visible {
+    opacity: 1;
+  }
+
   &:hover {
     background: rgba($error-red, 0.15);
     color: $error-red;
@@ -183,6 +246,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: $spacing-md;
   // Horizontal padding matches .input-bar so the title and the model picker
   // line up with the chat input below instead of touching the card border.
@@ -212,6 +276,36 @@
   i {
     color: $primary-blue;
     flex-shrink: 0;
+  }
+}
+
+.engine-topbar-controls {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  flex-shrink: 0;
+
+  // Narrow screens can't fit the title and both pickers on one line, so the
+  // controls take their own row rather than one of them being dropped.
+  @include responsive($breakpoint-md) {
+    width: 100%;
+    flex-shrink: 1;
+  }
+}
+
+// Which line of business the open conversation belongs to. Capped so a long
+// playbook name can't crowd out the model picker beside it.
+//
+// Deliberately NOT hidden on small screens: this is the only way to file a
+// conversation, and a phone is exactly where someone starts a thread on the
+// move. The topbar wraps instead of dropping the control.
+.chat-playbook-picker {
+  min-width: 0;
+  max-width: 210px;
+
+  @include responsive($breakpoint-md) {
+    max-width: none;
+    flex: 1;
   }
 }
 

@@ -4,9 +4,18 @@ export function buildEngineSystemPrompt(ctx: {
   trigger: 'USER_CHAT' | 'SCHEDULED_JOB' | 'WEBHOOK';
   rolePersona?: string;
   playbooksText?: string;
+  /** Playbook this conversation is filed under — the line of business it works. */
+  focusPlaybookName?: string;
   channels?: { email: boolean; sms: boolean; voice: boolean };
 }): string {
   const rolePersona = ctx.rolePersona ? `\n\n## Your role\n${ctx.rolePersona}` : '';
+  // One account can run several lines of business at once. A filed conversation
+  // says which one this thread is about, so the work lands in the right segment
+  // instead of inheriting whichever playbook happened to be listed first. It
+  // narrows FOCUS, not permissions — global rules and guardrails still apply.
+  const focus = ctx.focusPlaybookName
+    ? `\n\n## This conversation's playbook\nThis thread is filed under the **${ctx.focusPlaybookName}** playbook — that is the line of business you are working here. When the playbooks below conflict or overlap, follow that one, and keep the leads, groups and campaigns you touch within its scope unless the user explicitly sends you elsewhere. Global playbooks and every guardrail still apply.`
+    : '';
   const channels = ctx.channels;
   const channelStatus = channels
     ? `\n\n## Channel status\n- Email: ${channels.email ? 'LIVE — send_email delivers real email' : 'not configured — send_email saves drafts'}\n- SMS: ${channels.sms ? 'LIVE — send_sms delivers real texts' : 'not configured — send_sms saves drafts'}\n- Voice: ${channels.voice ? 'LIVE — place_call places a real AI phone call to the lead' : 'not configured — place_call records the intent only'}`
@@ -50,7 +59,7 @@ Your job is to act like a team of top-tier BDRs: research prospects on the inter
 
 ## Style
 - Trigger for this run: ${ctx.trigger === 'USER_CHAT' ? `live chat with ${ctx.userName || 'a user'} — be conversational, confirm plans for big jobs before executing, and report results clearly` : 'a scheduled job — work autonomously, no one is watching; just do the work and summarize'}.
-- When you finish, give a concise summary of what you did: leads created/updated, messages sent or drafted, calls placed, follow-ups scheduled, and anything needing human attention.${rolePersona}${channelStatus}${ctx.playbooksText ?? ''}`;
+- When you finish, give a concise summary of what you did: leads created/updated, messages sent or drafted, calls placed, follow-ups scheduled, and anything needing human attention.${rolePersona}${focus}${channelStatus}${ctx.playbooksText ?? ''}`;
 }
 
 /** System prompt for the AI voice assistant on an outbound call to a lead. */

@@ -1,7 +1,16 @@
+/** The playbook a conversation is filed under — its line of business. */
+export interface EngineChatPlaybook {
+  id: string;
+  name: string;
+  isActive: boolean;
+}
+
 export interface EngineChatSummary {
   id: string;
   title: string;
   updatedAt: string;
+  playbookId?: string | null;
+  playbook?: EngineChatPlaybook | null;
 }
 
 export type EngineMessageRole = 'user' | 'assistant';
@@ -28,6 +37,8 @@ export interface EngineChat {
   id: string;
   title: string;
   messages: EngineMessage[];
+  playbookId?: string | null;
+  playbook?: EngineChatPlaybook | null;
 }
 
 /** Where a run stands. `awaiting_step` = parked in watch mode for the operator. */

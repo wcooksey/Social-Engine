@@ -4,26 +4,50 @@
       <i class="bi bi-plus-lg"></i> New chat
     </button>
 
+    @if (playbooks().length) {
+      <div class="playbook-filter">
+        <app-select
+          size="sm"
+          [showPlaceholderOption]="false"
+          [options]="filterOptions()"
+          [ngModel]="playbookFilter()"
+          (selectionChange)="onFilterChange($event)"
+          [ngModelOptions]="{ standalone: true }">
+        </app-select>
+      </div>
+    }
+
     <div class="chat-list">
       @if (loadingChats()) {
         <p class="chat-list-empty">Loading conversations...</p>
       } @else if (chats().length) {
-        @for (chat of chats(); track chat.id) {
-          <div class="chat-list-item" [class.active]="activeChatId() === chat.id">
-            <button type="button" class="chat-list-open" (click)="selectChat(chat)">
-              <i class="bi bi-chat-left-text"></i>
-              <span class="chat-title">{{ chat.title || 'New conversation' }}</span>
-            </button>
-            <button
-              type="button"
-              class="chat-delete-btn"
-              [disabled]="deletingChatId() === chat.id"
-              [title]="'Delete this conversation'"
-              (click)="deleteChat(chat, $event)">
-              <i class="bi" [class.bi-trash]="deletingChatId() !== chat.id" [class.bi-hourglass-split]="deletingChatId() === chat.id"></i>
-            </button>
-          </div>
+        @for (group of chatGroups(); track group.playbookId) {
+          @if (showGroupHeaders()) {
+            <p class="chat-group-header">
+              <i class="bi" [class.bi-journal-text]="group.playbookId" [class.bi-inbox]="!group.playbookId"></i>
+              {{ group.label }}
+              <span class="chat-group-count">{{ group.chats.length }}</span>
+            </p>
+          }
+          @for (chat of group.chats; track chat.id) {
+            <div class="chat-list-item" [class.active]="activeChatId() === chat.id">
+              <button type="button" class="chat-list-open" (click)="selectChat(chat)">
+                <i class="bi bi-chat-left-text"></i>
+                <span class="chat-title">{{ chat.title || 'New conversation' }}</span>
+              </button>
+              <button
+                type="button"
+                class="chat-delete-btn"
+                [disabled]="deletingChatId() === chat.id"
+                [title]="'Delete this conversation'"
+                (click)="deleteChat(chat, $event)">
+                <i class="bi" [class.bi-trash]="deletingChatId() !== chat.id" [class.bi-hourglass-split]="deletingChatId() === chat.id"></i>
+              </button>
+            </div>
+          }
         }
+      } @else if (playbookFilter()) {
+        <p class="chat-list-empty">No conversations filed here yet.</p>
       } @else {
         <p class="chat-list-empty">No conversations yet.</p>
       }
@@ -37,7 +61,24 @@
         <i class="bi bi-stars"></i>
         {{ activeChatTitle() }}
       </span>
-      <app-model-picker></app-model-picker>
+      <div class="engine-topbar-controls">
+        @if (playbooks().length) {
+          <div
+            class="chat-playbook-picker"
+            title="Which line of business this conversation is for. The Engine follows this playbook first — it applies from the next message on.">
+            <app-select
+              size="sm"
+              [showPlaceholderOption]="false"
+              [disabled]="filingChat()"
+              [options]="playbookOptions()"
+              [ngModel]="activePlaybookId()"
+              (selectionChange)="setActivePlaybook($event)"
+              [ngModelOptions]="{ standalone: true }">
+            </app-select>
+          </div>
+        }
+        <app-model-picker></app-model-picker>
+      </div>
     </div>
 
     @if (!activeChatId() && messages().length === 0) {

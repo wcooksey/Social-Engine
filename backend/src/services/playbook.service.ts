@@ -62,6 +62,25 @@ function identityLabel(p: {
   return `Send as: ${parts.join(' ') || 'the organization'}${sig ? `\nSign off with:\n${sig}` : ''}`;
 }
 
+/**
+ * The playbook a conversation is filed under, if it still exists and is active.
+ * Used to tell a run which line of business it is working — the difference
+ * between a tag on a chat list and a chat that actually behaves differently.
+ * Returns null for an unfiled chat, a deleted playbook, or a deactivated one
+ * (an inactive playbook is excluded from the prompt entirely, so focusing on it
+ * would point the Engine at instructions it was never given).
+ */
+export async function getFocusPlaybookName(
+  organizationId: string,
+  playbookId: string
+): Promise<string | null> {
+  const playbook = await prisma.playbook.findFirst({
+    where: { id: playbookId, organizationId, isActive: true },
+    select: { name: true },
+  });
+  return playbook?.name ?? null;
+}
+
 export function formatPlaybooksForPrompt(playbooks: PlaybookForPrompt[]): string {
   if (playbooks.length === 0) return '';
   const blocks = playbooks

@@ -23,6 +23,7 @@ export class GroupsComponent implements OnInit {
 
   showDialog = signal(false);
   saving = signal(false);
+  deleting = signal(false);
   editingGroup: LeadGroup | null = null;
   form = { name: '', goal: '' };
 
@@ -78,6 +79,50 @@ export class GroupsComponent implements OnInit {
       error: () => {
         this.saving.set(false);
         this.toast.error('Failed to save group');
+      }
+    });
+  }
+
+  /**
+   * Delete a group. The confirmation spells out the asymmetry, because it is
+   * not obvious and not reversible: the LEADS survive and simply become
+   * ungrouped, but group-scoped playbooks and the coverage grid are destroyed
+   * with it. Losing a coverage grid means losing the record of which cells have
+   * already been searched — the thing that stops the Engine re-sourcing ground
+   * it already covered.
+   */
+  deleteGroup(group?: LeadGroup, event?: Event): void {
+    event?.stopPropagation();
+    const target = group ?? this.editingGroup;
+    if (!target || this.deleting()) return;
+
+    const losses: string[] = [];
+    if (target.playbookCount) {
+      losses.push(`${target.playbookCount} playbook${target.playbookCount === 1 ? '' : 's'} scoped to this group`);
+    }
+    if (target.coverageCellCount) {
+      losses.push(`its coverage grid (${target.coverageCellCount} cells — the record of what has already been searched)`);
+    }
+    const kept = target.leadCount
+      ? `Its ${target.leadCount} lead${target.leadCount === 1 ? '' : 's'} will be KEPT and become ungrouped.`
+      : '';
+    const lost = losses.length ? `\n\nThis will also permanently delete ${losses.join(' and ')}.` : '';
+
+    if (!confirm(`Delete the "${target.name}" group?\n\n${kept}${lost}\n\nThis cannot be undone.`)) return;
+
+    this.deleting.set(true);
+    this.leadGroupsService.delete(target.id).subscribe({
+      next: () => {
+        this.deleting.set(false);
+        this.showDialog.set(false);
+        this.toast.success(
+          target.leadCount ? `Group deleted — ${target.leadCount} lead(s) kept, now ungrouped` : 'Group deleted'
+        );
+        this.load();
+      },
+      error: () => {
+        this.deleting.set(false);
+        this.toast.error('Failed to delete group');
       }
     });
   }

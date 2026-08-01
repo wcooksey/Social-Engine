@@ -6,7 +6,7 @@
 } @else {
 @if (lead(); as l) {
   <div class="lead-detail-page">
-    <a routerLink="/leads" class="back-link"><i class="bi bi-arrow-left"></i> Back to Leads</a>
+    <button type="button" class="back-link" (click)="goBack()"><i class="bi bi-arrow-left"></i> Back to Leads</button>
 
     <app-card class="header-card" padding="lg">
       <div class="header-top">
@@ -21,8 +21,8 @@
             @if (l.phone) {
               <span class="meta-item"><i class="bi bi-telephone"></i> {{ l.phone }}</span>
             }
-            @if (l.city || l.state) {
-              <span class="meta-item"><i class="bi bi-geo-alt"></i> {{ l.city }}{{ l.city && l.state ? ', ' : '' }}{{ l.state }}</span>
+            @if (address(l); as fullAddress) {
+              <span class="meta-item"><i class="bi bi-geo-alt"></i> {{ fullAddress }}</span>
             }
             @if (l.industry) {
               <span class="meta-item"><i class="bi bi-building"></i> {{ l.industry }}</span>

@@ -11,7 +11,11 @@ router.get(
     const [groups, tierRows, contactability] = await Promise.all([
       prisma.leadGroup.findMany({
         where: { organizationId },
-        include: { _count: { select: { leads: true } } },
+        // Playbooks and coverage cells CASCADE when a group is deleted, unlike
+        // leads which are merely unlinked. Counting them here is what lets the
+        // delete confirmation say exactly what is about to be destroyed rather
+        // than asking for a blind yes.
+        include: { _count: { select: { leads: true, playbooks: true, coverageCells: true } } },
         orderBy: { createdAt: 'desc' },
       }),
       // One grouped query for every group's tier mix, instead of N per-group counts.
@@ -52,6 +56,9 @@ router.get(
         goal: g.goal,
         aiSummary: g.aiSummary,
         leadCount: g._count.leads,
+        // What a delete would take with it — leads survive, these do not.
+        playbookCount: g._count.playbooks,
+        coverageCellCount: g._count.coverageCells,
         createdAt: g.createdAt,
         // At-a-glance list quality: how much of this group is actually workable.
         enrichment: {
