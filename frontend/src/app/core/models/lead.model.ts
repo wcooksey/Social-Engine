@@ -45,6 +45,10 @@ export interface LeadGroup {
   goal: string;
   aiSummary?: string | null;
   leadCount: number;
+  /** Group-scoped playbooks — these are DELETED with the group, not unlinked. */
+  playbookCount?: number;
+  /** Coverage cells — the sourcing progress record, also deleted with the group. */
+  coverageCellCount?: number;
   createdAt: string;
   enrichment?: GroupEnrichment;
 }

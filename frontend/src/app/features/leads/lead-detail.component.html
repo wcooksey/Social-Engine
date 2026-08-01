@@ -6,7 +6,7 @@
 } @else {
 @if (lead(); as l) {
   <div class="lead-detail-page">
-    <a routerLink="/leads" class="back-link"><i class="bi bi-arrow-left"></i> Back to Leads</a>
+    <button type="button" class="back-link" (click)="goBack()"><i class="bi bi-arrow-left"></i> Back to Leads</button>
 
     <app-card class="header-card" padding="lg">
       <div class="header-top">

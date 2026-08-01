@@ -1,7 +1,7 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { LeadsService } from '../../core/services/leads.service';
 import {
   Contact,
@@ -26,7 +26,6 @@ import { Conversation } from '../../core/models/conversation.model';
   imports: [
     CommonModule,
     FormsModule,
-    RouterLink,
     CardComponent,
     ButtonComponent,
     InputComponent,
@@ -41,6 +40,20 @@ export class LeadDetailComponent implements OnInit {
   lead = signal<Lead | null>(null);
   loading = signal(true);
   savingStatus = signal(false);
+
+  /**
+   * The filtered list this lead was opened from. Read from router state, which
+   * the browser keeps with the history entry so it survives a reload here.
+   * Falls back to the unfiltered list only when there is nothing to go back to
+   * — someone who followed a direct link to this lead.
+   */
+  private readonly returnUrl: string =
+    (typeof history !== 'undefined' && (history.state?.returnUrl as string)) || '/leads';
+
+  /** Return to the list you came from, filters and group intact. */
+  goBack(): void {
+    void this.router.navigateByUrl(this.returnUrl);
+  }
 
   showContactDialog = signal(false);
   editingContact: Contact | null = null;
