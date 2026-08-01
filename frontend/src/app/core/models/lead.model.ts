@@ -105,8 +105,16 @@ export interface Lead {
   website?: string | null;
   domain?: string | null;
   phone?: string | null;
+  /**
+   * Street address. Google Places fills this with a full formatted line
+   * ("4102 N 40th St, Tampa, FL 33610, USA"); imported or hand-entered leads
+   * often carry only the street here with city/state in their own fields.
+   */
+  address?: string | null;
   city?: string | null;
   state?: string | null;
+  postalCode?: string | null;
+  country?: string | null;
   industry?: string | null;
   status: LeadStatus;
   source?: string | null;
@@ -153,4 +161,40 @@ export interface LeadsPage {
   total: number;
   page: number;
   pageSize: number;
+}
+
+/**
+ * The lead's full address on one line.
+ *
+ * The two sources disagree about what `address` holds. Google Places writes a
+ * complete formatted line that already contains the city, state and postcode;
+ * a CSV import or a hand-entered lead usually puts only the street there and
+ * fills city/state/postalCode separately. Appending those unconditionally would
+ * print "Tampa, FL" twice on every sourced lead, so each part is added only
+ * when the street line doesn't already carry it.
+ *
+ * Matching is per comma-separated segment rather than a substring test: a
+ * street called "Flagler Ave" contains "fl", and a naive `includes` would
+ * swallow the state of every lead on it.
+ */
+export function formatLeadAddress(lead: Lead): string {
+  const street = (lead.address || '').trim();
+  const segments = street.split(',').map((s) => s.trim().toLowerCase());
+
+  const alreadyPresent = (value?: string | null): boolean => {
+    const needle = (value || '').trim().toLowerCase();
+    if (!needle) return true; // nothing to add
+    return segments.some(
+      (seg) => seg === needle || seg.startsWith(`${needle} `) || seg.endsWith(` ${needle}`)
+    );
+  };
+
+  const city = alreadyPresent(lead.city) ? '' : (lead.city || '').trim();
+  const state = alreadyPresent(lead.state) ? '' : (lead.state || '').trim();
+  const postal = alreadyPresent(lead.postalCode) ? '' : (lead.postalCode || '').trim();
+
+  // "FL 33610", not "FL, 33610" — a comma between state and postcode is not how
+  // a US address is written, and this line gets read off to carriers.
+  const region = [state, postal].filter(Boolean).join(' ');
+  return [street, city, region].filter(Boolean).join(', ');
 }

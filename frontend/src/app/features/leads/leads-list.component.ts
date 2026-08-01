@@ -13,7 +13,8 @@ import {
   EnrichmentTier,
   Lead,
   LeadGroup,
-  LeadsQuery
+  LeadsQuery,
+  formatLeadAddress
 } from '../../core/models/lead.model';
 import { ButtonComponent } from '../../shared/components/button/button.component';
 import { InputComponent } from '../../shared/components/input/input.component';
@@ -71,6 +72,10 @@ export class LeadsListComponent implements OnInit {
     companyName: '',
     website: '',
     phone: '',
+    // Sourced leads have carried a street address all along; without this field
+    // a hand-added lead could never have one, so the header would show city and
+    // state forever no matter what the detail page is now able to display.
+    address: '',
     city: '',
     state: '',
     industry: '',
@@ -296,7 +301,7 @@ export class LeadsListComponent implements OnInit {
   }
 
   openAddDialog(): void {
-    this.newLead = { companyName: '', website: '', phone: '', city: '', state: '', industry: '', groupId: '' };
+    this.newLead = { companyName: '', website: '', phone: '', address: '', city: '', state: '', industry: '', groupId: '' };
     this.showAddDialog.set(true);
   }
 
@@ -364,6 +369,15 @@ export class LeadsListComponent implements OnInit {
 
   location(lead: Lead): string {
     return [lead.city, lead.state].filter(Boolean).join(', ') || '—';
+  }
+
+  /**
+   * Full address for the location cell's tooltip. The column stays as city and
+   * state so the table doesn't blow out to a street line per row, but the
+   * street is one hover away rather than only on the detail page.
+   */
+  fullAddress(lead: Lead): string {
+    return formatLeadAddress(lead);
   }
 
   /** "2 emails · 1 phone" — the concrete answer to "can we contact them?". */

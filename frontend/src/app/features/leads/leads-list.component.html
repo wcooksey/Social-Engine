@@ -113,7 +113,7 @@
     </ng-template>
 
     <ng-template appDataCell="location" let-row="row">
-      {{ location(row) }}
+      <span [title]="fullAddress(row)">{{ location(row) }}</span>
     </ng-template>
 
     <ng-template appDataCell="enrichment" let-row="row">
@@ -150,6 +150,12 @@
     <app-input label="Company name" [required]="true" [(ngModel)]="newLead.companyName" [ngModelOptions]="{ standalone: true }"></app-input>
     <app-input label="Website" [(ngModel)]="newLead.website" [ngModelOptions]="{ standalone: true }"></app-input>
     <app-input label="Phone" [(ngModel)]="newLead.phone" [ngModelOptions]="{ standalone: true }"></app-input>
+    <app-input
+      label="Street address"
+      placeholder="4102 N 40th St"
+      [(ngModel)]="newLead.address"
+      [ngModelOptions]="{ standalone: true }">
+    </app-input>
     <div class="form-row">
       <app-input label="City" [(ngModel)]="newLead.city" [ngModelOptions]="{ standalone: true }"></app-input>
       <app-input label="State" [(ngModel)]="newLead.state" [ngModelOptions]="{ standalone: true }"></app-input>

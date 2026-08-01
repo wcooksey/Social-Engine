@@ -8,7 +8,8 @@ import {
   ENRICHMENT_TIER_HINT,
   ENRICHMENT_TIER_LABEL,
   EnrichmentTier,
-  Lead
+  Lead,
+  formatLeadAddress
 } from '../../core/models/lead.model';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { ButtonComponent } from '../../shared/components/button/button.component';
@@ -53,6 +54,16 @@ export class LeadDetailComponent implements OnInit {
   /** Return to the list you came from, filters and group intact. */
   goBack(): void {
     void this.router.navigateByUrl(this.returnUrl);
+  }
+
+  /**
+   * The full street address. Sourcing has always collected this — Google Places
+   * puts its formatted address on every lead — but the header only ever showed
+   * city and state, so the one field that says whether a site is an industrial
+   * unit or a strip-mall suite was invisible.
+   */
+  address(lead: Lead): string {
+    return formatLeadAddress(lead);
   }
 
   showContactDialog = signal(false);
