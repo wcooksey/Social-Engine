@@ -107,6 +107,7 @@ class EngineService {
     const ctx: ToolContext = {
       organizationId: options.organizationId,
       runId: run.id,
+      playbookId: options.playbookId,
       simulate: options.simulate,
     };
 

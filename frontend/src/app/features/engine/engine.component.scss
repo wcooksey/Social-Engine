@@ -999,3 +999,144 @@
     border-color: $error-red;
   }
 }
+
+// ---- Live activity panel ----
+// The thread only renders finished prose, so a run that spends two minutes
+// crawling sites used to look like a frozen page. This is the answer to "is it
+// actually doing something, and what?" while the answer still matters.
+.live-panel {
+  flex-shrink: 0;
+  margin: 0 $spacing-md $spacing-sm;
+  padding: $spacing-sm $spacing-md;
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+  background: var(--bg-secondary);
+  position: relative;
+  z-index: 2;
+
+  &--held {
+    border-color: rgba($primary-blue, 0.5);
+  }
+}
+
+.live-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+}
+
+.live-panel-title {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  font-size: $font-size-sm;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 0;
+  @include truncate;
+}
+
+.live-panel-meta {
+  flex-shrink: 0;
+  font-size: $font-size-xs;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-pulse {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: $primary-blue;
+  animation: live-pulse 1.4s ease-in-out infinite;
+
+  // Paused or parked is a steady state, not a working one — a pulsing dot
+  // there would claim progress that isn't happening.
+  &--held {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.8); }
+}
+
+.live-panel-idle {
+  margin: $spacing-sm 0 0;
+  font-size: $font-size-sm;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.live-steps {
+  list-style: none;
+  margin: $spacing-sm 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+  // Long runs rack up dozens of actions; the panel scrolls rather than pushing
+  // the composer off the screen.
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.live-step {
+  display: flex;
+  align-items: baseline;
+  gap: $spacing-sm;
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+
+  &--active {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+}
+
+.live-step-mark {
+  flex-shrink: 0;
+  width: 14px;
+  display: inline-flex;
+  justify-content: center;
+
+  i {
+    color: $success-green;
+    font-size: 0.75rem;
+  }
+}
+
+.live-step-spinner {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid rgba($primary-blue, 0.3);
+  border-top-color: $primary-blue;
+  animation: live-spin 0.7s linear infinite;
+}
+
+@keyframes live-spin {
+  to { transform: rotate(360deg); }
+}
+
+.live-step-body {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 $spacing-sm;
+}
+
+.live-step-name {
+  @include truncate;
+}
+
+.live-step-result {
+  color: var(--text-tertiary);
+  font-size: $font-size-xs;
+  font-weight: 400;
+  @include truncate;
+}

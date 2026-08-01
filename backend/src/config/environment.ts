@@ -45,6 +45,9 @@ export const config = {
     // one org can't starve others or blow past its rate limits.
     workerConcurrency: parseInt(process.env.ENGINE_WORKER_CONCURRENCY || '4', 10),
     orgConcurrency: parseInt(process.env.ENGINE_ORG_CONCURRENCY || '2', 10),
+    // Per line of business, within the org cap — two playbooks run side by side
+    // instead of one queueing behind the other's backlog.
+    playbookConcurrency: parseInt(process.env.ENGINE_PLAYBOOK_CONCURRENCY || '2', 10),
   },
 
   search: {

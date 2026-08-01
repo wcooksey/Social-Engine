@@ -36,7 +36,8 @@ export async function startEngineWorker(): Promise<void> {
   }, platform.workerIntervalMs);
   console.log(
     `Engine worker started (every ${platform.workerIntervalMs}ms, ` +
-      `${platform.workerConcurrency} concurrent, ${platform.orgConcurrency}/org). ` +
+      `${platform.workerConcurrency} concurrent, ${platform.orgConcurrency}/org, ` +
+      `${platform.playbookConcurrency}/playbook). ` +
       `Concurrency updates live; interval changes need a restart.`
   );
 }
@@ -49,6 +50,7 @@ export function stopEngineWorker(): void {
 interface ClaimedJob {
   id: string;
   organizationId: string;
+  playbookId: string | null;
   role: AgentRole;
   type: string;
   objective: string;
@@ -58,10 +60,29 @@ interface ClaimedJob {
   payload: unknown;
 }
 
-/** Atomically claim one due job for an org under its concurrency cap, or null. */
+/** Key for the per-playbook tally; unfiled jobs share one bucket per org. */
+function playbookKey(organizationId: string, playbookId: string | null): string {
+  return `${organizationId}:${playbookId ?? '_none'}`;
+}
+
+/**
+ * Atomically claim one due job, respecting BOTH concurrency caps, or null.
+ *
+ * The org cap is the outer bound that protects provider rate limits. On its own
+ * it made lines of business queue behind each other: with a cap of 2 and fifty
+ * queued freight jobs, a dealership job simply waited for freight to drain,
+ * because candidates came back strictly oldest-first.
+ *
+ * So each playbook now gets its own allowance within the org's, and candidates
+ * are interleaved round-robin across playbooks rather than taken in age order.
+ * Two playbooks make progress together; a deep queue for one no longer starves
+ * the other. Within a single playbook, oldest-first still holds.
+ */
 async function claimNextJob(
   orgInFlight: Map<string, number>,
-  orgConcurrency: number
+  playbookInFlight: Map<string, number>,
+  orgConcurrency: number,
+  playbookConcurrency: number
 ): Promise<ClaimedJob | null> {
   // Skip orgs already at their cap in the query itself so a hot org with a
   // deep backlog can't crowd claimable work from other orgs out of the batch.
@@ -76,11 +97,14 @@ async function claimNextJob(
       ...(overCapOrgs.length ? { organizationId: { notIn: overCapOrgs } } : {}),
     },
     orderBy: { runAt: 'asc' },
-    take: 50,
+    take: 100,
   });
 
-  for (const job of candidates) {
+  for (const job of interleaveByPlaybook(candidates)) {
     if ((orgInFlight.get(job.organizationId) ?? 0) >= orgConcurrency) continue;
+    const key = playbookKey(job.organizationId, job.playbookId);
+    if ((playbookInFlight.get(key) ?? 0) >= playbookConcurrency) continue;
+
     const claimed = await prisma.agentJob.updateMany({
       where: { id: job.id, status: 'PENDING' },
       data: { status: 'RUNNING', attempts: { increment: 1 } },
@@ -89,6 +113,7 @@ async function claimNextJob(
     return {
       id: job.id,
       organizationId: job.organizationId,
+      playbookId: job.playbookId,
       role: job.role as AgentRole,
       type: job.type,
       objective: job.objective,
@@ -99,6 +124,35 @@ async function claimNextJob(
     };
   }
   return null;
+}
+
+/**
+ * Reorder candidates so each playbook's oldest job is offered before any
+ * playbook's second, and so on. Age order is preserved inside a playbook; only
+ * the order BETWEEN them changes. Without this the per-playbook cap alone
+ * wouldn't help — a fifty-deep freight queue would still fill every scan of the
+ * batch before a dealership job was ever considered.
+ */
+export function interleaveByPlaybook<T extends { organizationId: string; playbookId: string | null }>(
+  jobs: T[]
+): T[] {
+  const queues = new Map<string, T[]>();
+  for (const job of jobs) {
+    const key = playbookKey(job.organizationId, job.playbookId);
+    const queue = queues.get(key);
+    if (queue) queue.push(job);
+    else queues.set(key, [job]);
+  }
+  if (queues.size <= 1) return jobs;
+
+  const out: T[] = [];
+  const lists = [...queues.values()];
+  for (let round = 0; out.length < jobs.length; round++) {
+    for (const list of lists) {
+      if (round < list.length) out.push(list[round]);
+    }
+  }
+  return out;
 }
 
 async function runJob(job: ClaimedJob): Promise<void> {
@@ -114,6 +168,9 @@ async function runJob(job: ClaimedJob): Promise<void> {
       trigger: 'SCHEDULED_JOB',
       role: job.role,
       objective,
+      // Keeps the line of business intact through the chain: work this run
+      // schedules inherits the playbook and counts against its allowance.
+      playbookId: job.playbookId ?? undefined,
     });
 
     await prisma.agentJob.update({
@@ -196,14 +253,21 @@ export async function drainDueJobs(): Promise<void> {
   const platform = await getPlatformEngineConfig();
   const maxConcurrency = platform.workerConcurrency;
   const orgConcurrency = platform.orgConcurrency;
+  const playbookConcurrency = platform.playbookConcurrency;
   const orgInFlight = new Map<string, number>();
+  // Tallied per playbook as well as per org, so one line of business having a
+  // deep queue can't consume every slot the org is allowed.
+  const playbookInFlight = new Map<string, number>();
   const active = new Map<symbol, Promise<void>>();
 
   const launch = (job: ClaimedJob) => {
+    const pbKey = playbookKey(job.organizationId, job.playbookId);
     orgInFlight.set(job.organizationId, (orgInFlight.get(job.organizationId) ?? 0) + 1);
+    playbookInFlight.set(pbKey, (playbookInFlight.get(pbKey) ?? 0) + 1);
     const key = Symbol();
     const p = runJob(job).finally(() => {
       orgInFlight.set(job.organizationId, (orgInFlight.get(job.organizationId) ?? 1) - 1);
+      playbookInFlight.set(pbKey, (playbookInFlight.get(pbKey) ?? 1) - 1);
       active.delete(key);
     });
     active.set(key, p);
@@ -213,7 +277,12 @@ export async function drainDueJobs(): Promise<void> {
     for (;;) {
       // Fill open slots with claimable jobs.
       while (active.size < maxConcurrency) {
-        const job = await claimNextJob(orgInFlight, orgConcurrency);
+        const job = await claimNextJob(
+          orgInFlight,
+          playbookInFlight,
+          orgConcurrency,
+          playbookConcurrency
+        );
         if (!job) break;
         launch(job);
       }

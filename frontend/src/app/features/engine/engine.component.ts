@@ -209,6 +209,10 @@ export class EngineComponent implements OnInit, OnDestroy {
     const requested = this.route.snapshot.queryParamMap.get('playbook');
     if (requested) this.playbookFilter.set(requested);
 
+    // Drives the live panel's elapsed timer. One interval for the page, and
+    // only while the component is on screen.
+    this.clockHandle = setInterval(() => this.clock.set(Date.now()), 1000);
+
     this.loadPlaybooks();
     this.loadChats();
     this.voiceAgent.checkAvailability();
@@ -219,6 +223,10 @@ export class EngineComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (this.clockHandle !== null) {
+      clearInterval(this.clockHandle);
+      this.clockHandle = null;
+    }
     this.voiceEventsSub?.unsubscribe();
     void this.voiceAgent.stop();
     this.voiceService.stopListening();
@@ -449,6 +457,35 @@ export class EngineComponent implements OnInit, OnDestroy {
   /** Toggle watch mode mid-run — parks it at the next action, or releases it. */
   toggleWatch(): void {
     this.session.control(this.watchMode() ? 'watch_off' : 'watch_on');
+  }
+
+  // --- Live activity panel -------------------------------------------------
+
+  /** Tool activity for the run in flight, newest last. */
+  liveSteps = this.session.activeToolEvents;
+
+  /** Ticks once a second purely so the elapsed time re-renders. */
+  private clock = signal(Date.now());
+  private clockHandle: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * How long the current run has been going, as "12s" / "1m 04s". Reads from a
+   * signal that ticks rather than from Date.now() directly, because a template
+   * calling Date.now() would never update on its own.
+   */
+  liveElapsed = computed(() => {
+    const started = this.session.runStartedAt();
+    if (!started) return '';
+    const seconds = Math.max(0, Math.floor((this.clock() - started) / 1000));
+    if (seconds < 60) return `${seconds}s`;
+    return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
+  });
+
+  /** A tool's result trimmed to something that fits one line. */
+  shortResult(event: EngineToolEvent): string {
+    const summary = (event.summary || '').replace(/\s+/g, ' ').trim();
+    if (!summary) return '';
+    return summary.length > 60 ? `${summary.slice(0, 60)}…` : summary;
   }
 
   runPhaseLabel(): string {

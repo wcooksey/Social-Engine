@@ -60,6 +60,12 @@ export interface ToolContext {
   organizationId: string;
   runId: string;
   /**
+   * Playbook this run is working under, when its conversation is filed to one.
+   * Jobs it schedules inherit it, so the queue keeps the lines of business
+   * separable and each gets its own concurrency allowance.
+   */
+  playbookId?: string;
+  /**
    * Sandbox mode: run the real prompt, playbooks, role and tools, but let
    * NOTHING escape — no message sent, no call placed, no CRM row written.
    * Side-effecting tools report what they would have done instead.
@@ -2421,6 +2427,7 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
         objective: input.objective,
         leadId: input.leadId,
         campaignId: input.campaignId,
+        playbookId: ctx.playbookId,
         runAt,
         createdByRunId: ctx.runId,
       },

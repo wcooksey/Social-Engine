@@ -588,6 +588,13 @@ model AgentJob {
   campaignId     String?
   campaign       Campaign?      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
+  // Line of business this job belongs to, inherited from the run that
+  // scheduled it. Concurrency is capped per playbook as well as per org, so a
+  // deep queue for one playbook can't hold up another — two lines of business
+  // run side by side instead of one waiting for the other to drain.
+  playbookId     String?
+  playbook       Playbook?    @relation(fields: [playbookId], references: [id], onDelete: SetNull)
+
   type      AgentJobType
   role      AgentRole      @default(COORDINATOR)
   objective String       // instruction the Engine executes when the job fires
@@ -604,6 +611,7 @@ model AgentJob {
   @@index([status, runAt])
   @@index([organizationId, status])
   @@index([leadId])
+  @@index([playbookId, status])
 }
 
 // ============================================
@@ -781,6 +789,7 @@ model Playbook {
   updatedAt DateTime @updatedAt
 
   engineChats EngineChat[]
+  agentJobs   AgentJob[]
 
   @@index([organizationId, isActive])
 }

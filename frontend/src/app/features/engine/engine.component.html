@@ -148,6 +148,49 @@
       </div>
     }
 
+    @if (sending()) {
+      <!-- What the Engine is doing, while it does it. The thread only shows
+           finished prose, so without this a long run reads as a frozen page. -->
+      <div class="live-panel" [class.live-panel--held]="paused() || awaitingStep()">
+        <div class="live-panel-head">
+          <span class="live-panel-title">
+            <span class="live-pulse" [class.live-pulse--held]="paused() || awaitingStep()"></span>
+            {{ runPhaseLabel() || 'Working' }}
+          </span>
+          <span class="live-panel-meta">
+            {{ liveElapsed() }}
+            @if (liveSteps().length) {
+              · {{ liveSteps().length }} {{ liveSteps().length === 1 ? 'action' : 'actions' }}
+            }
+          </span>
+        </div>
+
+        @if (liveSteps().length) {
+          <ol class="live-steps">
+            @for (step of liveSteps(); track $index) {
+              <li class="live-step" [class.live-step--active]="!step.summary">
+                <span class="live-step-mark">
+                  @if (step.summary) {
+                    <i class="bi bi-check-circle-fill"></i>
+                  } @else {
+                    <span class="live-step-spinner"></span>
+                  }
+                </span>
+                <span class="live-step-body">
+                  <span class="live-step-name">{{ toolLabel(step) }}</span>
+                  @if (step.summary) {
+                    <span class="live-step-result">{{ shortResult(step) }}</span>
+                  }
+                </span>
+              </li>
+            }
+          </ol>
+        } @else {
+          <p class="live-panel-idle">Thinking about the next step&hellip;</p>
+        }
+      </div>
+    }
+
     <div class="input-bar">
       @if (sending()) {
         <div class="transport" [class.transport--paused]="paused()" [class.transport--awaiting]="awaitingStep()">
