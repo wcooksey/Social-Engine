@@ -1024,7 +1024,7 @@ async function draftOnlyReason(
 /** Attribute a browser sub-agent's LLM usage to the parent run's totals. */
 async function attributeBrowserUsage(
   runId: string,
-  usage: { inputTokens: number; outputTokens: number; costUsd: number }
+  usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number; costUsd: number }
 ): Promise<void> {
   if (!usage || (usage.inputTokens === 0 && usage.outputTokens === 0)) return;
   await prisma.agentRun
@@ -1033,6 +1033,7 @@ async function attributeBrowserUsage(
       data: {
         inputTokens: { increment: usage.inputTokens },
         outputTokens: { increment: usage.outputTokens },
+        cachedInputTokens: { increment: usage.cachedInputTokens },
         costUsd: { increment: usage.costUsd },
       },
     })

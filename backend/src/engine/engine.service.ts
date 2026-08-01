@@ -179,6 +179,7 @@ class EngineService {
     let finalText = '';
     let inputTokens = 0;
     let outputTokens = 0;
+    let cachedInputTokens = 0;
     let costUsd = 0;
     let servedByModel = model;
 
@@ -205,11 +206,15 @@ class EngineService {
         );
         inputTokens += response.usage.inputTokens;
         outputTokens += response.usage.outputTokens;
-        // Price against the model that actually served (matters on failover).
+        cachedInputTokens += response.usage.cachedInputTokens;
+        // Price against the model that actually served (matters on failover),
+        // and at the cache-hit rate for the portion the provider served from
+        // its prompt cache — which in a loop like this is most of the input.
         costUsd += estimateCostUsd(
           response.model,
           response.usage.inputTokens,
-          response.usage.outputTokens
+          response.usage.outputTokens,
+          response.usage.cachedInputTokens
         );
         servedByModel = response.model;
 
@@ -270,6 +275,7 @@ class EngineService {
           model: servedByModel,
           inputTokens: { increment: inputTokens },
           outputTokens: { increment: outputTokens },
+          cachedInputTokens: { increment: cachedInputTokens },
           costUsd: { increment: costUsd },
           finishedAt: new Date(),
         },
@@ -297,6 +303,7 @@ class EngineService {
           model: servedByModel,
           inputTokens: { increment: inputTokens },
           outputTokens: { increment: outputTokens },
+          cachedInputTokens: { increment: cachedInputTokens },
           costUsd: { increment: costUsd },
           finishedAt: new Date(),
         },

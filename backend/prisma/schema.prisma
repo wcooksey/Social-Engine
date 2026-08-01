@@ -532,6 +532,11 @@ model AgentRun {
   error          String?
   inputTokens    Int             @default(0)
   outputTokens   Int             @default(0)
+  // Portion of inputTokens the provider served from its prompt cache — a
+  // subset, not an addition. Stored so a cost figure can be audited against
+  // the provider's own bill instead of taken on faith, since cache hits are
+  // priced up to ~120x lower and dominate an agent loop's input.
+  cachedInputTokens Int          @default(0)
   // Estimated USD cost at list prices (accumulated per LLM call, incl. the
   // browser agent's calls attributed back to this run).
   costUsd        Float           @default(0)
