@@ -76,10 +76,23 @@ export function isProviderConfigured(provider: Provider, keys?: ProviderKeys): b
 }
 
 export interface ModelPricing {
-  /** USD per million input tokens. */
+  /** USD per million input tokens that were NOT served from the prompt cache. */
   inputPerMTok: number;
   /** USD per million output tokens. */
   outputPerMTok: number;
+  /**
+   * USD per million input tokens served from the provider's prompt cache.
+   *
+   * This is not a rounding detail. An agent loop resends the whole system
+   * prompt, every tool definition and the full history on each iteration, so
+   * after the first call nearly all input is a cache hit — and DeepSeek prices
+   * those at roughly 1/120th of a miss. Charging every input token at the miss
+   * rate overstated real spend several times over.
+   *
+   * Omit when a provider's cache discount isn't known; the estimate then falls
+   * back to the full input rate, which errs high rather than flattering itself.
+   */
+  cachedInputPerMTok?: number;
 }
 
 export interface CatalogModel {
@@ -106,9 +119,12 @@ export const MODEL_CATALOG: CatalogModel[] = [
   { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google', pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 } },
   { id: 'grok-4', label: 'Grok 4', provider: 'xai', pricing: { inputPerMTok: 3, outputPerMTok: 15 } },
   // deepseek-chat / deepseek-reasoner are deprecated 2026/07/24 → V4 models.
-  // Pricing = cache-miss input / output per M tokens (official).
-  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', provider: 'deepseek', pricing: { inputPerMTok: 0.435, outputPerMTok: 0.87 } },
-  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', provider: 'deepseek', pricing: { inputPerMTok: 0.14, outputPerMTok: 0.28 } },
+  // Pricing = cache-miss input / cache-hit input / output per M tokens
+  // (official). DeepSeek caches prompt prefixes automatically — no
+  // cache_control needed — so the hit rate is the one that dominates an agent
+  // loop's bill, at ~1/120th of a miss on Pro and ~1/50th on Flash.
+  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', provider: 'deepseek', pricing: { inputPerMTok: 0.435, cachedInputPerMTok: 0.003625, outputPerMTok: 0.87 } },
+  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', provider: 'deepseek', pricing: { inputPerMTok: 0.14, cachedInputPerMTok: 0.0028, outputPerMTok: 0.28 } },
 ];
 
 // Provider-level fallback pricing for models not in the catalog.
@@ -117,7 +133,7 @@ const PROVIDER_DEFAULT_PRICING: Record<Provider, ModelPricing> = {
   openai: { inputPerMTok: 1.25, outputPerMTok: 10 },
   google: { inputPerMTok: 2, outputPerMTok: 12 },
   xai: { inputPerMTok: 3, outputPerMTok: 15 },
-  deepseek: { inputPerMTok: 0.435, outputPerMTok: 0.87 },
+  deepseek: { inputPerMTok: 0.435, cachedInputPerMTok: 0.003625, outputPerMTok: 0.87 },
 };
 
 export function pricingForModel(model: string): ModelPricing {
@@ -130,10 +146,27 @@ export function pricingForModel(model: string): ModelPricing {
   }
 }
 
-/** Estimated USD cost of a call — list prices, no caching/batch discounts. */
-export function estimateCostUsd(model: string, inputTokens: number, outputTokens: number): number {
+/**
+ * Estimated USD cost of a call at list prices (no batch discounts).
+ *
+ * `inputTokens` is the provider's TOTAL prompt count, cache hits included —
+ * that is what both OpenAI-compatible APIs and Anthropic report — so the
+ * cached portion is subtracted out and repriced rather than added on top.
+ * Passing 0 cached tokens reproduces the old full-price behaviour exactly.
+ */
+export function estimateCostUsd(
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+  cachedInputTokens = 0
+): number {
   const p = pricingForModel(model);
-  return (inputTokens * p.inputPerMTok + outputTokens * p.outputPerMTok) / 1_000_000;
+  // Guard against a provider reporting more cached than total: a negative
+  // billable count would silently credit the org.
+  const cached = Math.max(0, Math.min(cachedInputTokens, inputTokens));
+  const fresh = inputTokens - cached;
+  const cachedRate = p.cachedInputPerMTok ?? p.inputPerMTok;
+  return (fresh * p.inputPerMTok + cached * cachedRate + outputTokens * p.outputPerMTok) / 1_000_000;
 }
 
 /**

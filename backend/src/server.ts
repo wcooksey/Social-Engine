@@ -2,6 +2,7 @@ import app from './app';
 import { prisma } from './config/database';
 import { assertSecurityConfig, config } from './config/environment';
 import { startEngineWorker, stopEngineWorker } from './engine/worker';
+import { recoverOrphanedWork } from './engine/orphan-recovery';
 
 async function main(): Promise<void> {
   // Fail fast on missing production secrets — the message tells the operator
@@ -28,6 +29,22 @@ async function main(): Promise<void> {
         'that migrations have been applied (`prisma migrate deploy`).\n',
       err
     );
+  }
+
+  // Nothing can still be running at boot — this process is the only thing that
+  // runs agents and it has just started — so any row that still says RUNNING
+  // was stranded by the last restart. Close those out BEFORE the worker starts,
+  // so recovered jobs are picked up on the first tick rather than sitting behind
+  // a count of agents that no longer exist.
+  try {
+    const { runs, jobs } = await recoverOrphanedWork();
+    if (runs || jobs) {
+      console.log(
+        `Recovered work stranded by the last restart: ${runs} run(s) closed, ${jobs} job(s) requeued.`
+      );
+    }
+  } catch (err) {
+    console.error('Orphaned-run recovery failed (continuing to serve):', err);
   }
 
   // Worker start is best-effort too — a web outage shouldn't follow from a

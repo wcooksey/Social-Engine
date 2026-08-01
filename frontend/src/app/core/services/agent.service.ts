@@ -41,6 +41,26 @@ export class AgentService {
     return this.api.get<AgentLiveSnapshot>('/api/agent/live');
   }
 
+  /**
+   * Stop one agent. The server decides how: a live run halts at its next step
+   * boundary, one stranded by a restart has its record closed. Both cases land
+   * here so the UI never has to know which it is looking at.
+   */
+  stopRun(runId: string): Observable<{ stopped: boolean; live: boolean; note: string }> {
+    return this.api.post<{ stopped: boolean; live: boolean; note: string }>(
+      `/api/agent/runs/${runId}/stop`,
+      {}
+    );
+  }
+
+  /** Stop every running agent for this organization, live or stranded. */
+  stopAllRuns(): Observable<{ live: number; closed: number; note: string }> {
+    return this.api.post<{ live: number; closed: number; note: string }>(
+      '/api/agent/runs/stop-all',
+      {}
+    );
+  }
+
   getLiveFrame(runId: string): Observable<LiveBrowserFrame> {
     return this.api.get<LiveBrowserFrame>(`/api/agent/live/${runId}/frame`);
   }

@@ -72,6 +72,7 @@ export const PLATFORM_SETTING_DEFS: PlatformSettingDef[] = [
   { key: 'ENGINE_MAX_ITERATIONS', label: 'Engine max iterations per run', type: 'number', default: config.engine.maxIterations, min: 1, max: 200 },
   { key: 'ENGINE_WORKER_CONCURRENCY', label: 'Concurrent agents (global)', type: 'number', default: config.engine.workerConcurrency, min: 1, max: 64 },
   { key: 'ENGINE_ORG_CONCURRENCY', label: 'Concurrent agents per organization', type: 'number', default: config.engine.orgConcurrency, min: 1, max: 32 },
+  { key: 'ENGINE_PLAYBOOK_CONCURRENCY', label: 'Concurrent agents per playbook', type: 'number', default: config.engine.playbookConcurrency, min: 1, max: 32 },
   { key: 'ENGINE_WORKER_INTERVAL_MS', label: 'Worker poll interval (ms)', type: 'number', default: config.engine.workerIntervalMs, min: 1000, max: 600000 },
 ];
 
@@ -229,6 +230,7 @@ export interface PlatformEngineConfig {
   maxIterations: number;
   workerConcurrency: number;
   orgConcurrency: number;
+  playbookConcurrency: number;
   workerIntervalMs: number;
 }
 
@@ -236,13 +238,14 @@ let platformCache: { at: number; value: PlatformEngineConfig } | null = null;
 
 export async function getPlatformEngineConfig(): Promise<PlatformEngineConfig> {
   if (platformCache && Date.now() - platformCache.at < 10000) return platformCache.value;
-  const [maxIterations, workerConcurrency, orgConcurrency, workerIntervalMs] = await Promise.all([
+  const [maxIterations, workerConcurrency, orgConcurrency, playbookConcurrency, workerIntervalMs] = await Promise.all([
     getPlatformNumber('ENGINE_MAX_ITERATIONS', config.engine.maxIterations),
     getPlatformNumber('ENGINE_WORKER_CONCURRENCY', config.engine.workerConcurrency),
     getPlatformNumber('ENGINE_ORG_CONCURRENCY', config.engine.orgConcurrency),
+    getPlatformNumber('ENGINE_PLAYBOOK_CONCURRENCY', config.engine.playbookConcurrency),
     getPlatformNumber('ENGINE_WORKER_INTERVAL_MS', config.engine.workerIntervalMs),
   ]);
-  const value = { maxIterations, workerConcurrency, orgConcurrency, workerIntervalMs };
+  const value = { maxIterations, workerConcurrency, orgConcurrency, playbookConcurrency, workerIntervalMs };
   platformCache = { at: Date.now(), value };
   return value;
 }

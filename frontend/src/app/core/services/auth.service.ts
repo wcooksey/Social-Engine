@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Observable, tap } from 'rxjs';
+import { Observable, finalize, shareReplay, tap } from 'rxjs';
 import { AuthTokens, User } from '../models/user.model';
 import { ApiService } from './api.service';
 
@@ -118,6 +118,33 @@ export class AuthService {
         })
       );
   }
+
+  /**
+   * Refresh, but only ever once at a time.
+   *
+   * A page typically has several requests in flight, so an expired access token
+   * produces a burst of 401s at the same instant. Refreshing per 401 would fire
+   * a stampede of refresh calls, and — because the server rotates the refresh
+   * token on every use — all but the first would present a token that had just
+   * been replaced and fail, logging the user out for the exact reason the
+   * refresh was meant to prevent. Everyone waits on one call instead.
+   */
+  refreshAccessTokenShared(): Observable<{ token: string; refreshToken: string }> {
+    if (!this.refreshInFlight$) {
+      this.refreshInFlight$ = this.refreshAccessToken().pipe(
+        // Cleared on success AND failure, so a later 401 can try again rather
+        // than replaying a stale result forever.
+        finalize(() => {
+          this.refreshInFlight$ = null;
+        }),
+        shareReplay({ bufferSize: 1, refCount: false })
+      );
+    }
+    return this.refreshInFlight$;
+  }
+
+  /** The refresh currently underway, shared by every request waiting on it. */
+  private refreshInFlight$: Observable<{ token: string; refreshToken: string }> | null = null;
 
   logout(): void {
     localStorage.removeItem(TOKEN_KEY);

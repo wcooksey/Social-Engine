@@ -169,6 +169,7 @@ export async function sweepSocialInbox(
       ...(failed ? { error: (result.error || '').slice(0, 2000) } : {}),
       inputTokens: { increment: result.usage.inputTokens },
       outputTokens: { increment: result.usage.outputTokens },
+      cachedInputTokens: { increment: result.usage.cachedInputTokens },
       costUsd: { increment: result.usage.costUsd },
       finishedAt: new Date(),
     },

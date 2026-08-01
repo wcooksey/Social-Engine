@@ -44,6 +44,33 @@ export class EngineSessionService {
   readonly awaitingStep = computed(() => this.phase() === 'awaiting_step');
   readonly paused = computed(() => this.phase() === 'paused');
 
+  /** Wall-clock start of the current run, for the live panel's elapsed timer. */
+  readonly runStartedAt = signal<number | null>(null);
+
+  /**
+   * Tool activity for the run in flight, oldest first.
+   *
+   * The same events already decorate the streaming message as small chips, but
+   * chips answer "what did it do" after the fact. Read live, in order, with the
+   * in-progress one still open, they answer the question actually being asked
+   * of a working agent: what is it doing *right now*.
+   */
+  readonly activeToolEvents = computed<EngineToolEvent[]>(() => {
+    if (!this.running()) return [];
+    const messages = this.messages();
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].streaming) return messages[i].toolEvents ?? [];
+    }
+    return [];
+  });
+
+  /** The tool currently executing — the one that started and hasn't reported. */
+  readonly activeTool = computed<EngineToolEvent | null>(() => {
+    const events = this.activeToolEvents();
+    const last = events[events.length - 1];
+    return last && !last.summary ? last : null;
+  });
+
   private streamSub?: Subscription;
   /** Highest event index applied, so a reconnect resumes rather than repeats. */
   private lastIndex = -1;
@@ -106,6 +133,7 @@ export class EngineSessionService {
     this.appendStreamingAssistant();
     this.phase.set('running');
     this.watch.set(watch);
+    this.runStartedAt.set(Date.now());
 
     this.engineService.startRun(chatId, content, watch).subscribe({
       next: ({ runId }) => this.attach(runId, 0),
@@ -121,6 +149,9 @@ export class EngineSessionService {
   attach(runId: string, fromIndex: number): void {
     this.detach();
     this.runId.set(runId);
+    // Reattaching after a reload has no original start time to hand; anchoring
+    // now keeps the timer honest as "watching since" rather than inventing one.
+    if (this.runStartedAt() === null) this.runStartedAt.set(Date.now());
     this.lastIndex = fromIndex - 1;
     if (!this.streamingMessageId) this.appendStreamingAssistant();
 
@@ -250,6 +281,7 @@ export class EngineSessionService {
     this.detach();
     this.runId.set(null);
     this.phase.set(null);
+    this.runStartedAt.set(null);
     this.currentStep.set(undefined);
     this.watch.set(false);
   }

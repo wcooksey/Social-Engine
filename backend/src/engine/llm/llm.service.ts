@@ -47,7 +47,13 @@ export interface LlmChatRequest {
 export interface LlmChatResponse {
   text: string;
   toolCalls: LlmToolCall[];
-  usage: { inputTokens: number; outputTokens: number };
+  /**
+   * `inputTokens` is the provider's total prompt count. `cachedInputTokens` is
+   * the portion of it served from the prompt cache — a subset, not an extra —
+   * and is priced far lower. Without it an agent loop, which resends its whole
+   * prompt every iteration, looks several times more expensive than the bill.
+   */
+  usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number };
   /** Model that actually served the request (differs from request on failover). */
   model: string;
   provider: Provider;
@@ -161,12 +167,38 @@ async function chatAnthropic(request: LlmChatRequest, keys?: ProviderKeys): Prom
     text,
     toolCalls,
     usage: {
-      inputTokens: response.usage.input_tokens,
+      // Anthropic reports cache reads OUTSIDE input_tokens, so the billable
+      // total is the sum. Nothing here sets cache_control today, which makes
+      // both cache fields zero — reading them anyway means enabling caching
+      // later can't silently start under-reporting spend.
+      inputTokens:
+        response.usage.input_tokens +
+        (response.usage.cache_read_input_tokens ?? 0) +
+        (response.usage.cache_creation_input_tokens ?? 0),
       outputTokens: response.usage.output_tokens,
+      cachedInputTokens: response.usage.cache_read_input_tokens ?? 0,
     },
     model: request.model,
     provider: 'anthropic',
   };
+}
+
+/**
+ * Prompt tokens the provider served from cache, out of `prompt_tokens`.
+ *
+ * The OpenAI-compatible surface is not standardised here: DeepSeek reports
+ * `prompt_cache_hit_tokens` at the top level, while OpenAI (and providers
+ * copying it) nest `prompt_tokens_details.cached_tokens`. Both are read so a
+ * provider switch doesn't quietly revert to charging cache hits at full price.
+ */
+function cachedPromptTokens(usage: unknown): number {
+  if (!usage || typeof usage !== 'object') return 0;
+  const u = usage as {
+    prompt_cache_hit_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+  };
+  const value = u.prompt_cache_hit_tokens ?? u.prompt_tokens_details?.cached_tokens ?? 0;
+  return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 async function chatOpenAICompatible(
@@ -236,6 +268,7 @@ async function chatOpenAICompatible(
     usage: {
       inputTokens: response.usage?.prompt_tokens ?? 0,
       outputTokens: response.usage?.completion_tokens ?? 0,
+      cachedInputTokens: cachedPromptTokens(response.usage),
     },
     model: request.model,
     provider,

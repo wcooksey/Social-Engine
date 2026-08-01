@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Observable, firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
 import { AuthService } from './auth.service';
 import {
@@ -74,16 +74,26 @@ export class EngineService {
 
       (async () => {
         try {
-          const response = await fetch(
-            this.api.url(`/api/engine/runs/${runId}/stream?fromIndex=${fromIndex}`),
-            {
+          const open = (token: string | null) =>
+            fetch(this.api.url(`/api/engine/runs/${runId}/stream?fromIndex=${fromIndex}`), {
               headers: {
                 Accept: 'text/event-stream',
-                ...(this.authService.token ? { Authorization: `Bearer ${this.authService.token}` } : {})
+                ...(token ? { Authorization: `Bearer ${token}` } : {})
               },
               signal: controller.signal
-            }
-          );
+            });
+
+          let response = await open(this.authService.token);
+
+          // This stream is raw fetch, so it never passes through the auth
+          // interceptor and can't inherit its refresh-and-retry. Watching a long
+          // run can easily outlive an access token, and the caller reconnects on
+          // error — which without this would spin forever re-presenting the same
+          // dead token. Refresh once here, then reopen.
+          if (response.status === 401 && this.authService.refreshToken) {
+            const tokens = await firstValueFrom(this.authService.refreshAccessTokenShared());
+            response = await open(tokens.token);
+          }
 
           if (!response.ok || !response.body) {
             throw new Error(`Engine stream failed with status ${response.status}`);

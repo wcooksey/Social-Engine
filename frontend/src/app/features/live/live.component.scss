@@ -402,3 +402,38 @@
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+// Stop everything at once — the escape hatch when a restart has left a count
+// of agents that no longer exist.
+.stop-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+  padding: $spacing-xs $spacing-sm;
+  border-radius: $border-radius-md;
+  border: 1px solid var(--border-secondary);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: $font-size-sm;
+  transition: all $transition-fast;
+
+  &:hover:not(:disabled) {
+    border-color: $error-red;
+    color: $error-red;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+}
+
+// An agent the registry can't reach: no transport to offer, just a way out.
+.agent-transport--stranded {
+  border-color: rgba($error-red, 0.4);
+
+  .agent-transport-state {
+    color: $error-red;
+  }
+}

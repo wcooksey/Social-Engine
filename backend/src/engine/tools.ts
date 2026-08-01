@@ -60,6 +60,12 @@ export interface ToolContext {
   organizationId: string;
   runId: string;
   /**
+   * Playbook this run is working under, when its conversation is filed to one.
+   * Jobs it schedules inherit it, so the queue keeps the lines of business
+   * separable and each gets its own concurrency allowance.
+   */
+  playbookId?: string;
+  /**
    * Sandbox mode: run the real prompt, playbooks, role and tools, but let
    * NOTHING escape — no message sent, no call placed, no CRM row written.
    * Side-effecting tools report what they would have done instead.
@@ -1024,7 +1030,7 @@ async function draftOnlyReason(
 /** Attribute a browser sub-agent's LLM usage to the parent run's totals. */
 async function attributeBrowserUsage(
   runId: string,
-  usage: { inputTokens: number; outputTokens: number; costUsd: number }
+  usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number; costUsd: number }
 ): Promise<void> {
   if (!usage || (usage.inputTokens === 0 && usage.outputTokens === 0)) return;
   await prisma.agentRun
@@ -1033,6 +1039,7 @@ async function attributeBrowserUsage(
       data: {
         inputTokens: { increment: usage.inputTokens },
         outputTokens: { increment: usage.outputTokens },
+        cachedInputTokens: { increment: usage.cachedInputTokens },
         costUsd: { increment: usage.costUsd },
       },
     })
@@ -2420,6 +2427,7 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
         objective: input.objective,
         leadId: input.leadId,
         campaignId: input.campaignId,
+        playbookId: ctx.playbookId,
         runAt,
         createdByRunId: ctx.runId,
       },

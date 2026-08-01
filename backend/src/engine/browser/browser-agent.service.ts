@@ -12,7 +12,7 @@ export interface BrowserAgentResult {
   steps: number;
   error?: string;
   /** LLM usage across all browser steps (for cost attribution to the run). */
-  usage: { inputTokens: number; outputTokens: number; costUsd: number };
+  usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number; costUsd: number };
 }
 
 export interface BrowserAgentOptions {
@@ -103,7 +103,7 @@ export async function runBrowserAgent(opts: BrowserAgentOptions): Promise<Browse
   const session = new BrowserSession();
   const maxSteps = config.browser.maxSteps;
   const note = opts.onStep ?? (() => undefined);
-  const usage = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
+  const usage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, costUsd: 0 };
 
   const system = `You are a browser automation agent operating a real Chromium browser to accomplish a web task for a sales team.
 
@@ -156,10 +156,12 @@ Objective: ${opts.objective}
       );
       usage.inputTokens += response.usage.inputTokens;
       usage.outputTokens += response.usage.outputTokens;
+      usage.cachedInputTokens += response.usage.cachedInputTokens;
       usage.costUsd += estimateCostUsd(
         response.model,
         response.usage.inputTokens,
-        response.usage.outputTokens
+        response.usage.outputTokens,
+        response.usage.cachedInputTokens
       );
 
       if (response.toolCalls.length === 0) {
