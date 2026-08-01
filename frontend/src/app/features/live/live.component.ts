@@ -31,6 +31,9 @@ export class LiveComponent implements OnInit, OnDestroy {
   loading = signal(true);
   frames = signal<Record<string, LiveBrowserFrame>>({});
   now = signal(Date.now());
+  /** Runs with a stop in flight, so the button can't be double-fired. */
+  stopping = signal<Set<string>>(new Set<string>());
+  stoppingAll = signal(false);
 
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   private fetchingLive = false;
@@ -41,6 +44,59 @@ export class LiveComponent implements OnInit, OnDestroy {
     private engineService: EngineService,
     private toast: ToastService
   ) {}
+
+  /**
+   * Stop one agent, whether or not it is still responding.
+   *
+   * The server picks the mechanism: a live run halts at its next step boundary,
+   * while one stranded by a restart has its record closed directly. Routing
+   * both through a single endpoint is what makes the button work on the agents
+   * that previously had none.
+   */
+  stopRun(run: LiveRunningAgent): void {
+    if (this.stopping().has(run.id)) return;
+    this.stopping.update((s) => new Set(s).add(run.id));
+
+    this.agentService.stopRun(run.id).subscribe({
+      next: (result) => {
+        this.stopping.update((s) => {
+          const next = new Set(s);
+          next.delete(run.id);
+          return next;
+        });
+        this.toast.info(result?.note || 'Stopped');
+        this.fetchLive();
+      },
+      error: () => {
+        this.stopping.update((s) => {
+          const next = new Set(s);
+          next.delete(run.id);
+          return next;
+        });
+        this.toast.error('Could not stop that agent');
+      }
+    });
+  }
+
+  /** Stop everything for this org — live agents and stranded records alike. */
+  stopAll(): void {
+    if (this.stoppingAll()) return;
+    const count = this.runningCount();
+    if (!confirm(`Stop all ${count} running agent${count === 1 ? '' : 's'}?`)) return;
+
+    this.stoppingAll.set(true);
+    this.agentService.stopAllRuns().subscribe({
+      next: (result) => {
+        this.stoppingAll.set(false);
+        this.toast.info(result?.note || 'Stopped all agents');
+        this.fetchLive();
+      },
+      error: () => {
+        this.stoppingAll.set(false);
+        this.toast.error('Could not stop the running agents');
+      }
+    });
+  }
 
   /**
    * Drive a running agent from the fleet view. Optimistically reflects the new

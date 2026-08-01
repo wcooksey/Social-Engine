@@ -2,9 +2,73 @@ import { Router } from 'express';
 import { prisma } from '../config/database';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { browserActiveRunIds, getFrameImage, getLiveEntry } from '../engine/live-view.registry';
-import { listRuns as listTrackedRuns } from '../engine/run-registry';
+import { control as controlRun, listRuns as listTrackedRuns } from '../engine/run-registry';
+import { forceStopAllRuns, forceStopRun } from '../engine/orphan-recovery';
 
 const router = Router();
+
+/**
+ * Stop one run, whatever state it is in.
+ *
+ * A live run is asked to halt at its next step boundary, so it never stops
+ * mid-tool-call. A run the registry doesn't track cannot be asked anything —
+ * it was stranded by a restart and only its database row is still claiming to
+ * run — so that row is closed directly. Previously only the first case had a
+ * button, which left the stranded ones visible and unstoppable forever.
+ */
+router.post(
+  '/runs/:id/stop',
+  asyncHandler(async (req, res) => {
+    const organizationId = req.user!.organizationId;
+    const live = controlRun(req.params.id, organizationId, 'cancel');
+    if (live) {
+      res.json({
+        success: true,
+        data: { stopped: true, live: true, note: 'Stopping after the current step finishes.' },
+      });
+      return;
+    }
+
+    const { stopped, reason } = await forceStopRun(organizationId, req.params.id);
+    if (!stopped && reason === 'not_found') throw new AppError('Run not found', 404);
+    res.json({
+      success: true,
+      data: {
+        stopped,
+        live: false,
+        note: stopped
+          ? 'This agent was stranded by an earlier restart — its record has been closed.'
+          : 'This run had already finished.',
+      },
+    });
+  })
+);
+
+/** Stop everything running for this organization, live or stranded. */
+router.post(
+  '/runs/stop-all',
+  asyncHandler(async (req, res) => {
+    const organizationId = req.user!.organizationId;
+    // Ask the live ones to halt first so they unwind properly, then close out
+    // whatever remains — which is exactly the rows no loop is listening to.
+    let live = 0;
+    for (const run of listTrackedRuns(organizationId)) {
+      if (run.phase === 'finished') continue;
+      if (controlRun(run.runId, organizationId, 'cancel')) live++;
+    }
+    const closed = await forceStopAllRuns(organizationId);
+    res.json({
+      success: true,
+      data: {
+        live,
+        closed,
+        note: live
+          ? `${live} running agent(s) will halt after their current step; ${closed} record(s) closed.`
+          : `${closed} stranded agent record(s) closed.`,
+      },
+    });
+  })
+);
 
 /**
  * Mission control: everything currently running, with each run's latest steps

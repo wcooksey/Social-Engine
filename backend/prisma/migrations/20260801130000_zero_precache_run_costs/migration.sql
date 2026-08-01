@@ -1,0 +1,18 @@
+-- Zero the cost recorded against every run that predates cache-aware pricing.
+--
+-- Until the previous migration, every input token was billed at the provider's
+-- cache-MISS rate. An agent loop resends its whole prompt each iteration and
+-- DeepSeek caches prefixes automatically, so most of that input was actually a
+-- cache hit costing ~1/120th as much — the dashboard was reporting several
+-- times the real spend (observed: $33.97 shown against $4.83 billed).
+--
+-- Those rows stored no cache-hit count, so there is no ratio to recompute them
+-- from; any "correction" would be a guess presented as data. Zeroing instead
+-- makes the dashboard mean one honest thing — spend since cache-aware pricing —
+-- rather than a real number added to a fabricated one.
+--
+-- This runs once, at the deploy that introduces correct pricing, so it can only
+-- ever touch pre-fix rows: anything recorded afterwards is priced correctly and
+-- lands after this migration. Token counts are deliberately left intact — they
+-- were always measured correctly, and only the money was wrong.
+UPDATE "AgentRun" SET "costUsd" = 0 WHERE "costUsd" <> 0;

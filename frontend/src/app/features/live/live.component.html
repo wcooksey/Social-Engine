@@ -13,6 +13,16 @@
         <i class="bi bi-hourglass-split"></i>
         {{ queuedJobs() }} {{ queuedJobs() === 1 ? 'job' : 'jobs' }} queued
       </span>
+      @if (runningCount()) {
+        <button
+          type="button"
+          class="stop-all-btn"
+          [disabled]="stoppingAll()"
+          title="Stop every running agent, including any left over from a restart"
+          (click)="stopAll()">
+          <i class="bi bi-stop-circle"></i> Stop all
+        </button>
+      }
     </div>
   </div>
 
@@ -70,8 +80,28 @@
                       <i class="bi bi-pause-fill"></i>
                     </button>
                   }
-                  <button type="button" class="mini-btn mini-btn--danger" title="Stop this run" (click)="control(run, 'cancel')">
+                  <button type="button" class="mini-btn mini-btn--danger" title="Stop this run" (click)="stopRun(run)">
                     <i class="bi bi-stop-fill"></i>
+                  </button>
+                </span>
+              </div>
+            } @else {
+              <!-- Stranded by a restart: nothing is listening, so there is no
+                   transport to offer — but the record still needs closing, and
+                   before this there was no way to do it at all. -->
+              <div class="agent-transport agent-transport--stranded">
+                <span class="agent-transport-state">
+                  <i class="bi bi-exclamation-triangle"></i>
+                  Not responding — stranded by a server restart
+                </span>
+                <span class="agent-transport-actions">
+                  <button
+                    type="button"
+                    class="mini-btn mini-btn--danger"
+                    title="Close out this agent's record"
+                    [disabled]="stopping().has(run.id)"
+                    (click)="stopRun(run)">
+                    <i class="bi bi-stop-fill"></i> Clear
                   </button>
                 </span>
               </div>
