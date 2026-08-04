@@ -306,9 +306,42 @@
               (clicked)="sendTestEmail()">
               Send test email
             </app-button>
+            <app-button
+              variant="secondary"
+              [loading]="checkingInbound"
+              [disabled]="!testStatus?.email"
+              (clicked)="checkInboundEmail()">
+              Check reply tracking
+            </app-button>
           </div>
           @if (!testStatus?.email) {
             <p class="field-hint">Configure email in Integrations.</p>
+          } @else {
+            <p class="field-hint">
+              Sending and receiving are separate setups. "Check reply tracking" verifies that replies
+              from leads actually come back into your inbox.
+            </p>
+          }
+
+          @if (inboundHealth) {
+            <div class="inbound-health">
+              <span class="inbound-health-title" [class.is-ok]="inboundHealth.ok">
+                {{ inboundHealth.ok ? 'Replies will be tracked.' : 'Replies are not being tracked yet:' }}
+              </span>
+              <ul class="inbound-health-list">
+                @for (check of inboundHealth.checks; track check.key) {
+                  <li class="inbound-check" [class.is-ok]="check.ok === true" [class.is-bad]="check.ok === false">
+                    <i class="bi" [class.bi-check-circle-fill]="check.ok === true"
+                       [class.bi-x-circle-fill]="check.ok === false"
+                       [class.bi-dash-circle]="check.ok === null"></i>
+                    <span class="inbound-check-body">
+                      <strong>{{ check.label }}</strong>
+                      <span class="inbound-check-detail">{{ check.detail }}</span>
+                    </span>
+                  </li>
+                }
+              </ul>
+            </div>
           }
         </div>
 

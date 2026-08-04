@@ -34,6 +34,21 @@ export interface TestDmResult {
   note: string;
 }
 
+/** One link in the chain a lead's reply has to survive to reach the inbox. */
+export interface InboundCheck {
+  key: 'secret' | 'publicUrl' | 'mailgun' | 'mx' | 'route';
+  label: string;
+  /** null when the check couldn't run (prerequisite failed, or Mailgun errored). */
+  ok: boolean | null;
+  detail: string;
+}
+
+export interface InboundEmailHealth {
+  ok: boolean;
+  webhookUrl: string;
+  checks: InboundCheck[];
+}
+
 /**
  * Fires REAL test messages on each channel at the owner's own contact info.
  * Owner/admin only on the backend — non-admins get a 403.
@@ -48,6 +63,11 @@ export class TestBenchService {
 
   sendEmail(to: string): Observable<TestEmailResult> {
     return this.api.post<TestEmailResult>('/api/test/email', { to });
+  }
+
+  /** Checks the receiving side of email — MX records, Mailgun route, secret. */
+  inboundEmailHealth(): Observable<InboundEmailHealth> {
+    return this.api.get<InboundEmailHealth>('/api/test/inbound-email');
   }
 
   sendSms(to: string): Observable<TestSmsResult> {
