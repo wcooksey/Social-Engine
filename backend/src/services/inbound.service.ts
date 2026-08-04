@@ -133,6 +133,9 @@ export async function handleInbound(input: InboundMessage): Promise<{
   matched: boolean;
   leadId?: string;
   conversationId?: string;
+  /** Why nothing was recorded, when matched is false — surfaced to the caller
+   *  so a dropped reply shows up in the provider's webhook log. */
+  reason?: string;
 }> {
   let leadId = input.leadId;
   let contactId = input.contactId;
@@ -143,12 +146,16 @@ export async function handleInbound(input: InboundMessage): Promise<{
   // Explicit leadId (social bridges) must be proven to belong to the claimed
   // org — otherwise a forged body could attach messages to another tenant.
   if (leadId) {
-    if (!organizationId) return { matched: false };
+    if (!organizationId) {
+      return { matched: false, reason: 'An explicit leadId needs an organizationId alongside it.' };
+    }
     const owned = await prisma.lead.findFirst({
       where: { id: leadId, organizationId },
       select: { id: true },
     });
-    if (!owned) return { matched: false };
+    if (!owned) {
+      return { matched: false, reason: 'That leadId does not belong to that organization.' };
+    }
   }
 
   if (!leadId) {
@@ -169,7 +176,13 @@ export async function handleInbound(input: InboundMessage): Promise<{
     }
   }
   if (!leadId || !organizationId) {
-    return { matched: false };
+    const sender = input.fromEmail || input.fromPhone || input.socialHandle || 'unknown sender';
+    return {
+      matched: false,
+      reason: `No contact or lead matches ${sender}${
+        organizationId ? '' : ' (and the receiving address matched no organization)'
+      }.`,
+    };
   }
 
   const conversation =

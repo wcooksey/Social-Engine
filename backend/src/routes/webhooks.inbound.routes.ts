@@ -3,10 +3,25 @@ import { Router } from 'express';
 import { config } from '../config/environment';
 import { prisma } from '../config/database';
 import { asyncHandler } from '../middleware/error.middleware';
+import { multipartFormData } from '../middleware/multipart.middleware';
 import { handleInbound } from '../services/inbound.service';
 import { recomputeLeadEnrichment } from '../services/lead-enrichment.service';
 
 const router = Router();
+
+// Mailgun posts parsed inbound mail as multipart/form-data, which the app-wide
+// json/urlencoded parsers skip. Without this every reply arrives as an empty
+// body and is dropped. A no-op for the JSON and urlencoded webhooks below.
+router.use(multipartFormData());
+
+/**
+ * A reply the provider handed us but we couldn't record. Logged loudly and
+ * echoed in the response body, so it shows up in the provider's webhook log
+ * instead of looking like a clean 200.
+ */
+function logDropped(channel: string, detail: string, context: Record<string, unknown>): void {
+  console.warn(`[inbound:${channel}] dropped — ${detail}`, context);
+}
 
 // Fail closed: inbound endpoints refuse all traffic until a shared secret is
 // configured. These webhooks inject lead messages and trigger autonomous
@@ -42,8 +57,19 @@ router.post(
     const fromEmail = extractEmail(body.sender || body.from || body.From);
     const text = body['stripped-text'] || body['body-plain'] || body.text || '';
     const subject = body.subject || body.Subject;
-
     const recipient = extractEmail(body.recipient || body.To || body.to);
+
+    // No sender means the payload never parsed — almost always a content type
+    // we didn't read, not a real email. Say so rather than reporting success.
+    if (!fromEmail) {
+      const detail = Object.keys(body).length
+        ? 'no sender address in the payload'
+        : `empty body (content-type: ${req.headers['content-type'] || 'none'})`;
+      logDropped('email', detail, { fields: Object.keys(body) });
+      res.status(422).json({ success: false, error: detail });
+      return;
+    }
+
     const result = await handleInbound({
       channel: 'EMAIL',
       fromEmail,
@@ -52,6 +78,9 @@ router.post(
       externalId: body['Message-Id'] || body['message-id'],
       toEmailDomain: recipient?.split('@')[1],
     });
+    if (!result.matched) {
+      logDropped('email', result.reason || 'no match', { fromEmail, recipient });
+    }
     res.json({ success: true, data: result });
   })
 );
@@ -75,9 +104,11 @@ router.post(
       externalId: body.MessageSid,
       toPhone: body.To,
     });
+    if (!result.matched) {
+      logDropped('sms', result.reason || 'no match', { from: body.From, to: body.To });
+    }
     // Twilio expects TwiML (empty response is fine — no auto-reply here)
     res.set('Content-Type', 'text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
-    void result;
   })
 );
 
@@ -103,6 +134,12 @@ router.post(
       body: String(body.text || body.message || ''),
       externalId: body.id,
     });
+    if (!result.matched) {
+      logDropped('social', result.reason || 'no match', {
+        handle: body.socialHandle || body.from,
+        organizationId: body.organizationId,
+      });
+    }
     res.json({ success: true, data: result });
   })
 );

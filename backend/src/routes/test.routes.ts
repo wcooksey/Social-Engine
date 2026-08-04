@@ -5,6 +5,7 @@ import { prisma } from '../config/database';
 import { config } from '../config/environment';
 import { getOrgConfig } from '../services/settings.service';
 import * as channels from '../services/channels.service';
+import { checkInboundEmail } from '../services/inbound-health.service';
 import { buildCallSystemPrompt } from '../engine/prompts';
 import { runBrowserAgent } from '../engine/browser/browser-agent.service';
 import { loadStorageState, PlatformKey, saveStorageState } from '../services/social-account.service';
@@ -63,6 +64,18 @@ router.post(
     );
     if (!result.sent) throw new AppError(`Email failed: ${result.error}`, 502);
     res.json({ success: true, data: { sent: true, to, externalId: result.externalId } });
+  })
+);
+
+/**
+ * Why a lead's reply never appeared in the inbox. Sending works long before
+ * receiving does, so this checks the receiving side end to end.
+ */
+router.get(
+  '/inbound-email',
+  asyncHandler(async (req, res) => {
+    const cfg = await getOrgConfig(req.user!.organizationId);
+    res.json({ success: true, data: await checkInboundEmail(cfg.mailgun) });
   })
 );
 

@@ -14,7 +14,7 @@ import { SocialAccount, SocialPlatform, SocialPlatformParam } from '../../core/m
 import { BookingLinksService } from '../../core/services/booking-links.service';
 import { Availability, BookingLink, BookingLinkInput } from '../../core/models/booking-link.model';
 import { LeadsService, ImportResult } from '../../core/services/leads.service';
-import { TestBenchService, TestChannelStatus } from '../../core/services/test-bench.service';
+import { InboundEmailHealth, TestBenchService, TestChannelStatus } from '../../core/services/test-bench.service';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { InputComponent } from '../../shared/components/input/input.component';
 import { ButtonComponent } from '../../shared/components/button/button.component';
@@ -254,6 +254,8 @@ export class SettingsComponent implements OnInit {
   sendingTestSms = false;
   placingTestCall = false;
   sendingTestDm = false;
+  checkingInbound = false;
+  inboundHealth: InboundEmailHealth | null = null;
 
   constructor(
     private authService: AuthService,
@@ -982,6 +984,24 @@ export class SettingsComponent implements OnInit {
       error: (err) => {
         this.sendingTestEmail = false;
         this.toast.error(this.testError(err, 'Failed to send test email'));
+      }
+    });
+  }
+
+  /** Sending and receiving are separate setups — this checks the receiving half. */
+  checkInboundEmail(): void {
+    this.checkingInbound = true;
+    this.testBenchService.inboundEmailHealth().subscribe({
+      next: health => {
+        this.checkingInbound = false;
+        this.inboundHealth = health;
+        if (health.ok) {
+          this.toast.success('Reply tracking is wired up correctly.');
+        }
+      },
+      error: (err) => {
+        this.checkingInbound = false;
+        this.toast.error(this.testError(err, 'Failed to check reply tracking'));
       }
     });
   }
