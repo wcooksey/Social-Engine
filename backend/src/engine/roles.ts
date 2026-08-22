@@ -28,6 +28,8 @@ const SHARED = [
   // Every role benefits from knowing what the platform can actually send today
   // before it plans work that depends on it.
   'get_sending_capacity',
+  // Replying well means reading what was actually said, not a summary of it.
+  'read_conversation',
 ];
 
 export const ROLES: Record<AgentRole, RoleDefinition> = {
@@ -85,6 +87,7 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
       'submit_contact_form',
       'check_social_inbox',
       'create_campaign',
+      'update_campaign',
       'add_leads_to_campaign',
       'create_calendar_event',
       'update_calendar_event',

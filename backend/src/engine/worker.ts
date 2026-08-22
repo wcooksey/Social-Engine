@@ -175,10 +175,16 @@ async function runJob(job: ClaimedJob): Promise<void> {
       playbookId: job.playbookId ?? undefined,
     });
 
+    // A cancel is a decision, not a failure. Retrying it would restart the exact
+    // objective an operator just stopped — the emergency brake over an
+    // autonomous fleet has to actually hold.
+    const cancelled = result.status === 'CANCELLED';
+
     await prisma.agentJob.update({
       where: { id: job.id },
-      data:
-        result.status === 'COMPLETED'
+      data: cancelled
+        ? { status: 'FAILED', lastError: 'Stopped by an operator' }
+        : result.status === 'COMPLETED'
           ? { status: 'COMPLETED' }
           : job.attempts >= MAX_ATTEMPTS
             ? { status: 'FAILED', lastError: result.error }
@@ -188,7 +194,9 @@ async function runJob(job: ClaimedJob): Promise<void> {
                 runAt: new Date(Date.now() + 10 * 60 * 1000),
               },
     });
-    if (result.status === 'COMPLETED') {
+    if (cancelled) {
+      // Nothing to report: the person who stopped it already knows.
+    } else if (result.status === 'COMPLETED') {
       await recordGoalJobOutcome(job.payload, result.finalText || 'Completed.');
     } else if (job.attempts >= MAX_ATTEMPTS) {
       await reportTerminalFailure(job, result.error || 'Run failed');
