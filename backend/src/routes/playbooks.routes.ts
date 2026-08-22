@@ -7,6 +7,7 @@ const router = Router();
 const includeRelations = {
   group: { select: { id: true, name: true } },
   campaign: { select: { id: true, name: true } },
+  senderPool: { select: { id: true, name: true } },
   // How many Engine conversations are filed under this playbook — the count
   // that makes each card a doorway into its own thread history.
   _count: { select: { engineChats: true } },
@@ -19,6 +20,7 @@ const IDENTITY_FIELDS = [
   'identityTitle',
   'identityEmail',
   'identitySignature',
+  'identityPostalAddress',
 ] as const;
 
 /** Trimmed identity values from a request body; empty string means "clear". */
@@ -34,6 +36,23 @@ function identityData(body: Record<string, unknown>): Record<string, string | nu
     data[key] = value || null;
   }
   return data;
+}
+
+/**
+ * Resolve the sender pool a playbook sends through. Blank clears it back to
+ * "any cold-outreach mailbox". Validated against this org so a foreign pool id
+ * can't attach outreach to someone else's mailboxes.
+ */
+async function senderPoolData(
+  body: Record<string, unknown>,
+  organizationId: string
+): Promise<{ senderPoolId?: string | null }> {
+  if (!('senderPoolId' in body)) return {};
+  const id = String(body.senderPoolId || '').trim();
+  if (!id) return { senderPoolId: null };
+  const pool = await prisma.senderPool.findFirst({ where: { id, organizationId } });
+  if (!pool) throw new AppError('Sender pool not found');
+  return { senderPoolId: pool.id };
 }
 
 async function validateScopeTarget(
@@ -93,6 +112,7 @@ router.post(
         isActive: req.body.isActive ?? true,
         priority: req.body.priority ?? 100,
         ...identityData(req.body),
+        ...(await senderPoolData(req.body, req.user!.organizationId)),
       },
       include: includeRelations,
     });
@@ -108,7 +128,10 @@ router.patch(
     });
     if (!existing) throw new AppError('Playbook not found', 404);
 
-    const data: Record<string, unknown> = { ...identityData(req.body) };
+    const data: Record<string, unknown> = {
+      ...identityData(req.body),
+      ...(await senderPoolData(req.body, req.user!.organizationId)),
+    };
     for (const key of ['name', 'instructions', 'channel', 'isActive', 'priority'] as const) {
       if (key in req.body) data[key] = req.body[key];
     }

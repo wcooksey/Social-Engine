@@ -7,6 +7,7 @@ import { getOrgConfig } from '../services/settings.service';
 import { leadService } from '../services/lead.service';
 import { dispatchApprovedSocialDm } from '../services/social-send.service';
 import { identityFromName, resolveSenderIdentity, withSignature } from '../services/identity.service';
+import { markMailboxSent, resolveSenderDecision } from '../services/sender.service';
 
 const router = Router();
 
@@ -26,7 +27,7 @@ async function deliverOnConversation(
   },
   body: string,
   subject?: string
-): Promise<{ to: string; externalId?: string }> {
+): Promise<{ to: string; externalId?: string; mailboxId?: string }> {
   const lead = await prisma.lead.findFirst({
     where: { id: conversation.leadId, organizationId },
   });
@@ -51,9 +52,6 @@ async function deliverOnConversation(
   if (conversation.channel === 'EMAIL') {
     if (!contact?.email) throw new AppError('No contact with an email address on this lead.', 400);
     if (contact.optedOut) throw new AppError('This contact has opted out.', 400);
-    if (!channels.isEmailConfigured(orgConfig.mailgun)) {
-      throw new AppError('Email channel (Mailgun) is not configured — add it in Settings → Integrations.', 400);
-    }
     // Replies go out under the same identity the outreach did, so a thread
     // never changes sender halfway through.
     const identity = await resolveSenderIdentity(organizationId, {
@@ -61,6 +59,26 @@ async function deliverOnConversation(
       channel: 'EMAIL',
       mailgunDomain: orgConfig.mailgun.domain,
     });
+    // Resolved through the sending infrastructure rather than the raw org creds,
+    // so this thread keeps its own mailbox and the send is attributed to it.
+    // TRANSACTIONAL on purpose: a person has already decided to send this, so a
+    // cold-outreach warm-up cap should not hold it — but a paused mailbox or an
+    // unverified domain still stops it, and the thread's own sender still wins.
+    const decision = await resolveSenderDecision(organizationId, {
+      purpose: 'TRANSACTIONAL',
+      conversationId: conversation.id,
+      playbookId: identity.playbookId,
+      preferAddress: identity.email,
+      legacy: orgConfig.mailgun,
+    });
+    const sender = decision.sender;
+    if (!sender) {
+      throw new AppError(
+        decision.reason ||
+          'No sending mailbox is available — check Settings → Sending, or add Mailgun credentials.',
+        400
+      );
+    }
     const delivery = await channels.sendEmail(
       {
         to: contact.email,
@@ -68,13 +86,18 @@ async function deliverOnConversation(
         // Idempotent: an approved draft already carries the sign-off.
         body: withSignature(body, identity),
         fromName: identityFromName(identity),
-        fromEmail: identity.email,
-        replyTo: identity.email,
+        fromEmail: sender.fromEmail,
+        replyTo: sender.replyTo && sender.replyTo !== sender.fromEmail ? sender.replyTo : undefined,
       },
-      orgConfig.mailgun
+      sender.creds
     );
     if (!delivery.sent) throw new AppError(`Email delivery failed: ${delivery.error}`, 502);
-    return { to: contact.email, externalId: delivery.externalId };
+    if (sender.mailboxId) await markMailboxSent(sender.mailboxId);
+    return {
+      to: contact.email,
+      externalId: delivery.externalId,
+      mailboxId: sender.mailboxId ?? undefined,
+    };
   }
 
   if (conversation.channel === 'SMS') {
@@ -198,12 +221,21 @@ router.post(
         status: 'sent',
         sentAt: new Date(),
         externalId: delivery.externalId,
+        mailboxId: delivery.mailboxId,
       },
     });
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: { lastMessageAt: new Date() },
     });
+    // Anchor the thread's sender if this was its first real send, so later
+    // touches stay on the same address.
+    if (delivery.mailboxId) {
+      await prisma.conversation.updateMany({
+        where: { id: conversation.id, mailboxId: null },
+        data: { mailboxId: delivery.mailboxId },
+      });
+    }
     await leadService.logActivity({
       organizationId: req.user!.organizationId,
       leadId: conversation.leadId,
@@ -266,12 +298,21 @@ router.post(
         status: 'sent',
         sentAt: new Date(),
         externalId: delivery.externalId,
+        mailboxId: delivery.mailboxId,
       },
     });
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: { lastMessageAt: new Date() },
     });
+    // Anchor the thread's sender if this was its first real send, so later
+    // touches stay on the same address.
+    if (delivery.mailboxId) {
+      await prisma.conversation.updateMany({
+        where: { id: conversation.id, mailboxId: null },
+        data: { mailboxId: delivery.mailboxId },
+      });
+    }
     await leadService.logActivity({
       organizationId: req.user!.organizationId,
       leadId: conversation.leadId,
@@ -284,7 +325,7 @@ router.post(
   })
 );
 
-/** Discard a pending draft. */
+/** Discard a pending draft, or cancel a message still waiting in the send queue. */
 router.delete(
   '/:id/messages/:messageId',
   asyncHandler(async (req, res) => {
@@ -297,11 +338,27 @@ router.delete(
       where: { id: req.params.messageId, conversationId: conversation.id },
     });
     if (!message) throw new AppError('Message not found', 404);
-    if (!message.status?.startsWith('draft')) {
-      throw new AppError('Only drafts can be discarded', 400);
+    // A queued message has not reached anyone yet either, so cancelling one is
+    // the same act as discarding a draft from the reader's point of view. A
+    // message already claimed by the queue drain ('sending') is past the point
+    // of recall and is deliberately excluded.
+    const removable = message.status?.startsWith('draft') || message.status === 'scheduled';
+    if (!removable) {
+      throw new AppError('Only drafts and queued messages can be discarded', 400);
     }
 
-    await prisma.message.delete({ where: { id: message.id } });
+    // The delete carries the same predicate the check did, so a queued message
+    // the send queue claimed in the meantime is not deleted out from under a
+    // send that is already on the wire.
+    const removed = await prisma.message.deleteMany({
+      where: {
+        id: message.id,
+        OR: [{ status: { startsWith: 'draft' } }, { status: 'scheduled' }],
+      },
+    });
+    if (removed.count === 0) {
+      throw new AppError('That message is already being sent and can no longer be cancelled', 409);
+    }
     res.json({ success: true, data: null });
   })
 );

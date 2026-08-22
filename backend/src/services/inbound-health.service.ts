@@ -1,6 +1,6 @@
 import { config } from '../config/environment';
 import type { EmailCreds } from './channels.service';
-import { isEmailConfigured } from './channels.service';
+import { isEmailConfigured, mailgunGet } from './channels.service';
 
 /**
  * Inbound email readiness.
@@ -25,20 +25,6 @@ export interface InboundHealth {
   /** Paste-ready target for the Mailgun route; the secret stays masked. */
   webhookUrl: string;
   checks: InboundCheck[];
-}
-
-const MAILGUN_API = 'https://api.mailgun.net/v3';
-
-async function mailgunGet(path: string, apiKey: string): Promise<any> {
-  const res = await fetch(`${MAILGUN_API}${path}`, {
-    headers: { Authorization: `Basic ${Buffer.from(`api:${apiKey}`).toString('base64')}` },
-    signal: AbortSignal.timeout(12000),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Mailgun ${res.status}: ${text.slice(0, 160)}`);
-  }
-  return res.json();
 }
 
 /** Pull the URL out of a Mailgun route action like `forward("https://…")`. */

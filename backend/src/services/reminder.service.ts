@@ -1,7 +1,7 @@
 import { prisma } from '../config/database';
 import * as channels from './channels.service';
-import { getOrgConfig } from './settings.service';
 import { notify, sendDailyDigest } from './notification.service';
+import { resolveSender } from './sender.service';
 
 /**
  * Time-driven sweeps run by the engine worker:
@@ -65,8 +65,8 @@ export async function runReminderSweep(): Promise<number> {
     // Transactional reminder email to the lead, if we have an address + creds.
     const email = event.contact?.email;
     if (email && !event.contact?.optedOut && !event.contact?.emailStatus) {
-      const orgConfig = await getOrgConfig(event.organizationId);
-      if (channels.isEmailConfigured(orgConfig.mailgun)) {
+      const sender = await resolveSender(event.organizationId, { purpose: 'TRANSACTIONAL' });
+      if (sender) {
         const first = event.contact?.firstName || 'there';
         await channels
           .sendEmail(
@@ -75,8 +75,9 @@ export async function runReminderSweep(): Promise<number> {
               subject: `Reminder: ${event.title} ${due.label}`,
               body: `Hi ${first},\n\nThis is a friendly reminder about "${event.title}" scheduled for ${event.startAt.toUTCString()}.\n\nLooking forward to it!\n\n— ${event.organization?.name || 'The team'}`,
               fromName: event.organization?.name,
+              fromEmail: sender.fromEmail,
             },
-            orgConfig.mailgun
+            sender.creds
           )
           .catch(() => undefined);
       }

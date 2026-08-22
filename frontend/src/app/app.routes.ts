@@ -61,6 +61,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/campaigns/campaign-detail.component').then(m => m.CampaignDetailComponent)
       },
       {
+        path: 'sending',
+        loadComponent: () => import('./features/sending/sending.component').then(m => m.SendingComponent)
+      },
+      {
         path: 'playbooks',
         loadComponent: () => import('./features/playbooks/playbooks.component').then(m => m.PlaybooksComponent)
       },

@@ -59,6 +59,9 @@ model Organization {
   notifications Notification[]
   coverageCells CoverageCell[]
   autopilotGoals AutopilotGoal[]
+  emailDomains EmailDomain[]
+  mailboxes    Mailbox[]
+  senderPools  SenderPool[]
 }
 
 model User {
@@ -321,6 +324,7 @@ model Campaign {
   activities    Activity[]
   agentJobs     AgentJob[]
   playbooks     Playbook[]
+  messages      Message[]
 
   @@index([organizationId, status])
   @@index([autoEnrollGroupId])
@@ -415,10 +419,16 @@ model Conversation {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
+  // Sticky sender: once a lead has heard from this mailbox, every follow-up
+  // comes from it too. Rotating mid-thread breaks threading and reads as spoofing.
+  mailboxId String?
+  mailbox   Mailbox? @relation(fields: [mailboxId], references: [id], onDelete: SetNull)
+
   messages Message[]
 
   @@index([organizationId, lastMessageAt])
   @@index([leadId])
+  @@index([mailboxId])
 }
 
 model Message {
@@ -427,9 +437,21 @@ model Message {
   conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   direction      MessageDirection
   body           String
-  status         String?          // queued | sent | delivered | failed | draft_pending_approval
+  /// Subject for this specific send. The conversation carries the thread's
+  /// original subject; a queued message needs its own, because it is composed
+  /// now and put on the wire later.
+  subject        String?
+  status         String?          // queued | scheduled | sent | delivered | failed | draft_pending_approval
   externalId     String?          // provider message id (Mailgun/Twilio)
   sentAt         DateTime?
+  /// When a `scheduled` message is due. Sender pacing composes the message now
+  /// and holds it here rather than discarding it and re-running the agent later.
+  scheduledAt    DateTime?
+  /// Display name this was composed to go out under, frozen at compose time.
+  /// Identity is resolved from the lead's current status and group, and both can
+  /// move while a message waits — re-deriving it at send time can put one
+  /// person's name on a From header above another person's sign-off.
+  senderName     String?
   createdAt      DateTime         @default(now())
 
   // Split-test attribution: which variant this outbound message used, and
@@ -438,8 +460,23 @@ model Message {
   experimentVariant   ExperimentVariant? @relation(fields: [experimentVariantId], references: [id], onDelete: SetNull)
   gotResponse         Boolean            @default(false)
 
+  // Which mailbox put this on the wire. Without it a bounce can be traced to the
+  // recipient but never to the sender that earned it.
+  mailboxId String?
+  mailbox   Mailbox? @relation(fields: [mailboxId], references: [id], onDelete: SetNull)
+
+  /// Campaign this send belongs to. A queued message is put on the wire without
+  /// an agent present, so it has to carry its own cadence attribution rather
+  /// than relying on the caller still being around to supply it.
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
   @@index([conversationId, createdAt])
   @@index([experimentVariantId])
+  @@index([mailboxId])
+  @@index([campaignId])
+  // Drives the outbound queue drain: due scheduled sends, oldest first.
+  @@index([status, scheduledAt])
 }
 
 // ============================================
@@ -699,6 +736,157 @@ model PlatformSetting {
 }
 
 // ============================================
+// SENDING INFRASTRUCTURE (domains, mailboxes, pools)
+// ============================================
+
+/// What a domain is allowed to carry. Cold outreach burns sender reputation
+/// over time; meeting invites and booking confirmations must not go down with
+/// it, so they ride a domain that never sends cold mail.
+enum DomainPurpose {
+  COLD_OUTREACH
+  TRANSACTIONAL
+}
+
+enum EmailDomainStatus {
+  PENDING // added here, DNS not verified with the provider yet — cannot send
+  WARMING
+  ACTIVE
+  PAUSED // tripped a health threshold, or paused by hand
+  RETIRED
+}
+
+/// A sending domain. Registrar is irrelevant — this is whoever puts mail on the
+/// wire for it (Mailgun today; `provider` leaves room for SMTP mailboxes later
+/// without a second model).
+model EmailDomain {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Globally unique, not per-org: inbound replies are routed to an org by their
+  // recipient domain, so two orgs claiming one domain would be ambiguous.
+  domain   String            @unique
+  provider String            @default("mailgun")
+  purpose  DomainPurpose     @default(COLD_OUTREACH)
+  status   EmailDomainStatus @default(PENDING)
+  /// Per-domain provider key, encrypted. Null inherits the org's MAILGUN_API_KEY.
+  apiKeyEncrypted String?
+
+  // DNS/auth verification, refreshed from the provider. Null = not checked yet.
+  spfOk         Boolean?
+  dkimOk        Boolean?
+  mxOk          Boolean? // no MX means replies never reach us at all
+  trackingOk    Boolean? // per-domain tracking CNAME; a shared one hurts deliverability
+  lastCheckedAt DateTime?
+
+  pausedReason String?
+  firstSendAt  DateTime? // start of the domain's own reputation history
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mailboxes Mailbox[]
+
+  @@index([organizationId, status])
+}
+
+enum MailboxStatus {
+  WARMING
+  ACTIVE
+  PAUSED
+  RETIRED
+}
+
+/// One sending address. On Mailgun these are logical — any address on a verified
+/// domain can send — but they are the unit reputation is earned and spent in, so
+/// caps, stats and pauses all hang here rather than on the domain.
+model Mailbox {
+  id             String       @id @default(uuid())
+  organizationId String // denormalized so tenant-scoped queries skip the join
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domainId       String
+  emailDomain    EmailDomain  @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  localPart String // "dana"
+  /// Full address, denormalized: delivery events and reply routing match on it.
+  address     String  @unique
+  displayName String?
+  replyTo     String?
+
+  status MailboxStatus @default(WARMING)
+
+  // Warm-up ramp. Phase 2 enforces these; they are stored now so the ramp clock
+  // starts the day a mailbox is created, not the day the enforcement lands.
+  warmupStartedAt DateTime?
+  dailyCapStart   Int       @default(5)
+  dailyCapMax     Int       @default(40)
+  warmupGrowthPct Int       @default(30)
+  hourlyCap       Int       @default(8)
+
+  pausedReason String?
+  pausedUntil  DateTime?
+  lastSendAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dailyStats    MailboxDailyStat[]
+  messages      Message[]
+  conversations Conversation[]
+  pools         SenderPoolMailbox[]
+
+  @@unique([domainId, localPart])
+  @@index([organizationId, status])
+}
+
+/// Per-day send ledger. The cap is enforced against this rather than a count
+/// over Activity, so one mailbox's volume is knowable without scanning the org.
+model MailboxDailyStat {
+  id        String   @id @default(uuid())
+  mailboxId String
+  mailbox   Mailbox  @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+  date      DateTime @db.Date
+
+  sent       Int @default(0)
+  delivered  Int @default(0)
+  bounced    Int @default(0)
+  complained Int @default(0)
+  opened     Int @default(0)
+  replied    Int @default(0)
+
+  @@unique([mailboxId, date])
+  @@index([date])
+}
+
+/// A named set of mailboxes a playbook sends through — one persona, one brand,
+/// or one offer's worth of capacity.
+model SenderPool {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mailboxes SenderPoolMailbox[]
+  playbooks Playbook[]
+
+  @@unique([organizationId, name])
+}
+
+model SenderPoolMailbox {
+  poolId    String
+  pool      SenderPool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  mailboxId String
+  mailbox   Mailbox    @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+
+  @@id([poolId, mailboxId])
+  @@index([mailboxId])
+}
+
+// ============================================
 // SOCIAL ACCOUNTS (persistent browser logins)
 // ============================================
 
@@ -782,8 +970,16 @@ model Playbook {
   identityName      String? // person the outreach comes from, e.g. "Dana Reeves"
   identityOrgName   String? // business/brand to present as
   identityTitle     String? // job title — used in prompts and the call intro
-  identityEmail     String? // From/Reply-To; ignored unless on the Mailgun domain
+  identityEmail     String? // From/Reply-To; ignored unless it's a known mailbox
   identitySignature String? // sign-off appended to outbound email
+  /// Physical postal address for the email footer. CAN-SPAM requires one on
+  /// commercial mail, and its absence is itself a spam-filter signal.
+  identityPostalAddress String?
+
+  /// Mailboxes outreach under this playbook sends through. Null falls back to
+  /// any cold-outreach mailbox the org has.
+  senderPoolId String?
+  senderPool   SenderPool? @relation(fields: [senderPoolId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -792,6 +988,7 @@ model Playbook {
   agentJobs   AgentJob[]
 
   @@index([organizationId, isActive])
+  @@index([senderPoolId])
 }
 
 // ============================================

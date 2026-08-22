@@ -31,6 +31,7 @@ import settingsRoutes from './routes/settings.routes';
 import socialAccountsRoutes from './routes/social-accounts.routes';
 import testRoutes from './routes/test.routes';
 import sandboxRoutes from './routes/sandbox.routes';
+import sendingRoutes from './routes/sending.routes';
 import vapiWebhookRoutes from './routes/webhooks.vapi.routes';
 import voiceRoutes from './routes/voice.routes';
 
@@ -86,6 +87,7 @@ app.use('/api/playbooks', apiRateLimit, authMiddleware, playbooksRoutes);
 app.use('/api/booking-links', apiRateLimit, authMiddleware, bookingLinksRoutes);
 app.use('/api/notifications', apiRateLimit, authMiddleware, notificationsRoutes);
 app.use('/api/settings', apiRateLimit, authMiddleware, settingsRoutes);
+app.use('/api/sending', apiRateLimit, authMiddleware, sendingRoutes);
 app.use('/api/social-accounts', apiRateLimit, authMiddleware, socialAccountsRoutes);
 app.use('/api/test', apiRateLimit, authMiddleware, testRoutes);
 app.use('/api/sandbox', apiRateLimit, authMiddleware, sandboxRoutes);

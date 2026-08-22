@@ -2,7 +2,7 @@ import { NotificationType } from '@prisma/client';
 import { prisma } from '../config/database';
 import { config } from '../config/environment';
 import * as channels from './channels.service';
-import { getOrgConfig } from './settings.service';
+import { resolveSender } from './sender.service';
 
 /**
  * In-app + email notifications so a human knows when something worth their
@@ -45,8 +45,8 @@ async function sendAlertEmail(
   title: string,
   body?: string
 ): Promise<void> {
-  const orgConfig = await getOrgConfig(organizationId);
-  if (!channels.isEmailConfigured(orgConfig.mailgun)) return;
+  const sender = await resolveSender(organizationId, { purpose: 'TRANSACTIONAL' });
+  if (!sender) return;
 
   const org = await prisma.organization.findUnique({ where: { id: organizationId } });
   const recipients = await prisma.user.findMany({
@@ -59,8 +59,14 @@ async function sendAlertEmail(
   await Promise.all(
     recipients.map((r) =>
       channels.sendEmail(
-        { to: r.email, subject: `🔔 ${title}`, body: text, fromName: `${org?.name || 'Social Engine'} Alerts` },
-        orgConfig.mailgun
+        {
+          to: r.email,
+          subject: `🔔 ${title}`,
+          body: text,
+          fromName: `${org?.name || 'Social Engine'} Alerts`,
+          fromEmail: sender.fromEmail,
+        },
+        sender.creds
       )
     )
   );
@@ -96,8 +102,8 @@ export async function markRead(organizationId: string, ids?: string[]): Promise<
  * the worker's daily sweep.
  */
 export async function sendDailyDigest(organizationId: string): Promise<boolean> {
-  const orgConfig = await getOrgConfig(organizationId);
-  if (!channels.isEmailConfigured(orgConfig.mailgun)) return false;
+  const sender = await resolveSender(organizationId, { purpose: 'TRANSACTIONAL' });
+  if (!sender) return false;
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const [meetings, replies, interested, sent, calls] = await Promise.all([
@@ -141,8 +147,9 @@ export async function sendDailyDigest(organizationId: string): Promise<boolean> 
           subject: `📊 Your Social Engine daily digest`,
           body: `Hi ${r.firstName || 'there'},\n\n${lines}`,
           fromName: `${org?.name || 'Social Engine'}`,
+          fromEmail: sender.fromEmail,
         },
-        orgConfig.mailgun
+        sender.creds
       )
     )
   );

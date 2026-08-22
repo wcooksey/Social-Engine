@@ -1,10 +1,10 @@
 import { prisma } from '../config/database';
 import { config } from '../config/environment';
 import * as channels from './channels.service';
-import { getOrgConfig } from './settings.service';
 import { notify } from './notification.service';
 import { recomputeLeadEnrichment } from './lead-enrichment.service';
 import { buildIcs } from '../utils/ics';
+import { resolveSender } from './sender.service';
 
 /**
  * Public self-serve booking: a lead opens a booking link, sees open slots
@@ -252,8 +252,11 @@ export async function book(input: BookInput): Promise<{ eventId: string; startIs
     emailAlert: true,
   });
 
-  const orgConfig = await getOrgConfig(orgId);
-  if (channels.isEmailConfigured(orgConfig.mailgun)) {
+  // Confirmations go out on a transactional sender, never a cold-outreach one:
+  // a domain worn out by prospecting must not be able to take meeting invites
+  // down with it.
+  const sender = await resolveSender(orgId, { purpose: 'TRANSACTIONAL' });
+  if (sender) {
     const ics = buildIcs({
       uid: `${event.id}@social-engine`,
       title: `${link.title} with ${org?.name || 'us'}`,
@@ -261,7 +264,7 @@ export async function book(input: BookInput): Promise<{ eventId: string; startIs
       start,
       end,
       organizerName: org?.name,
-      organizerEmail: channels.senderAddress(orgConfig.mailgun),
+      organizerEmail: sender.fromEmail,
       attendeeEmail: email,
       attendeeName: name,
     });
@@ -272,9 +275,10 @@ export async function book(input: BookInput): Promise<{ eventId: string; startIs
           subject: `Confirmed: ${link.title} with ${org?.name || 'us'}`,
           body: `Hi ${name.split(/\s+/)[0]},\n\nYour meeting "${link.title}" is confirmed for ${start.toUTCString()}.\n\nThe calendar invite is attached — add it to your calendar to save the time.\n\nSee you then!`,
           fromName: org?.name,
+          fromEmail: sender.fromEmail,
           ics: { filename: 'invite.ics', content: ics },
         },
-        orgConfig.mailgun
+        sender.creds
       )
       .catch(() => undefined);
   }

@@ -1,0 +1,391 @@
+<div class="sending-page">
+  <div class="page-header">
+    <div>
+      <h1>Sending</h1>
+      <p class="subtitle">
+        The domains and addresses cold email goes out from, their warm-up, and their health
+      </p>
+    </div>
+    <app-button variant="primary" icon="bi-plus-lg" (clicked)="openDomainDialog()">Add domain</app-button>
+  </div>
+
+  @if (loading()) {
+    <div class="loading-state">
+      <span class="spinner"></span>
+      <p>Loading sending setup...</p>
+    </div>
+  } @else {
+    @if (overview()?.usingLegacySettings) {
+      <app-card variant="outlined" class="notice">
+        <div class="notice-body">
+          <i class="bi bi-info-circle"></i>
+          <div>
+            <strong>You're sending from one domain</strong>
+            <p>
+              All mail goes out through <code>{{ overview()?.legacyDomain }}</code> — the Mailgun
+              domain in Settings. Adopt it here to keep it working exactly as it does now, then add
+              your other domains alongside it.
+            </p>
+          </div>
+          <app-button variant="secondary" [loading]="busy() === 'adopt'" (clicked)="adopt()">
+            Adopt {{ overview()?.legacyDomain }}
+          </app-button>
+        </div>
+      </app-card>
+    }
+
+    @if (domains().length && !hasTransactional()) {
+      <app-card variant="outlined" class="notice warn">
+        <div class="notice-body">
+          <i class="bi bi-exclamation-triangle"></i>
+          <div>
+            <strong>No transactional domain</strong>
+            <p>
+              Meeting invites, booking confirmations and reminders are riding a cold-outreach
+              domain. Prospecting wears those domains out by design — when this one goes, your
+              confirmations stop landing too. Add a separate domain marked
+              <em>Transactional</em> and never send cold mail from it.
+            </p>
+          </div>
+        </div>
+      </app-card>
+    }
+
+    @if (domains().length) {
+      <div class="capacity-strip">
+        <div class="capacity-figure">
+          <span class="value">{{ capacityToday() }}</span>
+          <span class="label">cold emails left today</span>
+        </div>
+        <p class="capacity-note">
+          Warm-up limits are per mailbox and rise a little each day. Anything over the limit is
+          queued and sends itself when a mailbox frees up — nothing is lost.
+        </p>
+      </div>
+    }
+
+    @if (!domains().length) {
+      <app-card variant="outlined">
+        <div class="empty-state">
+          <i class="bi bi-envelope-paper"></i>
+          <h3>No sending domains yet</h3>
+          <p>
+            Add a domain you bought for outreach, publish the DNS records it gives you at your
+            registrar, then verify it here. Keep your main brand domain out of this — cold
+            outreach is what these are for.
+          </p>
+          <app-button variant="primary" (clicked)="openDomainDialog()">Add your first domain</app-button>
+        </div>
+      </app-card>
+    }
+
+    @for (domain of domains(); track domain.id) {
+      <app-card class="domain-card">
+        <div class="domain-header">
+          <div class="domain-title">
+            <h2>{{ domain.domain }}</h2>
+            <app-badge [variant]="domainVariant(domain)">{{ domain.status | lowercase }}</app-badge>
+            <app-badge [variant]="domain.purpose === 'TRANSACTIONAL' ? 'purple' : 'neutral'">
+              {{ domain.purpose === 'TRANSACTIONAL' ? 'transactional' : 'cold outreach' }}
+            </app-badge>
+          </div>
+          <div class="domain-actions">
+            <app-button
+              variant="ghost"
+              size="sm"
+              icon="bi-arrow-repeat"
+              [loading]="busy() === 'verify-' + domain.id"
+              (clicked)="verify(domain)">
+              Check DNS
+            </app-button>
+            @if (domain.status === 'PAUSED') {
+              <app-button variant="secondary" size="sm" (clicked)="setDomainStatus(domain, 'WARMING')">
+                Resume
+              </app-button>
+            } @else if (canSend(domain)) {
+              <app-button variant="ghost" size="sm" (clicked)="setDomainStatus(domain, 'PAUSED')">
+                Pause
+              </app-button>
+            }
+            <app-button variant="ghost" size="sm" icon="bi-trash" (clicked)="removeDomain(domain)"></app-button>
+          </div>
+        </div>
+
+        @if (domain.status === 'PENDING' || domain.dns.spf !== true || domain.dns.dkim !== true) {
+          <div class="domain-alert pending">
+            <i class="bi bi-hourglass-split"></i>
+            <div>
+              @if (domain.status === 'PENDING') {
+                <strong>Not verified — this domain cannot send yet.</strong>
+              } @else {
+                <strong>DNS not confirmed</strong>
+              }
+              <p>
+                Add it in Mailgun, publish the DNS records it gives you at your registrar, then
+                press <em>Check DNS</em>.
+                @if (missingDns(domain).length) {
+                  Still outstanding: {{ missingDns(domain).join(', ') }}.
+                }
+              </p>
+            </div>
+          </div>
+        } @else if (domain.pausedReason) {
+          <div class="domain-alert paused">
+            <i class="bi bi-exclamation-octagon"></i>
+            <div>
+              <strong>Stopped automatically</strong>
+              <p>{{ domain.pausedReason }}. This does not clear on its own — check the DNS and the lists this domain has been working before resuming it.</p>
+            </div>
+          </div>
+        }
+
+        <div class="dns-row">
+          @for (record of [
+            { key: 'SPF', ok: domain.dns.spf },
+            { key: 'DKIM', ok: domain.dns.dkim },
+            { key: 'MX', ok: domain.dns.mx },
+            { key: 'Tracking', ok: domain.dns.tracking }
+          ]; track record.key) {
+            <span class="dns-chip" [class.ok]="record.ok === true" [class.bad]="record.ok === false">
+              <i class="bi" [class.bi-check-circle-fill]="record.ok === true"
+                 [class.bi-x-circle-fill]="record.ok === false"
+                 [class.bi-dash-circle]="record.ok === null"></i>
+              {{ record.key }}
+            </span>
+          }
+          @if (domain.dns.mx === false) {
+            <span class="dns-hint">No MX means replies never reach you.</span>
+          }
+        </div>
+
+        <div class="mailboxes">
+          <div class="mailboxes-header">
+            <h3>Mailboxes</h3>
+            <app-button variant="ghost" size="sm" icon="bi-plus" (clicked)="openMailboxDialog(domain)">
+              Add mailbox
+            </app-button>
+          </div>
+
+          @if (!domain.mailboxes.length) {
+            <p class="muted">No addresses on this domain yet.</p>
+          }
+
+          @for (mailbox of domain.mailboxes; track mailbox.id) {
+            <div class="mailbox">
+              <div class="mailbox-main">
+                <div class="mailbox-id">
+                  <span class="address">{{ mailbox.address }}</span>
+                  <app-badge [variant]="mailboxVariant(mailbox)">
+                    {{ mailbox.rampHalted && mailbox.status !== 'PAUSED' ? 'held back' : (mailbox.status | lowercase) }}
+                  </app-badge>
+                  @if (warmupDay(mailbox) !== null && mailbox.status === 'WARMING') {
+                    <span class="muted">day {{ warmupDay(mailbox) }} of warm-up</span>
+                  }
+                </div>
+
+                @if (mailbox.status !== 'PAUSED') {
+                  <div class="allowance">
+                    <div class="bar"><span [style.width.%]="usedPercent(mailbox)"></span></div>
+                    <span class="allowance-text">
+                      {{ mailbox.remainingToday }} of {{ mailbox.allowanceToday }} left today
+                      @if (mailbox.hourlyCap) {
+                        · {{ mailbox.sentLastHour }}/{{ mailbox.hourlyCap }} this hour
+                      }
+                    </span>
+                  </div>
+                }
+
+                @if (mailbox.pausedReason) {
+                  <p class="mailbox-alert">
+                    {{ mailbox.pausedReason }}.
+                    @if (mailbox.pausedUntil) {
+                      Returns automatically after {{ mailbox.pausedUntil | date: 'MMM d, HH:mm' }}, warming up from the start.
+                    }
+                  </p>
+                } @else if (mailbox.rampHalted) {
+                  <p class="mailbox-alert warn">
+                    Recent bounces are above the safe line, so this mailbox is held at its starting
+                    volume instead of ramping up.
+                  </p>
+                }
+
+                @if (mailbox.health && mailbox.health.sent > 0) {
+                  <div class="health">
+                    <span>{{ mailbox.health.sent }} sent (7d)</span>
+                    <span [class.bad]="mailbox.health.bounceRate > 0.05">
+                      {{ ratePercent(mailbox.health.bounceRate) }} bounced
+                    </span>
+                    <span [class.bad]="mailbox.health.complaintRate > 0.003">
+                      {{ ratePercent(mailbox.health.complaintRate) }} complaints
+                    </span>
+                    <span class="good">{{ ratePercent(mailbox.health.replyRate) }} replied</span>
+                  </div>
+                }
+              </div>
+
+              <div class="mailbox-actions">
+                @if (mailbox.status === 'PAUSED') {
+                  <app-button variant="secondary" size="sm" (clicked)="setMailboxStatus(mailbox, 'WARMING')">
+                    Resume
+                  </app-button>
+                } @else {
+                  <app-button variant="ghost" size="sm" (clicked)="setMailboxStatus(mailbox, 'PAUSED')">
+                    Pause
+                  </app-button>
+                }
+                <app-button variant="ghost" size="sm" icon="bi-trash" (clicked)="removeMailbox(mailbox)"></app-button>
+              </div>
+            </div>
+          }
+        </div>
+      </app-card>
+    }
+
+    @if (domains().length || pools().length) {
+      <app-card class="pools-card">
+        <div class="mailboxes-header">
+          <div>
+            <h2>Sender pools</h2>
+            <p class="subtitle">
+              Group addresses so a playbook sends only through its own — one persona, one brand, or
+              one offer's worth of capacity.
+            </p>
+          </div>
+          @if (allMailboxes().length) {
+            <app-button variant="ghost" size="sm" icon="bi-plus" (clicked)="openPoolDialog('new')">
+              New pool
+            </app-button>
+          }
+        </div>
+
+        @if (!pools().length) {
+          <p class="muted">No pools yet — playbooks without one can use any cold-outreach mailbox.</p>
+        } @else if (!allMailboxes().length) {
+          <p class="muted">These pools have no mailboxes left. Add a mailbox to put them back to work, or delete them.</p>
+        }
+
+        @for (pool of pools(); track pool.id) {
+          <div class="pool">
+            <div>
+              <strong>{{ pool.name }}</strong>
+              <p class="muted">
+                {{ pool.mailboxes.length }} mailbox(es)
+                @if (pool._count.playbooks) {
+                  · used by {{ pool._count.playbooks }} playbook(s)
+                }
+              </p>
+            </div>
+            <div class="mailbox-actions">
+              <app-button variant="ghost" size="sm" (clicked)="openPoolDialog(pool)">Edit</app-button>
+              <app-button variant="ghost" size="sm" icon="bi-trash" (clicked)="removePool(pool)"></app-button>
+            </div>
+          </div>
+        }
+      </app-card>
+    }
+  }
+</div>
+
+<app-dialog title="Add a sending domain" [show]="domainDialog()" (close)="domainDialog.set(false)">
+  <div class="dialog-body">
+    <app-input
+      label="Domain"
+      placeholder="outreach-acme.com"
+      helperText="A domain you bought for outreach — not your main brand domain."
+      [ngModel]="newDomain()"
+      (ngModelChange)="newDomain.set($event)" />
+    <app-select
+      label="What it carries"
+      [options]="purposeOptions"
+      [showPlaceholderOption]="false"
+      [ngModel]="newPurpose()"
+      (ngModelChange)="newPurpose.set($event)" />
+    <app-input
+      label="Mailgun API key (optional)"
+      type="password"
+      placeholder="Leave blank to use the org's key"
+      helperText="Only needed if this domain lives on a separate Mailgun account."
+      [ngModel]="newApiKey()"
+      (ngModelChange)="newApiKey.set($event)" />
+    <p class="dialog-note">
+      Add the domain in Mailgun too, publish the DNS records it gives you at your registrar, then
+      press <em>Check DNS</em>. It cannot send until SPF and DKIM verify.
+    </p>
+  </div>
+  <div class="dialog-actions">
+    <app-button variant="ghost" (clicked)="domainDialog.set(false)">Cancel</app-button>
+    <app-button variant="primary" (clicked)="saveDomain()">Add domain</app-button>
+  </div>
+</app-dialog>
+
+<app-dialog
+  [title]="'Add a mailbox on ' + (mailboxDialog()?.domain || '')"
+  [show]="!!mailboxDialog()"
+  (close)="mailboxDialog.set(null)">
+  <div class="dialog-body">
+    <app-input
+      label="Address"
+      placeholder="dana"
+      [helperText]="'Becomes dana@' + (mailboxDialog()?.domain || '')"
+      [ngModel]="newLocalPart()"
+      (ngModelChange)="newLocalPart.set($event)" />
+    <app-input
+      label="Display name (optional)"
+      placeholder="Dana Reeves"
+      [ngModel]="newDisplayName()"
+      (ngModelChange)="newDisplayName.set($event)" />
+    <div class="dialog-row">
+      <app-input
+        label="Daily ceiling"
+        type="number"
+        helperText="Where the warm-up tops out"
+        [ngModel]="newDailyCapMax()"
+        (ngModelChange)="newDailyCapMax.set($event)" />
+      <app-input
+        label="Hourly cap"
+        type="number"
+        helperText="Spreads sends across the hour"
+        [ngModel]="newHourlyCap()"
+        (ngModelChange)="newHourlyCap.set($event)" />
+    </div>
+    <p class="dialog-note">
+      New mailboxes start at about 5 sends a day and climb roughly 30% daily until they reach the
+      ceiling. Sending hard from a new address is what gets domains filtered.
+    </p>
+  </div>
+  <div class="dialog-actions">
+    <app-button variant="ghost" (clicked)="mailboxDialog.set(null)">Cancel</app-button>
+    <app-button variant="primary" (clicked)="saveMailbox()">Add mailbox</app-button>
+  </div>
+</app-dialog>
+
+<app-dialog
+  [title]="poolDialog() === 'new' ? 'New sender pool' : 'Edit sender pool'"
+  [show]="!!poolDialog()"
+  (close)="poolDialog.set(null)">
+  <div class="dialog-body">
+    <app-input
+      label="Name"
+      placeholder="Dana — HVAC outreach"
+      [ngModel]="poolName()"
+      (ngModelChange)="poolName.set($event)" />
+    <div class="pool-picker">
+      <span class="picker-label">Mailboxes in this pool</span>
+      @for (mailbox of allMailboxes(); track mailbox.id) {
+        <label class="picker-row">
+          <input type="checkbox" [checked]="inPool(mailbox.id)" (change)="togglePoolMailbox(mailbox.id)" />
+          <span>{{ mailbox.address }}</span>
+          <app-badge [variant]="mailboxVariant(mailbox)">{{ mailbox.status | lowercase }}</app-badge>
+        </label>
+      }
+    </div>
+    <p class="dialog-note">
+      Point a playbook at this pool on the Playbooks page. A playbook with no pool can use any
+      cold-outreach mailbox.
+    </p>
+  </div>
+  <div class="dialog-actions">
+    <app-button variant="ghost" (clicked)="poolDialog.set(null)">Cancel</app-button>
+    <app-button variant="primary" (clicked)="savePool()">Save pool</app-button>
+  </div>
+</app-dialog>

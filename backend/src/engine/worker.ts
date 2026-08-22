@@ -3,6 +3,8 @@ import { engineService } from './engine.service';
 import { getPlatformEngineConfig } from '../services/settings.service';
 import { runReminderSweep, runDigestSweepIfDue } from '../services/reminder.service';
 import { runCadenceSweep } from '../services/campaign-cadence.service';
+import { runSenderHealthSweep } from '../services/sender-health.service';
+import { runOutboundQueueSweep } from '../services/outbound-queue.service';
 import { runAutopilotSweep, recordGoalJobOutcome } from '../services/autopilot.service';
 import { releaseStaleResearchingLeads } from '../services/lead.service';
 import { notify } from '../services/notification.service';
@@ -232,6 +234,24 @@ async function runTimeSweeps(): Promise<void> {
   lastSweepAt = now;
   try {
     await runReminderSweep();
+    // Before the cadence queues more sends: a mailbox that has gone bad should
+    // stop this minute, not after another batch has gone out on it.
+    const health = await runSenderHealthSweep();
+    if (health.mailboxesPaused || health.domainsPaused || health.mailboxesResumed) {
+      console.log(
+        `Sender health: paused ${health.mailboxesPaused} mailbox(es), ` +
+          `${health.domainsPaused} domain(s), resumed ${health.mailboxesResumed}.`
+      );
+    }
+    // Drain queued sends before queueing more work: these messages are already
+    // written and only waiting on a mailbox, so they cost nothing but a send.
+    const queue = await runOutboundQueueSweep();
+    if (queue.sent || queue.cancelled || queue.expired) {
+      console.log(
+        `Outbound queue: sent ${queue.sent}, rescheduled ${queue.rescheduled}, ` +
+          `cancelled ${queue.cancelled}, expired ${queue.expired}.`
+      );
+    }
     await runCadenceSweep();
     await runAutopilotSweep();
     // Free leads stranded in RESEARCHING by a run that ended without contacting

@@ -151,6 +151,23 @@ export class InboxComponent implements OnInit {
     return message.status === 'draft_blocked' ? 'Draft — blocked' : 'Draft — pending approval';
   }
 
+  /**
+   * A message the send queue is holding for sender pacing. It has not reached
+   * anyone, so it must not read as sent — and it can still be cancelled.
+   */
+  isQueued(message: Message): boolean {
+    return message.direction === 'OUTBOUND' && message.status === 'scheduled';
+  }
+
+  queuedLabel(message: Message): string {
+    if (!message.scheduledAt) return 'Queued — sends shortly';
+    const due = new Date(message.scheduledAt);
+    const sameDay = due.toDateString() === new Date().toDateString();
+    return `Queued — sends ${due.toLocaleString(undefined, sameDay
+      ? { hour: 'numeric', minute: '2-digit' }
+      : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
+  }
+
   sendReply(convo: ConversationDetail): void {
     const body = this.replyBody.trim();
     if (!body || this.sendingReply()) return;
@@ -227,12 +244,15 @@ export class InboxComponent implements OnInit {
 
   showStatusBadge(status?: string | null): boolean {
     if (!status) return false;
-    return ['draft', 'failed'].includes(status.toLowerCase());
+    return ['draft', 'failed', 'scheduled', 'cancelled'].includes(status.toLowerCase());
   }
 
   statusBadgeVariant(status?: string | null): BadgeVariant {
     if (!status) return 'default';
-    return status.toLowerCase() === 'failed' ? 'error' : 'neutral';
+    const value = status.toLowerCase();
+    if (value === 'failed') return 'error';
+    if (value === 'scheduled') return 'info';
+    return 'neutral';
   }
 
   contactName(contact: { name: string } | null): string {

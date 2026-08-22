@@ -1,4 +1,5 @@
 import { prisma } from '../config/database';
+import { knownAddresses } from './sender.service';
 
 /**
  * Sender identity — who a given piece of outreach presents as.
@@ -15,9 +16,11 @@ export interface SenderIdentity {
   /** Person the outreach comes from, when a playbook names one. */
   personName?: string;
   title?: string;
-  /** From/Reply-To address; only set when it sits on the sending domain. */
+  /** From/Reply-To address; only set when it is an address we can send as. */
   email?: string;
   signature?: string;
+  /** Physical postal address for the footer (CAN-SPAM). */
+  postalAddress?: string;
   /** Playbook that supplied it — absent when this is the org default. */
   playbookId?: string;
   playbookName?: string;
@@ -47,11 +50,20 @@ export function identityIntro(identity: SenderIdentity): string {
   return who ? `${who}${role} at ${identity.orgName}` : identity.orgName;
 }
 
-/** Append a playbook's sign-off to an email body, if it has one. */
+/**
+ * Append a playbook's sign-off and postal footer to an email body.
+ *
+ * The address is required on commercial mail by CAN-SPAM, and filters read its
+ * absence as a spam signal — so it is appended in code rather than left to the
+ * model to remember. Either part is skipped if the model already wrote it.
+ */
 export function withSignature(body: string, identity: SenderIdentity): string {
-  if (!identity.signature?.trim()) return body;
-  if (body.includes(identity.signature.trim())) return body; // model already wrote it
-  return `${body.trimEnd()}\n\n${identity.signature.trim()}`;
+  let out = body;
+  const signature = identity.signature?.trim();
+  if (signature && !out.includes(signature)) out = `${out.trimEnd()}\n\n${signature}`;
+  const postal = identity.postalAddress?.trim();
+  if (postal && !out.includes(postal)) out = `${out.trimEnd()}\n\n${postal}`;
+  return out;
 }
 
 function hasIdentity(p: {
@@ -60,13 +72,15 @@ function hasIdentity(p: {
   identityTitle: string | null;
   identityEmail: string | null;
   identitySignature: string | null;
+  identityPostalAddress: string | null;
 }): boolean {
   return !!(
     p.identityName ||
     p.identityOrgName ||
     p.identityTitle ||
     p.identityEmail ||
-    p.identitySignature
+    p.identitySignature ||
+    p.identityPostalAddress
   );
 }
 
@@ -81,8 +95,9 @@ function hasIdentity(p: {
  * identity, which is exactly how the platform behaved before playbooks could
  * carry one.
  *
- * `mailgunDomain` gates `identityEmail`: an address off the sending domain
- * would be rejected by Mailgun (or land in spam), so it is dropped.
+ * `identityEmail` is gated by what we can actually send as — see
+ * `usableSenderAddress`. An address we do not own would be rejected by the
+ * provider, or land in spam, so it is dropped rather than passed on.
  */
 export async function resolveSenderIdentity(
   organizationId: string,
@@ -129,9 +144,11 @@ export async function resolveSenderIdentity(
   // Specific beats global; the findMany order already handles priority/age.
   const winner = matches.find((p) => p.scope !== 'GLOBAL') ?? matches[0];
 
-  const email = winner.identityEmail?.trim().toLowerCase();
-  const domain = opts.mailgunDomain?.trim().toLowerCase();
-  const usableEmail = email && domain && email.endsWith(`@${domain}`) ? email : undefined;
+  const usableEmail = await usableSenderAddress(
+    organizationId,
+    winner.identityEmail,
+    opts.mailgunDomain
+  );
 
   return {
     orgName: winner.identityOrgName?.trim() || fallback.orgName,
@@ -139,7 +156,36 @@ export async function resolveSenderIdentity(
     title: winner.identityTitle?.trim() || undefined,
     email: usableEmail,
     signature: winner.identitySignature?.trim() || undefined,
+    postalAddress: winner.identityPostalAddress?.trim() || undefined,
     playbookId: winner.id,
     playbookName: winner.name,
   };
+}
+
+/**
+ * Whether a playbook's identity address is one this organization can send as.
+ *
+ * A registered mailbox always qualifies. Organizations that have not adopted the
+ * mailbox tables yet fall back to the old rule — anything on the single Mailgun
+ * domain — so their personas keep working untouched.
+ *
+ * Once mailboxes exist they are the whole answer: an address that has no mailbox
+ * cannot be selected by the sender resolver, so reporting it as the identity
+ * would promise a From header that the send would not honour. The fix is to add
+ * the mailbox, not to loosen this.
+ */
+async function usableSenderAddress(
+  organizationId: string,
+  identityEmail: string | null,
+  mailgunDomain?: string
+): Promise<string | undefined> {
+  const email = identityEmail?.trim().toLowerCase();
+  if (!email) return undefined;
+
+  const addresses = await knownAddresses(organizationId);
+  if (addresses.has(email)) return email;
+  if (addresses.size > 0) return undefined;
+
+  const domain = mailgunDomain?.trim().toLowerCase();
+  return domain && email.endsWith(`@${domain}`) ? email : undefined;
 }
