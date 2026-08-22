@@ -1,7 +1,11 @@
 import { prisma } from '../config/database';
 import { engineService } from './engine.service';
 import { getPlatformEngineConfig } from '../services/settings.service';
-import { runReminderSweep, runDigestSweepIfDue } from '../services/reminder.service';
+import {
+  runDigestSweepIfDue,
+  runMeetingOutcomeSweep,
+  runReminderSweep,
+} from '../services/reminder.service';
 import { runCadenceSweep } from '../services/campaign-cadence.service';
 import { runSenderHealthSweep } from '../services/sender-health.service';
 import { runOutboundQueueSweep } from '../services/outbound-queue.service';
@@ -80,17 +84,81 @@ function playbookKey(organizationId: string, playbookId: string | null): string 
  * Two playbooks make progress together; a deep queue for one no longer starves
  * the other. Within a single playbook, oldest-first still holds.
  */
+/**
+ * Organizations that have spent their AI budget for the day.
+ *
+ * Computed once per drain rather than per job: the numbers only move as runs
+ * finish, and a cap is a coarse safety rail, not an accountant. Orgs with no
+ * cap set are never in this list.
+ */
+async function orgsOverSpendCap(now: Date): Promise<Set<string>> {
+  const capped = await prisma.organization.findMany({
+    where: { dailyAiSpendCapUsd: { not: null } },
+    select: { id: true, name: true, dailyAiSpendCapUsd: true },
+  });
+  if (capped.length === 0) return new Set();
+
+  const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const spend = await prisma.agentRun.groupBy({
+    by: ['organizationId'],
+    where: { organizationId: { in: capped.map((o) => o.id) }, startedAt: { gte: since } },
+    _sum: { costUsd: true },
+  });
+  const spentById = new Map(spend.map((r) => [r.organizationId, Number(r._sum.costUsd ?? 0)]));
+
+  const over = new Set<string>();
+  for (const org of capped) {
+    const cap = Number(org.dailyAiSpendCapUsd);
+    const spent = spentById.get(org.id) ?? 0;
+    if (spent < cap) continue;
+    over.add(org.id);
+    // Once a day, not once a tick: the cap holds for the rest of the day and
+    // the drain runs every fifteen seconds.
+    void notifySpendCapOnce(org.id, org.name, spent, cap, since);
+  }
+  return over;
+}
+
+/** One "spend cap reached" notification per org per day. */
+async function notifySpendCapOnce(
+  organizationId: string,
+  orgName: string,
+  spent: number,
+  cap: number,
+  since: Date
+): Promise<void> {
+  const already = await prisma.notification.count({
+    where: { organizationId, type: 'SYSTEM', title: { startsWith: 'AI spend cap reached' }, createdAt: { gte: since } },
+  });
+  if (already > 0) return;
+  await notify({
+    organizationId,
+    type: 'SYSTEM',
+    title: `AI spend cap reached for ${orgName}`,
+    body:
+      `Agent work is paused for the rest of the day: $${spent.toFixed(2)} spent against a ` +
+      `$${cap.toFixed(2)} daily cap. Queued jobs are not lost — they resume at midnight UTC, or ` +
+      'sooner if the cap is raised. If this was unexpected, check for a goal the Engine cannot ' +
+      'satisfy, which will re-queue paid runs indefinitely.',
+    emailAlert: true,
+  }).catch(() => undefined);
+}
+
 async function claimNextJob(
   orgInFlight: Map<string, number>,
   playbookInFlight: Map<string, number>,
   orgConcurrency: number,
-  playbookConcurrency: number
+  playbookConcurrency: number,
+  overSpendCap: Set<string>
 ): Promise<ClaimedJob | null> {
   // Skip orgs already at their cap in the query itself so a hot org with a
   // deep backlog can't crowd claimable work from other orgs out of the batch.
-  const overCapOrgs = [...orgInFlight.entries()]
-    .filter(([, n]) => n >= orgConcurrency)
-    .map(([orgId]) => orgId);
+  const overCapOrgs = [
+    ...new Set([
+      ...[...orgInFlight.entries()].filter(([, n]) => n >= orgConcurrency).map(([orgId]) => orgId),
+      ...overSpendCap,
+    ]),
+  ];
   const candidates = await prisma.agentJob.findMany({
     where: {
       status: 'PENDING',
@@ -157,6 +225,13 @@ export function interleaveByPlaybook<T extends { organizationId: string; playboo
   return out;
 }
 
+/**
+ * How long a single scheduled run may take before the worker stops waiting on
+ * it. Generous — a broad research run legitimately takes a while — but finite,
+ * because the alternative is a wedged worker.
+ */
+const RUN_DEADLINE_MS = 45 * 60 * 1000;
+
 async function runJob(job: ClaimedJob): Promise<void> {
   try {
     const context: string[] = [];
@@ -165,15 +240,27 @@ async function runJob(job: ClaimedJob): Promise<void> {
     const objective =
       `${job.objective}` + (context.length ? `\n\n(Context — ${context.join(', ')})` : '');
 
-    const result = await engineService.run({
-      organizationId: job.organizationId,
-      trigger: 'SCHEDULED_JOB',
-      role: job.role,
-      objective,
-      // Keeps the line of business intact through the chain: work this run
-      // schedules inherits the playbook and counts against its allowance.
-      playbookId: job.playbookId ?? undefined,
-    });
+    // Raced against a wall clock. A run that hangs — a browser step that never
+    // returns, a provider connection that stalls past its own retries — would
+    // otherwise keep the drain loop's flag set and stop the worker claiming any
+    // further job, for every organization, until the process restarts.
+    const result = await Promise.race([
+      engineService.run({
+        organizationId: job.organizationId,
+        trigger: 'SCHEDULED_JOB',
+        role: job.role,
+        objective,
+        // Keeps the line of business intact through the chain: work this run
+        // schedules inherits the playbook and counts against its allowance.
+        playbookId: job.playbookId ?? undefined,
+      }),
+      new Promise<{ runId?: string; status: 'FAILED'; error: string; finalText?: string }>((resolve) =>
+        setTimeout(
+          () => resolve({ status: 'FAILED', error: `Run exceeded its ${RUN_DEADLINE_MS / 60000}-minute deadline and was abandoned` }),
+          RUN_DEADLINE_MS
+        ).unref?.()
+      ),
+    ]);
 
     // A cancel is a decision, not a failure. Retrying it would restart the exact
     // objective an operator just stopped — the emergency brake over an
@@ -242,6 +329,10 @@ async function runTimeSweeps(): Promise<void> {
   lastSweepAt = now;
   try {
     await runReminderSweep();
+    // Meetings that came and went without an outcome — the funnel's most
+    // valuable leak.
+    const chased = await runMeetingOutcomeSweep();
+    if (chased > 0) console.log(`Flagged ${chased} meeting(s) with no recorded outcome.`);
     // Before the cadence queues more sends: a mailbox that has gone bad should
     // stop this minute, not after another batch has gone out on it.
     const health = await runSenderHealthSweep();
@@ -269,16 +360,41 @@ async function runTimeSweeps(): Promise<void> {
     await runDigestSweepIfDue();
     // Reads connected social DM inboxes for replies (hourly per account).
     await runSocialInboxSweeps();
+    // Only on a clean pass: a heartbeat written in `finally` would keep
+    // reporting health while every sweep inside it was throwing.
+    await recordHeartbeat();
   } catch (err) {
     console.error('Time sweep error:', err instanceof Error ? err.message : err);
+    await recordHeartbeat(err instanceof Error ? err.message : String(err));
   }
 }
+
+/**
+ * Last known state of the worker, for the health endpoint.
+ *
+ * Without this, a dead worker and a quiet week are indistinguishable — the
+ * daily digest returns early when there is nothing to report, so silence reads
+ * as "no leads replied today" either way.
+ */
+export async function recordHeartbeat(error?: string): Promise<void> {
+  const value = JSON.stringify({
+    at: new Date().toISOString(),
+    ok: !error,
+    ...(error ? { error: error.slice(0, 300) } : {}),
+  });
+  await prisma.platformSetting
+    .upsert({ where: { key: WORKER_HEARTBEAT_KEY }, create: { key: WORKER_HEARTBEAT_KEY, value }, update: { value } })
+    .catch(() => undefined);
+}
+
+export const WORKER_HEARTBEAT_KEY = 'WORKER_HEARTBEAT';
 
 export async function drainDueJobs(): Promise<void> {
   if (draining) return; // one drain cycle at a time; each cycle runs a pool
   draining = true;
 
   const platform = await getPlatformEngineConfig();
+  const overSpendCap = await orgsOverSpendCap(new Date());
   const maxConcurrency = platform.workerConcurrency;
   const orgConcurrency = platform.orgConcurrency;
   const playbookConcurrency = platform.playbookConcurrency;
@@ -309,7 +425,8 @@ export async function drainDueJobs(): Promise<void> {
           orgInFlight,
           playbookInFlight,
           orgConcurrency,
-          playbookConcurrency
+          playbookConcurrency,
+          overSpendCap
         );
         if (!job) break;
         launch(job);

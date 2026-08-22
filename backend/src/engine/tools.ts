@@ -22,6 +22,7 @@ import {
   saveStorageState,
 } from '../services/social-account.service';
 import { getOrgConfig } from '../services/settings.service';
+import { markBooked } from '../services/booking.service';
 import {
   identityFromName,
   identityIntro,
@@ -2794,6 +2795,12 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
         agentRunId: ctx.runId,
       });
     }
+    // Same consequence as a self-serve booking: move the lead forward and stop
+    // its cold sequences. Two routes to the same outcome behaved differently
+    // before, so an agent-booked meeting left the drip running.
+    if (input.leadId && event.type === 'MEETING') {
+      await markBooked(ctx.organizationId, input.leadId);
+    }
     // Alert the humans — a booked meeting is the whole point of the platform.
     await notify({
       organizationId: ctx.organizationId,
@@ -2803,7 +2810,14 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
       leadId: input.leadId,
       emailAlert: true,
     });
-    return { eventId: event.id, startAt: startAt.toISOString(), title: event.title };
+    return {
+      eventId: event.id,
+      startAt: startAt.toISOString(),
+      title: event.title,
+      ...(input.leadId && event.type === 'MEETING'
+        ? { note: 'Lead moved to INTERESTED and its cold sequences stopped.' }
+        : {}),
+    };
   },
 
   update_calendar_event: async (input, ctx) => {

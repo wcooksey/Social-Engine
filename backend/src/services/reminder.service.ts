@@ -92,6 +92,89 @@ export async function runReminderSweep(): Promise<number> {
   return sent;
 }
 
+/**
+ * Close out meetings whose time has passed.
+ *
+ * A booked demo is the highest-intent outcome the platform produces, and until
+ * now nothing happened after the one-hour reminder: no-shows got no re-book
+ * attempt and no alert, and because the lead's campaign rows were already
+ * retired on reply, no cadence ever touched it again. A booked meeting that
+ * nobody attended was simply the end of that lead.
+ *
+ * Grace period rather than exact end time, so a meeting that ran long isn't
+ * flagged while it is still happening.
+ */
+const MEETING_GRACE_MS = 2 * 60 * 60 * 1000;
+
+export async function runMeetingOutcomeSweep(now: Date = new Date()): Promise<number> {
+  const due = await prisma.calendarEvent.findMany({
+    where: {
+      status: 'SCHEDULED',
+      type: 'MEETING',
+      startAt: { lt: new Date(now.getTime() - MEETING_GRACE_MS) },
+    },
+    include: { lead: { select: { id: true, companyName: true, doNotContact: true } } },
+    take: 100,
+  });
+
+  let handled = 0;
+  for (const event of due) {
+    // Conditional, so two workers sweeping at once can't both chase it.
+    const claimed = await prisma.calendarEvent.updateMany({
+      where: { id: event.id, status: 'SCHEDULED' },
+      data: { status: 'NO_SHOW' },
+    });
+    if (claimed.count === 0) continue;
+    handled++;
+
+    if (!event.leadId || !event.lead) continue;
+
+    await prisma.activity
+      .create({
+        data: {
+          organizationId: event.organizationId,
+          leadId: event.leadId,
+          type: 'STATUS_CHANGE',
+          summary: `Meeting "${event.title}" passed with no outcome recorded — flagged for follow-up.`,
+          payload: { calendarEventId: event.id, outcome: 'no_show' },
+        },
+      })
+      .catch(() => undefined);
+
+    await notify({
+      organizationId: event.organizationId,
+      type: 'SYSTEM',
+      title: `Meeting needs an outcome: ${event.lead.companyName}`,
+      body:
+        `"${event.title}" was scheduled for ${event.startAt.toUTCString()} and has no outcome. ` +
+        'If it happened, mark it completed. If it did not, the Engine has been asked to chase a new time.',
+      leadId: event.leadId,
+    }).catch(() => undefined);
+
+    // Chasing an opted-out lead would be a compliance breach, not persistence.
+    if (event.lead.doNotContact) continue;
+
+    await prisma.agentJob
+      .create({
+        data: {
+          organizationId: event.organizationId,
+          leadId: event.leadId,
+          type: 'FOLLOW_UP',
+          role: 'SDR',
+          objective:
+            `The meeting "${event.title}" with ${event.lead.companyName}, scheduled for ` +
+            `${event.startAt.toUTCString()}, has passed with no outcome recorded — most likely a no-show. ` +
+            'Read the thread (read_conversation) and send one warm, brief, blame-free message offering ' +
+            'to reschedule — assume something came up, never imply they stood you up. If they already ' +
+            'rescheduled or told us it happened, do nothing and say so. Do not chase more than once.',
+          runAt: new Date(now.getTime() + 60 * 60 * 1000),
+        },
+      })
+      .catch(() => undefined);
+  }
+  return handled;
+}
+
 // Daily digest throttle: run once per calendar day (UTC) at/after DIGEST_HOUR.
 // In-memory guard is fine — a missed day on restart is harmless.
 const DIGEST_HOUR_UTC = 13; // ~8-9am US business hours

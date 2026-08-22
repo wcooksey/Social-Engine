@@ -43,6 +43,8 @@ async function withFreshEnrichment<T extends { id: string }>(lead: T): Promise<T
 }
 
 export interface UpsertLeadInput {
+  /** Stable per-location id from the source directory, when there is one. */
+  placeId?: string;
   companyName: string;
   website?: string;
   phone?: string;
@@ -62,9 +64,18 @@ export interface UpsertLeadInput {
 
 class LeadService {
   /**
-   * Create-or-update with dedup. Match order: normalized domain, then
-   * (companyName + city/state), then normalized phone. Used by both the REST
-   * API and the Engine's upsert_lead tool so the AI can never create dupes.
+   * Create-or-update with dedup.
+   *
+   * Match order: the source directory's stable location id, then
+   * (companyName + city/state), then a domain match CORROBORATED by name or
+   * city, then normalized phone.
+   *
+   * Domain alone is deliberately not sufficient. Multi-location businesses run
+   * every branch off one corporate website — a fifteen-rooftop dealer group is
+   * fifteen real prospects sharing one domain — and matching on it alone
+   * collapsed them into a single lead whose name and address were overwritten
+   * by whichever rooftop was processed last. Fourteen prospects vanished and
+   * the pipeline reported it as a successful merge.
    */
   async upsertLead(organizationId: string, input: UpsertLeadInput) {
     if (!input.companyName?.trim()) throw new AppError('companyName is required');
@@ -82,37 +93,65 @@ class LeadService {
       groupId = group.id;
     }
 
+    const placeId = input.placeId?.trim() || null;
+    const name = input.companyName.trim();
+
     let existing = null;
-    if (domain) {
-      existing = await prisma.lead.findUnique({
-        where: { organizationId_domain: { organizationId, domain } },
-      });
+
+    // 1. A directory's location id identifies a physical place exactly.
+    if (placeId) {
+      existing = await prisma.lead.findFirst({ where: { organizationId, placeId } });
     }
+
+    // 2. Same name in the same place.
     if (!existing) {
       existing = await prisma.lead.findFirst({
         where: {
           organizationId,
-          companyName: { equals: input.companyName.trim(), mode: 'insensitive' },
+          companyName: { equals: name, mode: 'insensitive' },
           ...(input.city ? { city: { equals: input.city, mode: 'insensitive' } } : {}),
           ...(input.state ? { state: { equals: input.state, mode: 'insensitive' } } : {}),
         },
       });
     }
-    if (!existing && phone) {
-      const candidates = await prisma.lead.findMany({
-        where: { organizationId, phone: { not: null } },
-        select: { id: true, phone: true },
-        take: 2000,
+
+    // 3. Same domain — but only when the name or the city agrees. Two rooftops
+    //    of one group share a domain and must stay separate; a company found
+    //    twice under slightly different spellings should still merge.
+    if (!existing && domain) {
+      const sameDomain = await prisma.lead.findMany({
+        where: { organizationId, domain },
+        take: 50,
       });
-      const match = candidates.find((c) => normalizePhone(c.phone) === phone);
-      if (match) existing = await prisma.lead.findUnique({ where: { id: match.id } });
+      existing =
+        sameDomain.find((c) => {
+          // A lead we already hold by place id is a different rooftop, never a
+          // match for a differently-identified one.
+          if (placeId && c.placeId && c.placeId !== placeId) return false;
+          const nameAgrees = c.companyName.trim().toLowerCase() === name.toLowerCase();
+          const cityAgrees =
+            !!input.city && !!c.city && c.city.toLowerCase() === input.city.toLowerCase();
+          // With no city on either side there is nothing to distinguish them,
+          // so a lone domain match is accepted rather than duplicating.
+          const nothingToCompare = !input.city && !c.city;
+          return nameAgrees || cityAgrees || nothingToCompare;
+        }) ?? null;
+    }
+
+    // 4. Same phone number. Indexed lookup rather than the previous scan of an
+    //    arbitrary unordered 2,000 rows, which silently stopped matching past
+    //    that many leads and cost a full table read on every single upsert.
+    if (!existing && phone) {
+      existing = await prisma.lead.findFirst({ where: { organizationId, phoneNormalized: phone } });
     }
 
     const data = {
-      companyName: input.companyName.trim(),
+      companyName: name,
       website: input.website?.trim() || undefined,
       domain: domain || undefined,
+      placeId: placeId || undefined,
       phone: input.phone?.trim() || undefined,
+      phoneNormalized: phone || undefined,
       address: input.address || undefined,
       city: input.city || undefined,
       state: input.state || undefined,

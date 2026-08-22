@@ -242,6 +242,12 @@ export async function book(input: BookInput): Promise<{ eventId: string; startIs
     },
   });
 
+  // Booking is the strongest buying signal there is, and until now it only
+  // registered for leads created BY the booking — a prospect already in a cold
+  // sequence booked a meeting and kept receiving cold follow-ups, because
+  // nothing moved their status and nothing touched their campaign rows.
+  await markBooked(orgId, leadId, name);
+
   // Alert the org, and send the booker an .ics invite.
   await notify({
     organizationId: orgId,
@@ -285,4 +291,49 @@ export async function book(input: BookInput): Promise<{ eventId: string; startIs
 
   void config; // appPublicUrl reserved for future reschedule links
   return { eventId: event.id, startIso: start.toISOString() };
+}
+
+/**
+ * Record that a lead has booked: move it forward and stop every cold sequence
+ * it is enrolled in.
+ *
+ * Status only ever moves forward — a CUSTOMER who books a follow-up call is not
+ * demoted back to INTERESTED.
+ */
+export async function markBooked(
+  organizationId: string,
+  leadId: string,
+  bookedBy?: string
+): Promise<void> {
+  await prisma.lead
+    .updateMany({
+      where: {
+        id: leadId,
+        organizationId,
+        status: { in: ['NEW', 'RESEARCHING', 'CONTACTED', 'ENGAGED'] },
+      },
+      data: { status: 'INTERESTED' },
+    })
+    .catch(() => undefined);
+
+  const stopped = await prisma.campaignLead
+    .updateMany({
+      where: { leadId, status: { in: ['PENDING', 'IN_SEQUENCE'] } },
+      data: { status: 'INTERESTED' },
+    })
+    .catch(() => ({ count: 0 }));
+
+  if (stopped.count > 0) {
+    await prisma.activity
+      .create({
+        data: {
+          organizationId,
+          leadId,
+          type: 'STATUS_CHANGE',
+          summary: `Cold sequence stopped on ${stopped.count} campaign(s) — ${bookedBy || 'the lead'} booked a meeting.`,
+          payload: { bookedStopsCadence: true },
+        },
+      })
+      .catch(() => undefined);
+  }
 }

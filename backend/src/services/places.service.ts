@@ -11,6 +11,8 @@ import { prisma } from '../config/database';
  */
 
 export interface PlaceResult {
+  /** Google's stable id for this location — the dedup identity. */
+  placeId?: string;
   name: string;
   website?: string;
   phone?: string;
@@ -21,6 +23,8 @@ export interface PlaceResult {
 }
 
 interface PlacesApiPlace {
+  /** Stable per-location id, e.g. "places/ChIJ…". The identity of a rooftop. */
+  id?: string;
   displayName?: { text?: string };
   websiteUri?: string;
   nationalPhoneNumber?: string;
@@ -48,7 +52,7 @@ export async function searchPlaces(
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': apiKey,
         'X-Goog-FieldMask':
-          'places.displayName,places.websiteUri,places.nationalPhoneNumber,places.formattedAddress,places.addressComponents,nextPageToken',
+          'places.id,places.displayName,places.websiteUri,places.nationalPhoneNumber,places.formattedAddress,places.addressComponents,nextPageToken',
       },
       body: JSON.stringify({
         textQuery: query,
@@ -66,6 +70,7 @@ export async function searchPlaces(
       const name = p.displayName?.text?.trim();
       if (!name) continue;
       results.push({
+        placeId: p.id,
         name,
         website: p.websiteUri,
         phone: p.nationalPhoneNumber,
@@ -101,6 +106,7 @@ export async function sourceBusinesses(
   for (const r of results) {
     try {
       const { lead, created: isNew } = await leadService.upsertLead(organizationId, {
+        placeId: r.placeId,
         companyName: r.name,
         website: r.website,
         phone: r.phone,

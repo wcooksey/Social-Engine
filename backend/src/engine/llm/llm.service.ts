@@ -143,15 +143,39 @@ async function chatAnthropic(request: LlmChatRequest, keys?: ProviderKeys): Prom
     return { role: m.role, content: m.content };
   });
 
+  // Cache the static prefix. The system prompt and the tool catalogue are
+  // identical on every iteration of an agent loop and together run to thousands
+  // of tokens, so without a breakpoint the whole prefix is re-billed at full
+  // rate on every single turn — by far the largest line in the bill.
+  //
+  // The breakpoint goes on the LAST tool: Anthropic caches everything up to and
+  // including the marked block, and the order is system, then tools, then
+  // messages. One breakpoint therefore covers both.
+  const tools: Anthropic.Tool[] = request.tools.map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
+  }));
+  if (tools.length > 0) {
+    tools[tools.length - 1] = {
+      ...tools[tools.length - 1],
+      cache_control: { type: 'ephemeral' },
+    };
+  }
+
   const response = await client.messages.create({
     model: request.model,
     max_tokens: request.maxTokens ?? 8192,
-    system: request.system,
-    tools: request.tools.map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
-    })),
+    // A block array rather than a bare string, so the prefix can carry a
+    // breakpoint of its own when there are no tools to hang one on.
+    system: [
+      {
+        type: 'text' as const,
+        text: request.system,
+        ...(tools.length === 0 ? { cache_control: { type: 'ephemeral' as const } } : {}),
+      },
+    ],
+    tools,
     messages,
   });
 
@@ -168,9 +192,9 @@ async function chatAnthropic(request: LlmChatRequest, keys?: ProviderKeys): Prom
     toolCalls,
     usage: {
       // Anthropic reports cache reads OUTSIDE input_tokens, so the billable
-      // total is the sum. Nothing here sets cache_control today, which makes
-      // both cache fields zero — reading them anyway means enabling caching
-      // later can't silently start under-reporting spend.
+      // total is the sum. Cache writes are billed at a premium and reads at a
+      // discount; both are counted here so the cost estimate tracks the real
+      // bill rather than the uncached list price.
       inputTokens:
         response.usage.input_tokens +
         (response.usage.cache_read_input_tokens ?? 0) +

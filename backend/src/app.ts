@@ -34,6 +34,9 @@ import sandboxRoutes from './routes/sandbox.routes';
 import sendingRoutes from './routes/sending.routes';
 import vapiWebhookRoutes from './routes/webhooks.vapi.routes';
 import voiceRoutes from './routes/voice.routes';
+import { prisma } from './config/database';
+import { asyncHandler } from './middleware/error.middleware';
+import { WORKER_HEARTBEAT_KEY } from './engine/worker';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -64,7 +67,49 @@ app.use(morgan(config.isProduction ? 'combined' : 'dev'));
 const authRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 50 });
 const apiRateLimit = rateLimit({ windowMs: 60 * 1000, max: 300 });
 
-app.get('/api/health', (_req, res) => res.json({ success: true, data: { status: 'ok' } }));
+/**
+ * Health, meaning "is this deployment actually doing its job" — not merely "did
+ * Express answer". Reports the database and the worker's last clean sweep, so a
+ * wedged worker shows up here instead of looking like a quiet week.
+ */
+app.get(
+  '/api/health',
+  asyncHandler(async (_req, res) => {
+    const checks: Record<string, unknown> = {};
+    let ok = true;
+
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      checks.database = { ok: true };
+    } catch (err) {
+      ok = false;
+      checks.database = { ok: false, error: err instanceof Error ? err.message : 'unreachable' };
+    }
+
+    const row = await prisma.platformSetting
+      .findUnique({ where: { key: WORKER_HEARTBEAT_KEY } })
+      .catch(() => null);
+    if (!row) {
+      // Not yet failing: a freshly-started deployment has not swept once.
+      checks.worker = { ok: null, detail: 'No sweep recorded yet.' };
+    } else {
+      const beat = JSON.parse(row.value) as { at: string; ok: boolean; error?: string };
+      const ageMs = Date.now() - new Date(beat.at).getTime();
+      // Sweeps run every 5 minutes; three missed passes is a real problem.
+      const fresh = ageMs < 15 * 60 * 1000;
+      if (!fresh || !beat.ok) ok = false;
+      checks.worker = {
+        ok: fresh && beat.ok,
+        lastSweepAt: beat.at,
+        ageSeconds: Math.round(ageMs / 1000),
+        ...(beat.error ? { lastError: beat.error } : {}),
+        ...(fresh ? {} : { detail: 'No successful sweep in over 15 minutes — the worker may be wedged.' }),
+      };
+    }
+
+    res.status(ok ? 200 : 503).json({ success: ok, data: { status: ok ? 'ok' : 'degraded', checks } });
+  })
+);
 
 // Public, unauthenticated endpoints (lead-facing booking pages, unsubscribe).
 const publicRateLimit = rateLimit({ windowMs: 60 * 1000, max: 120 });

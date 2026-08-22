@@ -33,6 +33,11 @@ model Organization {
 
   // Autonomy guardrails
   dailySendCap Int     @default(200)
+  /// Ceiling on AI spend per UTC day, in USD. Null means no ceiling. Cost was
+  /// measured and displayed but never enforced, so the only backstop against a
+  /// mis-scoped objective or an unsatisfiable goal looping forever was a human
+  /// noticing a number on the admin page.
+  dailyAiSpendCapUsd Decimal? @db.Decimal(10, 2)
   quietHoursStart Int  @default(20) // 24h local hour — no outbound after
   quietHoursEnd   Int  @default(8)
   paused          Boolean @default(false) // kill switch: Engine takes no outbound actions
@@ -183,8 +188,21 @@ model Lead {
 
   companyName String
   website     String?
-  domain      String? // normalized dedup key (e.g. "sunshinetoyota.com")
+  /// Normalized website host. NOT a unique key: multi-location businesses —
+  /// dealer groups especially — routinely run every rooftop off one corporate
+  /// domain, and treating the domain as an identity collapses them into a
+  /// single lead. Used as a dedup *hint*, corroborated by name or city.
+  domain      String?
+  /// Stable per-location id from the source directory (Google Places). This is
+  /// the real identity for a physical location, so two rooftops of the same
+  /// group stay two leads.
+  placeId     String?
   phone       String?
+  /// Last 10 digits of `phone`, kept in step by the lead service. Stored so
+  /// phone dedup is an indexed lookup: it used to scan an arbitrary unordered
+  /// 2,000 rows on every upsert, which both cost a table read per write and
+  /// silently stopped matching once an org passed 2,000 leads.
+  phoneNormalized String?
   address     String?
   city        String?
   state       String?
@@ -231,7 +249,9 @@ model Lead {
   agentJobs     AgentJob[]
   calendarEvents CalendarEvent[]
 
-  @@unique([organizationId, domain])
+  @@unique([organizationId, placeId])
+  @@index([organizationId, domain])
+  @@index([organizationId, phoneNormalized])
   @@index([organizationId, status])
   @@index([organizationId, state])
   @@index([groupId])
@@ -1007,6 +1027,9 @@ enum CalendarEventStatus {
   SCHEDULED
   COMPLETED
   CANCELLED
+  /// Start time passed with no outcome recorded. Distinct from COMPLETED so a
+  /// meeting nobody turned up to can be chased rather than counted as a win.
+  NO_SHOW
 }
 
 model CalendarEvent {
