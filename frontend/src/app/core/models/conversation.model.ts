@@ -10,6 +10,8 @@ export interface Message {
   status?: string;
   externalId?: string;
   sentAt?: string;
+  /** When a queued ('scheduled') message is due to go out. */
+  scheduledAt?: string | null;
   createdAt: string;
 }
 

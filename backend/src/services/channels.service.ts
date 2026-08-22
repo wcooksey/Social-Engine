@@ -38,6 +38,21 @@ export function isEmailConfigured(creds: EmailCreds): boolean {
   return !!(creds.apiKey && creds.domain);
 }
 
+export const MAILGUN_API = 'https://api.mailgun.net/v3';
+
+/** Authenticated GET against the Mailgun API. Throws with the response body. */
+export async function mailgunGet(path: string, apiKey: string): Promise<any> {
+  const res = await fetch(`${MAILGUN_API}${path}`, {
+    headers: { Authorization: `Basic ${Buffer.from(`api:${apiKey}`).toString('base64')}` },
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Mailgun ${res.status}: ${text.slice(0, 160)}`);
+  }
+  return res.json();
+}
+
 /**
  * Bare sender address (no display name) for a set of email creds. Accepts a
  * plain address or a pasted `Name <addr@x>` form and returns just the address,

@@ -28,6 +28,14 @@ import {
   resolveSenderIdentity,
   withSignature,
 } from '../services/identity.service';
+import {
+  getSendingOverview,
+  markMailboxSent,
+  releaseSend,
+  reserveSend,
+  resolveSenderDecision,
+} from '../services/sender.service';
+import { healthByMailbox } from '../services/sender-health.service';
 import { sweepSocialInbox } from './social-inbox.service';
 import { sourceBusinesses } from '../services/places.service';
 import * as coverage from '../services/coverage.service';
@@ -48,7 +56,12 @@ import { GUIDE_TOPICS, PLATFORM_GUIDE } from './platform-guide';
 import { recordBrowserAction, recordBrowserFrame } from './live-view.registry';
 import { notify } from '../services/notification.service';
 import { signToken } from '../utils/signing';
-import { resolveLeadTimezone, localHourIn, isWithinQuietHours } from '../utils/timezone';
+import {
+  contactableRefusal,
+  deferCampaignTouch,
+  outboundBlockReason,
+  recordCampaignTouch,
+} from '../services/outbound.service';
 import { runBrowserAgent } from './browser/browser-agent.service';
 import { AgentRole, defaultRoleForJobType } from './roles';
 import { evaluateGoalProgress } from '../services/autopilot.service';
@@ -825,8 +838,25 @@ export const engineTools: Anthropic.Tool[] = [
       properties: {
         topic: {
           type: 'string',
-          enum: ['overview', 'settings', 'channels_setup', 'outreach_flow', 'sourcing_enrichment', 'booking_meetings', 'sandbox', 'run_control', 'monitoring', 'lead_status', 'safety', 'playbooks_identity'],
+          // Taken from the guide itself: a hand-copied list silently goes stale
+          // the first time a topic is added, and the model can then never ask for it.
+          enum: GUIDE_TOPICS,
           description: 'Omit to get the full guide',
+        },
+      },
+    },
+  },
+  {
+    name: 'get_sending_capacity',
+    description:
+      "How much email this organization can actually send right now, and from where. Reports each sending domain and mailbox: warm-up status, today's allowance and how much of it is left, the trailing-hour count, rolling bounce/complaint/reply rates, and the reason for anything paused. Consult this BEFORE planning a batch of cold email so the plan matches real capacity — and when a send comes back queued or drafted for lack of a sender, to explain why. Read-only.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        purpose: {
+          type: 'string',
+          enum: ['COLD_OUTREACH', 'TRANSACTIONAL'],
+          description: 'Omit for cold outreach, which is what campaigns use.',
         },
       },
     },
@@ -953,76 +983,58 @@ async function requireLead(leadId: string, organizationId: string) {
   return lead;
 }
 
-/**
- * Hard compliance stop for opted-out leads (SMS STOP / unsubscribe). Enforced
- * in code, not by the model — send tools throw before any draft or send.
- */
+/** Send tools throw before any draft or send when a lead has opted out. */
 function assertContactable(lead: { doNotContact: boolean; companyName: string }): void {
-  if (lead.doNotContact) {
-    throw new Error(
-      `${lead.companyName} has opted out of being contacted (do-not-contact). Do not message this lead on any channel; move on to other work.`
-    );
-  }
+  const refusal = contactableRefusal(lead);
+  if (refusal) throw new Error(refusal);
 }
 
-/**
- * Outbound guardrails: org kill switch, quiet hours, daily send cap.
- * Returns a reason string when sending is blocked, else null.
- */
-async function outboundBlockReason(
-  organizationId: string,
-  lead?: { timezone?: string | null; state?: string | null }
-): Promise<string | null> {
-  const org = await prisma.organization.findUnique({ where: { id: organizationId } });
-  if (!org) return 'Organization not found';
-  if (org.paused) return 'Organization is paused (kill switch) — no outbound allowed. Save drafts instead.';
-
-  // Quiet hours are evaluated in the LEAD's local timezone when known, so we
-  // never text/email someone in the middle of their night.
-  const { quietHoursStart: start, quietHoursEnd: end } = org;
-  const tz = lead ? resolveLeadTimezone(lead) : undefined;
-  const hour = tz ? localHourIn(tz) : new Date().getHours();
-  if (isWithinQuietHours(start, end, hour)) {
-    return `Inside the lead's quiet hours (${start}:00–${end}:00${tz ? ` ${tz}` : ''}) — schedule the send for later instead.`;
-  }
-
-  const since = new Date();
-  since.setHours(0, 0, 0, 0);
-  const sentToday = await prisma.activity.count({
-    where: {
-      organizationId,
-      type: { in: ['EMAIL_SENT', 'SMS_SENT', 'CALL_PLACED'] },
-      createdAt: { gte: since },
-    },
-  });
-  if (sentToday >= org.dailySendCap) return `Daily send cap reached (${org.dailySendCap}). Schedule remaining sends for tomorrow.`;
-  return null;
+/** Why a message may only be drafted — the caller needs the cause, not just the text. */
+type DraftCause = 'blocked' | 'approval' | 'unconfigured';
+interface DraftDecision {
+  reason: string;
+  cause: DraftCause;
 }
 
 /**
  * Send-vs-draft policy: draft when guardrails block, when the campaign
- * requires human approval, or when the channel isn't configured. Returns a
- * reason string when only a draft is allowed, else null (real send OK).
+ * requires human approval, or when there is no usable sender. Returns null when
+ * a real send is allowed.
+ *
+ * The cause matters to email: "no sender right now" can be rescheduled, while
+ * an approval-required campaign must still produce the draft a human is waiting
+ * on. Collapsing both into a reason string loses that distinction.
  */
 async function draftOnlyReason(
   campaignId: string | undefined,
   organizationId: string,
   blocked: string | null,
   configured: boolean,
-  kind: 'email' | 'sms' = 'email'
-): Promise<string | null> {
-  if (blocked) return blocked;
+  kind: 'email' | 'sms' = 'email',
+  /** Replaces the generic not-configured wording — email has several ways to
+   *  have no usable sender, and "add a Mailgun key" is wrong for most of them. */
+  unconfiguredReason?: string
+): Promise<DraftDecision | null> {
+  if (blocked) return { reason: blocked, cause: 'blocked' };
   if (campaignId) {
     const campaign = await prisma.campaign.findFirst({
       where: { id: campaignId, organizationId },
       select: { mode: true },
     });
     if (campaign?.mode === 'APPROVAL_REQUIRED') {
-      return 'Campaign is in approval-required mode — message saved as a draft for human review.';
+      return {
+        reason: 'Campaign is in approval-required mode — message saved as a draft for human review.',
+        cause: 'approval',
+      };
     }
   }
   if (!configured) {
-    return `${kind === 'email' ? 'Email channel (Mailgun)' : 'SMS channel (Twilio)'} is not configured — message saved as a draft.`;
+    return {
+      reason:
+        unconfiguredReason ??
+        `${kind === 'email' ? 'Email channel (Mailgun)' : 'SMS channel (Twilio)'} is not configured — message saved as a draft.`,
+      cause: 'unconfigured',
+    };
   }
   return null;
 }
@@ -1047,24 +1059,9 @@ async function attributeBrowserUsage(
 }
 
 /**
- * A real touch happened on a campaign lead: advance its cadence clock so the
- * mechanical sweep knows when the next touch is due. Keeps working even if
- * the agent forgets — persistence is enforced by the system, not remembered.
+ * Persist an outbound message: thread it onto a conversation, log the activity,
+ * and — when it actually went out — advance the lead and the campaign clock.
  */
-async function recordCampaignTouch(campaignId: string, leadId: string): Promise<void> {
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
-  if (!campaign) return;
-  const nextTouchAt = new Date(Date.now() + campaign.followUpCadenceDays * 24 * 3600 * 1000);
-  await prisma.campaignLead.updateMany({
-    where: { campaignId, leadId },
-    data: { touchCount: { increment: 1 }, lastTouchAt: new Date(), nextTouchAt },
-  });
-  await prisma.campaignLead.updateMany({
-    where: { campaignId, leadId, status: 'PENDING' },
-    data: { status: 'IN_SEQUENCE' },
-  });
-}
-
 async function recordOutbound(opts: {
   ctx: ToolContext;
   leadId: string;
@@ -1074,11 +1071,19 @@ async function recordOutbound(opts: {
   body: string;
   campaignId?: string;
   status: string;
-  activityType: 'EMAIL_SENT' | 'SMS_SENT';
+  /** EMAIL_SENT/SMS_SENT count toward the org daily cap — see outboundBlockReason.
+   *  A message that has not gone out yet must use a non-counting type. */
+  activityType: 'EMAIL_SENT' | 'SMS_SENT' | 'FOLLOW_UP_SCHEDULED';
   activitySummary: string;
   experimentVariantId?: string;
   /** Provider message id (Mailgun/Twilio) — lets delivery/open/click events find this message. */
   externalId?: string;
+  /** Mailbox that put this on the wire — how bounces trace back to a sender. */
+  mailboxId?: string;
+  /** When a queued message is due to go out. Set only for `scheduled` status. */
+  scheduledAt?: Date;
+  /** Display name to send under, frozen so a queued message can't drift. */
+  senderName?: string;
 }) {
   const conversation =
     (await prisma.conversation.findFirst({
@@ -1099,12 +1104,22 @@ async function recordOutbound(opts: {
       conversationId: conversation.id,
       direction: 'OUTBOUND',
       body: opts.body,
+      subject: opts.subject,
       status: opts.status,
       sentAt: opts.status === 'sent' ? new Date() : null,
+      scheduledAt: opts.scheduledAt,
+      senderName: opts.senderName,
       // Mailgun wraps message ids in angle brackets; events echo them bare.
       externalId: opts.externalId?.replace(/^<|>$/g, ''),
-      // Only attribute the split-test variant if the message actually went out.
-      experimentVariantId: opts.status === 'sent' ? opts.experimentVariantId : undefined,
+      campaignId: opts.campaignId,
+      // A queued message keeps its variant so the eventual send still credits
+      // it; a draft does not, because it may never go out at all.
+      experimentVariantId:
+        opts.status === 'sent' || opts.status === 'scheduled'
+          ? opts.experimentVariantId
+          : undefined,
+      // Same for the sender: a draft has not been assigned one yet.
+      mailboxId: opts.status === 'sent' ? opts.mailboxId : undefined,
     },
   });
   if (opts.status === 'sent' && opts.experimentVariantId) {
@@ -1115,7 +1130,14 @@ async function recordOutbound(opts: {
   }
   await prisma.conversation.update({
     where: { id: conversation.id },
-    data: { lastMessageAt: new Date() },
+    data: {
+      lastMessageAt: new Date(),
+      // First real send anchors the thread's sender; every later touch sticks to
+      // it, so the lead keeps hearing from one address.
+      ...(opts.status === 'sent' && opts.mailboxId && !conversation.mailboxId
+        ? { mailboxId: opts.mailboxId }
+        : {}),
+    },
   });
   // A touch that actually went out moves the lead out of NEW/RESEARCHING.
   // Drafts deliberately don't — nothing reached the lead.
@@ -1714,15 +1736,84 @@ const executors: Record<string, ToolExecutor> = {
     });
     const body = withSignature(input.body, identity);
 
+    // Which address this actually leaves from. Looked up before the draft
+    // decision because "no mailbox has capacity" is itself a reason to draft.
+    const thread = await prisma.conversation.findFirst({
+      where: { leadId: lead.id, channel: 'EMAIL', contactId: contact.id },
+      select: { id: true },
+    });
+    const decision = await resolveSenderDecision(ctx.organizationId, {
+      purpose: 'COLD_OUTREACH',
+      playbookId: identity.playbookId,
+      conversationId: thread?.id,
+      preferAddress: identity.email,
+      legacy: orgConfig.mailgun,
+    });
+    const sender = decision.sender;
+
     const blocked = await outboundBlockReason(ctx.organizationId, lead);
-    const draftReason = await draftOnlyReason(
+    const draft = await draftOnlyReason(
       input.campaignId,
       ctx.organizationId,
       blocked,
-      channels.isEmailConfigured(orgConfig.mailgun)
+      !!sender,
+      'email',
+      decision.reason
     );
 
-    if (draftReason) {
+    // Out of warm-up allowance is not the same as unable to send. The touch is
+    // still wanted, just not this minute, so it reschedules onto the cadence
+    // sweep instead of becoming a draft. Three things have to be true first:
+    // the sender must be the sole obstacle (an approval-required campaign still
+    // owes a human the draft they are waiting on, and a guardrail block still
+    // drafts), and there must be a campaign to reschedule ONTO. Without one
+    // nothing would re-queue this touch, and returning "deferred" would lose the
+    // message entirely — no send, no draft, nothing on the lead's timeline. A
+    // one-off send or a reply on a live thread falls through to a draft instead,
+    // where a human can see it and approve it.
+    if (!sender && decision.retryAt && draft?.cause === 'unconfigured') {
+      // The message is already written and correct — hold it rather than throw
+      // it away. The outbound queue puts it on the wire when the mailbox frees
+      // up, with no second agent run and no draft for a human to approve.
+      const queued = await recordOutbound({
+        ctx,
+        leadId: lead.id,
+        contactId: contact.id,
+        channel: 'EMAIL',
+        subject: input.subject,
+        body,
+        campaignId: input.campaignId,
+        status: 'scheduled',
+        // Not EMAIL_SENT: the daily cap counts those, and the queue logs a real
+        // EMAIL_SENT when the message actually goes out. Counting both would
+        // spend two units of the org's budget for one delivered email.
+        activityType: 'FOLLOW_UP_SCHEDULED',
+        activitySummary: `Email queued for ${contact.email} (sender pacing): "${input.subject}"`,
+        experimentVariantId: input.experimentVariantId,
+        scheduledAt: decision.retryAt,
+        senderName: identityFromName(identity),
+      });
+      // Hold the cadence clock past the scheduled send so the sweep doesn't
+      // batch this lead into another agent run while its message is waiting.
+      if (input.campaignId) {
+        await deferCampaignTouch(
+          input.campaignId,
+          lead.id,
+          new Date(decision.retryAt.getTime() + 60 * 60 * 1000)
+        );
+      }
+      return {
+        sent: false,
+        queued: true,
+        scheduledFor: decision.retryAt.toISOString(),
+        reason: decision.reason,
+        ...queued,
+        note: 'Sender pacing — the message is written and queued; it will send itself. Do NOT rewrite or resend it. Move on to other work.',
+      };
+    }
+
+    const draftReason = draft?.reason ?? null;
+    if (draftReason || !sender) {
       const result = await recordOutbound({
         ctx,
         leadId: lead.id,
@@ -1738,20 +1829,68 @@ const executors: Record<string, ToolExecutor> = {
       return { sent: false, drafted: true, ...result, note: draftReason };
     }
 
+    // Claim the slot before sending. The capacity check that chose this mailbox
+    // was a read, so two agents can reach here at the same moment both believing
+    // the last send of the day is theirs; only one wins the claim.
+    if (sender.mailboxId && sender.allowanceToday !== undefined) {
+      const reserved = await reserveSend(sender.mailboxId, sender.allowanceToday);
+      if (!reserved) {
+        // Someone else took the last slot between choosing this mailbox and
+        // sending. The message is written and fine — queue it exactly as the
+        // pacing case does rather than handing back nothing.
+        const retryAt = new Date(Date.now() + 15 * 60 * 1000);
+        const queued = await recordOutbound({
+          ctx,
+          leadId: lead.id,
+          contactId: contact.id,
+          channel: 'EMAIL',
+          subject: input.subject,
+          body,
+          campaignId: input.campaignId,
+          status: 'scheduled',
+          activityType: 'FOLLOW_UP_SCHEDULED',
+          activitySummary: `Email queued for ${contact.email} (sender busy): "${input.subject}"`,
+          experimentVariantId: input.experimentVariantId,
+          scheduledAt: retryAt,
+          senderName: identityFromName(identity),
+        });
+        if (input.campaignId) {
+          await deferCampaignTouch(
+            input.campaignId,
+            lead.id,
+            new Date(retryAt.getTime() + 60 * 60 * 1000)
+          );
+        }
+        return {
+          sent: false,
+          queued: true,
+          scheduledFor: retryAt.toISOString(),
+          reason: `${sender.fromEmail} used its last send of the day between choosing it and sending.`,
+          ...queued,
+          note: 'The message is written and queued; it will send itself. Do NOT rewrite or resend it.',
+        };
+      }
+    }
+
     const delivery = await channels.sendEmail(
       {
         to: contact.email,
         subject: input.subject,
         body,
         fromName: identityFromName(identity),
-        fromEmail: identity.email,
-        replyTo: identity.email,
+        fromEmail: sender.fromEmail,
+        // Only worth a header when it actually differs from the From address.
+        replyTo: sender.replyTo && sender.replyTo !== sender.fromEmail ? sender.replyTo : undefined,
         // One-click unsubscribe (List-Unsubscribe header) — deliverability + CAN-SPAM.
         unsubscribeUrl: `${config.appPublicUrl}/api/public/unsubscribe?c=${signToken(contact.id)}`,
       },
-      orgConfig.mailgun
+      sender.creds
     );
     if (!delivery.sent) {
+      // Hand the claimed slot back — the mailbox should not lose a send it never made.
+      if (sender.mailboxId && sender.allowanceToday !== undefined) {
+        await releaseSend(sender.mailboxId);
+      }
       return { sent: false, reason: `Email delivery failed: ${delivery.error}` };
     }
     const result = await recordOutbound({
@@ -1767,11 +1906,17 @@ const executors: Record<string, ToolExecutor> = {
       activitySummary: `Email sent to ${contact.email}: "${input.subject}"`,
       experimentVariantId: input.experimentVariantId,
       externalId: delivery.externalId,
+      mailboxId: sender.mailboxId ?? undefined,
     });
+    // The reservation already counted this send, so don't count it twice.
+    if (sender.mailboxId) {
+      await markMailboxSent(sender.mailboxId, new Date(), sender.allowanceToday === undefined);
+    }
     return {
       sent: true,
       to: contact.email,
       sentAs: identityFromName(identity),
+      sentFrom: sender.fromEmail,
       ...(identity.playbookName ? { identityFrom: `playbook "${identity.playbookName}"` } : {}),
       externalId: delivery.externalId,
       ...result,
@@ -1794,13 +1939,15 @@ const executors: Record<string, ToolExecutor> = {
 
     const orgConfig = await getOrgConfig(ctx.organizationId);
     const blocked = await outboundBlockReason(ctx.organizationId, lead);
-    const draftReason = await draftOnlyReason(
-      input.campaignId,
-      ctx.organizationId,
-      blocked,
-      channels.isSmsConfigured(orgConfig.twilio),
-      'sms'
-    );
+    const draftReason = (
+      await draftOnlyReason(
+        input.campaignId,
+        ctx.organizationId,
+        blocked,
+        channels.isSmsConfigured(orgConfig.twilio),
+        'sms'
+      )
+    )?.reason;
 
     if (draftReason) {
       const result = await recordOutbound({
@@ -2803,6 +2950,69 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
     return { topics: GUIDE_TOPICS, guide: PLATFORM_GUIDE };
   },
 
+  get_sending_capacity: async (input, ctx) => {
+    const purpose = input.purpose === 'TRANSACTIONAL' ? 'TRANSACTIONAL' : 'COLD_OUTREACH';
+    const overview = await getSendingOverview(ctx.organizationId);
+    const orgMailgunDomain = overview.legacyDomain;
+    const mailboxIds = overview.domains.flatMap((d) => d.mailboxes.map((m) => m.id));
+    const health = await healthByMailbox(new Date(), mailboxIds);
+
+    const domains = overview.domains.filter((d) => d.purpose === purpose);
+    const mailboxes = domains.flatMap((domain) =>
+      domain.mailboxes.map((mailbox) => {
+        const rolling = health.get(mailbox.id);
+        return {
+          address: mailbox.address,
+          domain: domain.domain,
+          domainStatus: domain.status,
+          status: mailbox.status,
+          remainingToday: mailbox.remainingToday,
+          allowanceToday: mailbox.allowanceToday,
+          sentLastHour: mailbox.sentLastHour,
+          hourlyCap: mailbox.hourlyCap,
+          nextSendAt: mailbox.nextSendAt,
+          warmingDown: mailbox.rampHalted || undefined,
+          pausedReason: mailbox.pausedReason || domain.pausedReason || undefined,
+          rolling7d: rolling
+            ? {
+                sent: rolling.sent,
+                bounceRate: Number(rolling.bounceRate.toFixed(4)),
+                complaintRate: Number(rolling.complaintRate.toFixed(4)),
+                replyRate: Number(rolling.replyRate.toFixed(4)),
+              }
+            : undefined,
+        };
+      })
+    );
+
+    const sendable = mailboxes.filter(
+      (m) => (m.status === 'WARMING' || m.status === 'ACTIVE') &&
+        (m.domainStatus === 'WARMING' || m.domainStatus === 'ACTIVE')
+    );
+    const remainingToday = sendable.reduce((total, m) => total + m.remainingToday, 0);
+    // The legacy fallback is decided per purpose, not org-wide: an org that has
+    // registered only a transactional domain still sends cold mail through the
+    // Settings domain, and reporting zero capacity would stand the agent down
+    // from outreach it could actually do.
+    const onLegacyForThisPurpose = mailboxes.length === 0 && !!orgMailgunDomain;
+    const queued = await prisma.message.count({
+      where: { status: 'scheduled', conversation: { organizationId: ctx.organizationId } },
+    });
+
+    return {
+      purpose,
+      usingLegacySettings: onLegacyForThisPurpose,
+      remainingToday: onLegacyForThisPurpose ? null : remainingToday,
+      queuedForLater: queued,
+      mailboxes,
+      note: onLegacyForThisPurpose
+        ? `No ${purpose === 'TRANSACTIONAL' ? 'transactional' : 'cold-outreach'} domains are registered — this org sends from the single Mailgun domain in Settings, with no per-mailbox warm-up or caps, so there is no daily limit to plan around beyond the org send cap.`
+        : remainingToday === 0
+          ? 'No capacity left today. Cold email sent now will be queued for when a mailbox frees up, not delivered immediately — plan research or calls instead.'
+          : `About ${remainingToday} cold email(s) can go out today across ${sendable.length} mailbox(es).`,
+    };
+  },
+
   get_setup_status: async (_input, ctx) => {
     const orgConfig = await getOrgConfig(ctx.organizationId);
     const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
@@ -2820,6 +3030,7 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
         }),
       ]);
 
+    const sending = await getSendingOverview(ctx.organizationId);
     const configured = {
       aiProvider: llmService.isAnyProviderConfigured(orgConfig.providerKeys),
       email: channels.isEmailConfigured(orgConfig.mailgun),
@@ -2833,6 +3044,15 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
     const suggestions: string[] = [];
     if (!configured.aiProvider) suggestions.push('Add at least one AI provider API key (Settings → Integrations) — nothing runs without it.');
     if (!configured.email) suggestions.push('Configure Mailgun (API key + domain) to enable email outreach, calendar invites, and notifications.');
+    if (configured.email && sending.domains.length === 0) {
+      suggestions.push('Register sending domains (Settings → Sending) to spread cold email across purpose-bought domains with automatic warm-up, and to keep meeting invites off a domain that prospecting will wear out.');
+    }
+    if (sending.domains.some((d) => d.status === 'PENDING')) {
+      suggestions.push('One or more sending domains are unverified and cannot send — publish their DNS records and verify them in Settings → Sending.');
+    }
+    if (sending.domains.length > 0 && !sending.domains.some((d) => d.purpose === 'TRANSACTIONAL')) {
+      suggestions.push('No transactional domain yet: booking confirmations and reminders share a cold-outreach domain, so wearing that domain out would take meeting invites down with it.');
+    }
     if (!configured.sms) suggestions.push('Configure Twilio to enable SMS touches.');
     if (!configured.voice) suggestions.push('Configure Vapi (incl. webhook secret) to enable AI voice calls.');
     if (!configured.placesSourcing) suggestions.push('Add a Google Places API key for systematic lead sourcing.');
@@ -2845,6 +3065,12 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
     return {
       configured,
       counts: { leads, contactsWithEmail, playbooks, activeCampaigns, bookingLinks },
+      sending: {
+        registeredDomains: sending.domains.length,
+        mailboxes: sending.domains.reduce((n, d) => n + d.mailboxes.length, 0),
+        usingLegacySettings: sending.usingLegacySettings,
+        detail: 'Call get_sending_capacity for per-mailbox warm-up, allowance and health.',
+      },
       guardrails: org
         ? { dailySendCap: org.dailySendCap, quietHours: `${org.quietHoursStart}:00–${org.quietHoursEnd}:00 (lead-local)`, paused: org.paused, socialAutonomy: org.socialAutonomy }
         : null,
@@ -3096,6 +3322,7 @@ const SANDBOX_READ_ONLY = new Set([
   'list_autopilot_goals',
   'explain_platform',
   'get_setup_status',
+  'get_sending_capacity',
   'find_contacts_on_website',
   'pick_experiment_variant',
 ]);

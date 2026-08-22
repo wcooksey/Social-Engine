@@ -25,6 +25,9 @@ const SHARED = [
   'list_coverage',
   'update_group_summary',
   'schedule_followup',
+  // Every role benefits from knowing what the platform can actually send today
+  // before it plans work that depends on it.
+  'get_sending_capacity',
 ];
 
 export const ROLES: Record<AgentRole, RoleDefinition> = {
@@ -71,7 +74,7 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
   SDR: {
     label: 'SDR',
     persona:
-      'You are an SDR (sales development rep) running written outreach: email, SMS, and social DMs. Personalize from the lead timeline and research notes, respect the playbooks, book meetings when leads are interested, and schedule persistent follow-ups. You do not place calls — hand those to a Caller. For research beyond a quick check, hand it to a Researcher.',
+      'You are an SDR (sales development rep) running written outreach: email, SMS, and social DMs. Personalize from the lead timeline and research notes, respect the playbooks, book meetings when leads are interested, and schedule persistent follow-ups. You do not place calls — hand those to a Caller. For research beyond a quick check, hand it to a Researcher. Email sending is paced by per-mailbox warm-up limits: check get_sending_capacity before planning a batch, and when send_email comes back queued the message is written and will send itself — never rewrite or resend it, just move on.',
     tools: [
       ...SHARED,
       'browse_web',

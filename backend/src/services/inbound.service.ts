@@ -1,5 +1,6 @@
 import { Channel, Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
+import { recordMailboxEvent } from './sender.service';
 import { leadService } from './lead.service';
 import { normalizeDomain, normalizePhone } from './lead.service';
 import { recordResponseForInbound } from './experiment.service';
@@ -30,11 +31,28 @@ export interface InboundMessage {
   toPhone?: string;
 }
 
-/** Resolve which org owns the receiving address, from non-secret org settings. */
+/**
+ * Resolve which org owns the receiving address.
+ *
+ * Registered sending domains are checked first — an org sends from several, and
+ * a reply to any of them belongs to it. The MAILGUN_DOMAIN setting is still
+ * consulted afterwards for orgs that have not adopted the domain tables yet;
+ * without that fallback every existing deployment would stop threading replies.
+ */
 async function resolveOrgFromRecipient(input: InboundMessage): Promise<string | undefined> {
   if (input.toEmailDomain) {
+    const domain = input.toEmailDomain.toLowerCase().trim();
+    // Only a provider-verified domain may claim inbound mail. Registration alone
+    // proves nothing about ownership, so an unverified row must not be able to
+    // displace another tenant's existing MAILGUN_DOMAIN mapping and take over
+    // its replies.
+    const registered = await prisma.emailDomain.findFirst({
+      where: { domain, status: { not: 'PENDING' } },
+      select: { organizationId: true },
+    });
+    if (registered) return registered.organizationId;
     const row = await prisma.orgSetting.findFirst({
-      where: { key: 'MAILGUN_DOMAIN', value: input.toEmailDomain.toLowerCase().trim() },
+      where: { key: 'MAILGUN_DOMAIN', value: domain },
     });
     if (row) return row.organizationId;
   }
@@ -231,6 +249,10 @@ export async function handleInbound(input: InboundMessage): Promise<{
 
   // Credit the split-test variant that earned this reply (lead+channel scoped).
   await recordResponseForInbound(leadId, input.channel);
+
+  // Credit the mailbox too: reply rate is the signal that separates "this
+  // sender is trusted" from "this sender is merely not bouncing yet".
+  if (conversation.mailboxId) await recordMailboxEvent(conversation.mailboxId, 'replied');
 
   const activityType =
     input.channel === 'EMAIL'

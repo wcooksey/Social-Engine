@@ -129,17 +129,33 @@
                 class="message-bubble"
                 [class.outbound]="m.direction === 'OUTBOUND'"
                 [class.inbound]="m.direction === 'INBOUND'"
-                [class.draft]="isDraft(m)">
+                [class.draft]="isDraft(m) || isQueued(m)">
                 @if (isDraft(m)) {
                   <div class="draft-header">
                     <app-badge variant="warning" size="xs" icon="bi-pencil-square">{{ draftLabel(m) }}</app-badge>
                   </div>
+                } @else if (isQueued(m)) {
+                  <div class="draft-header">
+                    <app-badge variant="info" size="xs" icon="bi-clock-history">{{ queuedLabel(m) }}</app-badge>
+                  </div>
                 }
                 <div class="bubble-content">{{ m.body }}</div>
                 <div class="bubble-footer">
-                  @if (m.status && !isDraft(m)) { <span class="bubble-status">{{ m.status }}</span> }
+                  @if (m.status && !isDraft(m) && !isQueued(m)) { <span class="bubble-status">{{ m.status }}</span> }
                   <span class="bubble-time">{{ relativeTime(m.sentAt || m.createdAt) }}</span>
                 </div>
+                @if (isQueued(m)) {
+                  <div class="draft-actions">
+                    <app-button
+                      size="sm"
+                      variant="ghost"
+                      icon="bi-x-circle"
+                      [disabled]="actingMessageId() !== null"
+                      (clicked)="discardDraft(convo, m)">
+                      Cancel send
+                    </app-button>
+                  </div>
+                }
                 @if (isDraft(m)) {
                   <div class="draft-actions">
                     <app-button

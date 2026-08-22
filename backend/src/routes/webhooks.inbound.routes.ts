@@ -6,6 +6,7 @@ import { asyncHandler } from '../middleware/error.middleware';
 import { multipartFormData } from '../middleware/multipart.middleware';
 import { handleInbound } from '../services/inbound.service';
 import { recomputeLeadEnrichment } from '../services/lead-enrichment.service';
+import { recordMailboxEvent } from '../services/sender.service';
 
 const router = Router();
 
@@ -165,15 +166,12 @@ router.post(
       res.json({ success: true, data: { ignored: 'no recipient' } });
       return;
     }
+    const messageId = String(data?.message?.headers?.['message-id'] || '').replace(/^<|>$/g, '');
 
-    // Engagement events: mark the message opened/clicked and log the first
-    // occurrence on the lead timeline — a warmth signal the SDR agents can
-    // read (get_lead_timeline) to prioritize and time follow-ups.
-    if (event === 'opened' || event === 'clicked') {
-      const messageId = String(data?.message?.headers?.['message-id'] || '').replace(
-        /^<|>$/g,
-        ''
-      );
+    // Delivery + engagement events: advance the message's state, credit the
+    // sending mailbox, and log opens/clicks on the lead timeline as a warmth
+    // signal the SDR agents read (get_lead_timeline) to time follow-ups.
+    if (event === 'delivered' || event === 'opened' || event === 'clicked') {
       if (!messageId) {
         res.json({ success: true, data: { ignored: 'no message-id' } });
         return;
@@ -186,27 +184,37 @@ router.post(
         res.json({ success: true, data: { ignored: 'unknown message' } });
         return;
       }
-      // Status only moves forward: sent -> opened -> clicked. Repeat events
-      // (every re-open fires a webhook) neither regress it nor re-log.
+      // Repeat events (every re-open fires a webhook) neither regress the
+      // status nor re-log, and a late 'delivered' can't undo a recorded open.
       const firstOfKind =
-        event === 'clicked' ? message.status !== 'clicked' : message.status === 'sent';
+        EMAIL_STATUS_RANK[event] > (EMAIL_STATUS_RANK[message.status || ''] ?? 0);
       if (firstOfKind) {
-        await prisma.message.update({
-          where: { id: message.id },
-          data: { status: event },
-        });
-        await prisma.activity.create({
-          data: {
-            organizationId: message.conversation.organizationId,
-            leadId: message.conversation.leadId,
-            type: event === 'clicked' ? 'EMAIL_CLICKED' : 'EMAIL_OPENED',
-            summary:
-              event === 'clicked'
-                ? `Email link clicked by ${recipient}${data?.url ? ` (${String(data.url).slice(0, 120)})` : ''}`
-                : `Email opened by ${recipient}`,
-            payload: { emailEvent: event, recipient, ...(data?.url ? { url: data.url } : {}) },
-          },
-        });
+        await prisma.message.update({ where: { id: message.id }, data: { status: event } });
+        // A click implies an open but fires its own webhook; counting only the
+        // 'opened' event keeps the per-mailbox rate from double-counting.
+        if (message.mailboxId && event !== 'clicked') {
+          // Delivery belongs to the day of the send; an open belongs to the day
+          // the recipient opened it.
+          await recordMailboxEvent(
+            message.mailboxId,
+            event,
+            event === 'delivered' ? (message.sentAt ?? new Date()) : new Date()
+          );
+        }
+        if (event !== 'delivered') {
+          await prisma.activity.create({
+            data: {
+              organizationId: message.conversation.organizationId,
+              leadId: message.conversation.leadId,
+              type: event === 'clicked' ? 'EMAIL_CLICKED' : 'EMAIL_OPENED',
+              summary:
+                event === 'clicked'
+                  ? `Email link clicked by ${recipient}${data?.url ? ` (${String(data.url).slice(0, 120)})` : ''}`
+                  : `Email opened by ${recipient}`,
+              payload: { emailEvent: event, recipient, ...(data?.url ? { url: data.url } : {}) },
+            },
+          });
+        }
       }
       res.json({ success: true, data: { processed: event, firstOfKind } });
       return;
@@ -221,6 +229,35 @@ router.post(
     }
 
     const status = isComplaint ? 'complained' : 'bounced';
+
+    // Charge it to the mailbox that sent it. Suppressing the recipient protects
+    // the next send; this is what makes a domain going bad visible at all.
+    if (messageId) {
+      const message = await prisma.message.findFirst({
+        where: { externalId: messageId, direction: 'OUTBOUND' },
+        select: { id: true, mailboxId: true, status: true, sentAt: true },
+      });
+      // Same forward-only ladder as the engagement events. Mailgun redelivers on
+      // any non-2xx, and counting one bounce twice is enough to push a mailbox
+      // over the threshold and pause a sender that was never actually failing.
+      const advances =
+        !!message && EMAIL_STATUS_RANK[status] > (EMAIL_STATUS_RANK[message.status || ''] ?? 0);
+      if (message && advances) {
+        await prisma.message.update({ where: { id: message.id }, data: { status } });
+        if (message.mailboxId) {
+          // Charged to the day the mail went out, not the day the failure came
+          // back. A bounce from before a pause would otherwise land inside the
+          // resumed mailbox's fresh window, against a denominator that excludes
+          // the sends that caused it.
+          await recordMailboxEvent(
+            message.mailboxId,
+            isComplaint ? 'complained' : 'bounced',
+            message.sentAt ?? new Date()
+          );
+        }
+      }
+    }
+
     const contacts = await prisma.contact.findMany({ where: { email: recipient } });
     for (const contact of contacts) {
       await prisma.contact.update({
@@ -247,6 +284,20 @@ router.post(
     res.json({ success: true, data: { processed: contacts.length, status } });
   })
 );
+
+/**
+ * Outbound email status ladder — provider events only move a message forward.
+ * Failures rank above every engagement state because they are terminal: a
+ * stray open event arriving after a bounce must not report the mail as read.
+ */
+const EMAIL_STATUS_RANK: Record<string, number> = {
+  sent: 1,
+  delivered: 2,
+  opened: 3,
+  clicked: 4,
+  bounced: 90,
+  complained: 90,
+};
 
 function extractEmail(raw?: string): string | undefined {
   if (!raw) return undefined;
