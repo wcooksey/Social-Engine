@@ -1,5 +1,6 @@
 import { Prisma, EnrichmentTier } from '@prisma/client';
 import { prisma } from '../config/database';
+import { decisionMakerRegex, resolveIcpForLead } from './icp.service';
 
 /**
  * Lead enrichment scoring & triage.
@@ -45,7 +46,14 @@ export const ENRICHMENT_CAPABILITY_VERSION = 2;
 // Scoring model
 // ---------------------------------------------------------------------------
 
-/** Titles that mean "this person can say yes" — not a receptionist. */
+/**
+ * Titles that mean "this person can say yes" — not a receptionist.
+ *
+ * The fallback when no playbook describes the ICP. A playbook that does supply
+ * `decisionMakerPatterns` overrides this for the leads it scopes, which is what
+ * lets a second line of business grade its own market correctly without
+ * re-grading the first.
+ */
 const DECISION_MAKER_TITLE_RE =
   /(owner|founder|president|chief|c[eofmt]o|principal|partner|director|manager|head of|\bvp\b|vice president)/i;
 
@@ -149,7 +157,12 @@ function emailUsable(contact: ScorableContact): boolean {
  * The scoring function — pure, so the same math backs the API, the engine tools,
  * and the migration backfill.
  */
-export function scoreLead(lead: ScorableLead, contacts: ScorableContact[]): EnrichmentSnapshot {
+export function scoreLead(
+  lead: ScorableLead,
+  contacts: ScorableContact[],
+  /** Decision-maker test for this lead's line of business. */
+  isDecisionMaker: (title: string) => boolean = (t) => DECISION_MAKER_TITLE_RE.test(t)
+): EnrichmentSnapshot {
   const usableEmails = contacts.filter(emailUsable);
   const emailCount = new Set(usableEmails.map((c) => c.email!.toLowerCase().trim())).size;
   const directPhones = contacts.filter((c) => hasText(c.phone) && !c.optedOut);
@@ -160,7 +173,7 @@ export function scoreLead(lead: ScorableLead, contacts: ScorableContact[]): Enri
     location: hasText(lead.city) || hasText(lead.state) || hasText(lead.address),
     company_phone: hasText(lead.phone),
     named_contact: contacts.some((c) => !c.optedOut && hasText(c.firstName) && hasText(c.lastName)),
-    decision_maker: contacts.some((c) => !c.optedOut && hasText(c.title) && DECISION_MAKER_TITLE_RE.test(c.title!)),
+    decision_maker: contacts.some((c) => !c.optedOut && hasText(c.title) && isDecisionMaker(c.title!)),
     email: emailCount >= 1,
     multiple_emails: emailCount >= 2,
     verified_email: usableEmails.some((c) => !!c.emailVerifiedAt),
@@ -235,6 +248,9 @@ export async function recomputeLeadEnrichment(leadId: string): Promise<Enrichmen
       where: { id: leadId },
       select: {
         id: true,
+        organizationId: true,
+        groupId: true,
+        status: true,
         website: true,
         domain: true,
         phone: true,
@@ -259,7 +275,16 @@ export async function recomputeLeadEnrichment(leadId: string): Promise<Enrichmen
     });
     if (!lead) return null;
 
-    const snapshot = scoreLead(lead, lead.contacts);
+    // Which line of business this lead belongs to decides what counts as a
+    // decision maker. A dental practice manager and a dealer principal are not
+    // interchangeable, and one global pattern cannot grade both.
+    const icp = await resolveIcpForLead(lead.organizationId, {
+      id: lead.id,
+      groupId: lead.groupId,
+      status: lead.status,
+    });
+    const test = decisionMakerRegex(icp);
+    const snapshot = scoreLead(lead, lead.contacts, (title) => test.test(title));
     await prisma.lead.update({
       where: { id: lead.id },
       data: {

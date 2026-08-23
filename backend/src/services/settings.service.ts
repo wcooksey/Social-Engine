@@ -29,6 +29,11 @@ export const ORG_SETTING_DEFS: OrgSettingDef[] = [
   { key: 'GOOGLE_PLACES_API_KEY', label: 'Google Places API key (lead sourcing)', group: 'search', secret: true },
   { key: 'APOLLO_API_KEY', label: 'Apollo API key (contact enrichment)', group: 'search', secret: true },
 
+  // Per-organization inbound webhook secret. The deployment-wide secret cannot
+  // identify a tenant, so a bridge that posts its own organizationId could
+  // target any account; this makes the secret itself the identity.
+  { key: 'INBOUND_WEBHOOK_SECRET', label: 'Inbound webhook secret (social bridges)', group: 'email', secret: true },
+
   { key: 'MAILGUN_API_KEY', label: 'Mailgun API key', group: 'email', secret: true },
   { key: 'MAILGUN_DOMAIN', label: 'Mailgun domain', group: 'email', secret: false },
   { key: 'MAILGUN_FROM_EMAIL', label: 'From address', group: 'email', secret: false, placeholder: 'blank = noreply@<domain>' },

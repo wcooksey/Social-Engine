@@ -148,6 +148,18 @@
         }
       </div>
 
+      @if (run.error) {
+        <!-- Why a run failed was recorded but never shown, so diagnosing one
+             meant opening the database. -->
+        <div class="run-error">
+          <i class="bi bi-exclamation-octagon"></i>
+          <div>
+            <strong>This run failed</strong>
+            <p>{{ run.error }}</p>
+          </div>
+        </div>
+      }
+
       @if (run.steps && run.steps.length) {
         <ul class="step-list">
           @for (step of run.steps; track step.index) {

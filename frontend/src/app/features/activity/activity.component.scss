@@ -211,3 +211,30 @@
     padding-left: calc(28px + #{$spacing-md}); // align under the content column
   }
 }
+
+// A failed run's reason, shown in the run detail dialog.
+.run-error {
+  display: flex;
+  gap: $spacing-md;
+  align-items: flex-start;
+  margin-top: $spacing-md;
+  padding: $spacing-md;
+  border-radius: $border-radius-md;
+  background: color-mix(in srgb, var(--error, #dc2626) 10%, transparent);
+
+  i {
+    color: var(--error, #dc2626);
+    font-size: 1.1rem;
+    margin-top: 2px;
+  }
+
+  strong { display: block; }
+
+  p {
+    margin: $spacing-xs 0 0;
+    color: var(--text-secondary);
+    font-size: $font-size-sm;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}

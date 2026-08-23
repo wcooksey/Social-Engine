@@ -150,9 +150,17 @@ router.post(
 
     const chat = await prisma.engineChat.findFirst({
       where: { id: req.params.id, organizationId: req.user!.organizationId, userId: req.user!.userId },
-      include: { messages: { orderBy: { createdAt: 'asc' }, take: 40 } },
+      // Newest 40, not oldest: taking the head of a long thread freezes the
+      // Engine's view at turn 40, so it keeps re-proposing things the operator
+      // already rejected and acts on direction that has since been superseded.
+      include: { messages: { orderBy: { createdAt: 'desc' }, take: 40 } },
     });
     if (!chat) throw new AppError('Chat not found', 404);
+
+    // Restore chronological order for the model, and count separately so the
+    // first-message title check isn't fooled by the capped window.
+    const recent = [...chat.messages].reverse();
+    const messageCount = await prisma.engineChatMessage.count({ where: { chatId: chat.id } });
 
     // One run per chat at a time, so a stray double-send can't fork the thread.
     const existing = runRegistry.findRunForChat(req.user!.organizationId, chat.id);
@@ -163,7 +171,7 @@ router.post(
     await prisma.engineChatMessage.create({
       data: { chatId: chat.id, role: 'user', content },
     });
-    const titleUpdate = chat.messages.length === 0 ? { title: content.slice(0, 60) } : {};
+    const titleUpdate = messageCount === 0 ? { title: content.slice(0, 60) } : {};
     await prisma.engineChat.update({
       where: { id: chat.id },
       data: { updatedAt: new Date(), ...titleUpdate },
@@ -186,7 +194,7 @@ router.post(
           // isn't steered by the dealership playbook sitting next to it.
           playbookId: chat.playbookId ?? undefined,
           watch: req.body?.watch === true,
-          history: chat.messages.map((m) => ({
+          history: recent.map((m) => ({
             role: m.role as 'user' | 'assistant',
             content: m.content,
           })),

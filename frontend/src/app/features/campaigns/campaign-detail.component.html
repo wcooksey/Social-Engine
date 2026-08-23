@@ -132,6 +132,116 @@
         <p class="empty-text">Nothing has happened on this campaign yet. Once it's ACTIVE, sends and replies will appear here.</p>
       }
     </app-card>
+
+    <app-card class="schedule-card">
+      <div class="card-head">
+        <div>
+          <h2>Coming up</h2>
+          <p class="subtitle">
+            @if (schedule(); as s) {
+              The next {{ s.days }} days. Every {{ s.followUpCadenceDays }} days, up to
+              {{ s.maxTouches }} touches per pass.
+              @if (s.reEngageAfterDays) {
+                Leads who never reply rest {{ s.reEngageAfterDays }} days, then get another pass —
+                up to {{ s.maxCycles }} in total.
+              } @else {
+                Re-engagement is off: one pass, then they're done.
+              }
+            }
+          </p>
+        </div>
+        @if (schedule(); as s) {
+          @if (s.dormantCount) {
+            <app-badge variant="neutral">{{ s.dormantCount }} resting</app-badge>
+          }
+        }
+      </div>
+
+      @if (loadingSchedule()) {
+        <p class="empty-text">Loading schedule...</p>
+      } @else {
+        @if (schedule(); as s) {
+        @if (s.upcoming.length) {
+          <div class="touch-list">
+            @for (touch of s.upcoming; track touch.id) {
+              <div class="touch" [class.blocked]="touch.blocked">
+                <div class="touch-who">
+                  <a [routerLink]="['/leads', touch.leadId]">{{ touch.companyName }}</a>
+                  <span class="touch-meta">
+                    {{ touch.city ? touch.city + ' · ' : '' }}touch {{ touch.touchCount + 1 }}
+                    @if (touch.cycle > 1) { · pass {{ touch.cycle }} }
+                  </span>
+                  @if (touch.blocked) {
+                    <span class="touch-blocked">Will be skipped — {{ touch.blocked }}</span>
+                  }
+                </div>
+
+                <div class="touch-when">
+                  <span class="due">{{ dueLabel(touch) }}</span>
+                  <input
+                    type="date"
+                    class="date-input"
+                    [value]="touchDateValue(touch)"
+                    [disabled]="savingTouchId() === touch.id"
+                    (change)="rescheduleTouch(touch, $any($event.target).value)"
+                    [attr.aria-label]="'Reschedule ' + touch.companyName" />
+                  <app-button
+                    variant="ghost"
+                    size="sm"
+                    icon="bi-x-lg"
+                    [disabled]="savingTouchId() === touch.id"
+                    (clicked)="removeFromSequence(touch)"
+                    title="Stop contacting this lead in this campaign">
+                  </app-button>
+                </div>
+              </div>
+            }
+          </div>
+        } @else {
+          <p class="empty-text">
+            Nothing scheduled in the next {{ s.days }} days.
+            @if (s.dormantCount) {
+              {{ s.dormantCount }} lead(s) are resting between passes.
+            }
+          </p>
+        }
+
+        @if (cycleSlots().length) {
+          <div class="cycles">
+            <h3>What each repeat pass leads with</h3>
+            <p class="subtitle">
+              A second pass that repeats the first is what gets a sender marked as spam. Give each
+              one something new — a case study that has since landed, new pricing, a seasonal hook.
+            </p>
+            @for (slot of cycleSlots(); track slot.cycle) {
+              <div class="cycle-row">
+                <span class="cycle-label">Pass {{ slot.cycle }}</span>
+                @if (editingCycle() === slot.cycle) {
+                  <app-input
+                    class="cycle-input"
+                    placeholder="e.g. Share the Morgan Auto case study — 22% more service bookings"
+                    [ngModel]="cycleAngle()"
+                    (ngModelChange)="cycleAngle.set($event)" />
+                  <app-button variant="primary" size="sm" (clicked)="saveCycleAngle(slot.cycle)">Save</app-button>
+                  <app-button variant="ghost" size="sm" (clicked)="editingCycle.set(null)">Cancel</app-button>
+                } @else {
+                  <span class="cycle-angle" [class.unset]="!slot.angle">
+                    {{ slot.angle || 'Nothing new set — this pass would repeat the original offer' }}
+                  </span>
+                  <app-button variant="ghost" size="sm" (clicked)="startEditingCycle(slot.cycle, slot.angle)">
+                    {{ slot.angle ? 'Edit' : 'Add' }}
+                  </app-button>
+                  @if (slot.angle) {
+                    <app-button variant="ghost" size="sm" icon="bi-trash" (clicked)="clearCycleAngle(slot.cycle)"></app-button>
+                  }
+                }
+              </div>
+            }
+          </div>
+        }
+        }
+      }
+    </app-card>
   </div>
 } @else {
   <div class="empty-state">

@@ -43,6 +43,40 @@ export interface CampaignActivityPage {
   pageSize: number;
 }
 
+/** One upcoming touch, as shown on the campaign schedule. */
+export interface ScheduledTouch {
+  id: string;
+  leadId: string;
+  companyName: string;
+  city?: string | null;
+  leadStatus: string;
+  sequenceStatus: CampaignLeadStatus;
+  touchCount: number;
+  cycle: number;
+  nextTouchAt?: string | null;
+  lastTouchAt?: string | null;
+  /** Set when this touch will be skipped, and why. */
+  blocked?: string | null;
+}
+
+/** The angle a repeat pass leads with, so it isn't the same sequence again. */
+export interface CampaignCycle {
+  id: string;
+  cycle: number;
+  angle: string;
+}
+
+export interface CampaignSchedule {
+  days: number;
+  reEngageAfterDays: number | null;
+  maxCycles: number;
+  followUpCadenceDays: number;
+  maxTouches: number;
+  dormantCount: number;
+  cycles: CampaignCycle[];
+  upcoming: ScheduledTouch[];
+}
+
 export interface Campaign {
   id: string;
   name: string;
@@ -52,6 +86,8 @@ export interface Campaign {
   status: CampaignStatus;
   followUpCadenceDays: number;
   maxTouches: number;
+  reEngageAfterDays?: number | null;
+  maxCycles?: number;
   leadCount: number;
   createdAt: string;
   autoEnrollGroup?: { id: string; name: string } | null;

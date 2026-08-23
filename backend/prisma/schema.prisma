@@ -33,6 +33,11 @@ model Organization {
 
   // Autonomy guardrails
   dailySendCap Int     @default(200)
+  /// Ceiling on AI spend per UTC day, in USD. Null means no ceiling. Cost was
+  /// measured and displayed but never enforced, so the only backstop against a
+  /// mis-scoped objective or an unsatisfiable goal looping forever was a human
+  /// noticing a number on the admin page.
+  dailyAiSpendCapUsd Decimal? @db.Decimal(10, 2)
   quietHoursStart Int  @default(20) // 24h local hour — no outbound after
   quietHoursEnd   Int  @default(8)
   paused          Boolean @default(false) // kill switch: Engine takes no outbound actions
@@ -62,6 +67,7 @@ model Organization {
   emailDomains EmailDomain[]
   mailboxes    Mailbox[]
   senderPools  SenderPool[]
+  suppressions Suppression[]
 }
 
 model User {
@@ -183,8 +189,26 @@ model Lead {
 
   companyName String
   website     String?
-  domain      String? // normalized dedup key (e.g. "sunshinetoyota.com")
+  /// Normalized website host. NOT a unique key: multi-location businesses —
+  /// dealer groups especially — routinely run every rooftop off one corporate
+  /// domain, and treating the domain as an identity collapses them into a
+  /// single lead. Used as a dedup *hint*, corroborated by name or city.
+  domain      String?
+  /// Stable per-location id from the source directory (Google Places). This is
+  /// the real identity for a physical location, so two rooftops of the same
+  /// group stay two leads.
+  placeId     String?
+  /// Set when a sibling location sharing this lead's website opted out. The
+  /// rooftops are legally separate businesses, so this is not an opt-out — it
+  /// is a "check before contacting", cleared once the Engine or a human has
+  /// established whether they are genuinely independent.
+  contactReviewReason String?
   phone       String?
+  /// Last 10 digits of `phone`, kept in step by the lead service. Stored so
+  /// phone dedup is an indexed lookup: it used to scan an arbitrary unordered
+  /// 2,000 rows on every upsert, which both cost a table read per write and
+  /// silently stopped matching once an org passed 2,000 leads.
+  phoneNormalized String?
   address     String?
   city        String?
   state       String?
@@ -231,7 +255,9 @@ model Lead {
   agentJobs     AgentJob[]
   calendarEvents CalendarEvent[]
 
-  @@unique([organizationId, domain])
+  @@unique([organizationId, placeId])
+  @@index([organizationId, domain])
+  @@index([organizationId, phoneNormalized])
   @@index([organizationId, status])
   @@index([organizationId, state])
   @@index([groupId])
@@ -311,6 +337,17 @@ model Campaign {
   aiSummary      String?
   followUpCadenceDays Int       @default(3)
   maxTouches          Int       @default(6)
+  /// Days a worked-out lead rests before the campaign tries again. Null turns
+  /// re-engagement off entirely (one pass, then done — the old behaviour).
+  ///
+  /// Cold outreach usually converts on a later attempt, months apart. Without
+  /// this a lead got six touches over about eighteen days and was then never
+  /// contacted again, so the largest asset the platform builds — thousands of
+  /// enriched, contacted, unconverted businesses — was written off after two
+  /// and a half weeks.
+  reEngageAfterDays   Int?      @default(90)
+  /// How many passes a lead may receive in total, including the first.
+  maxCycles           Int       @default(3)
   // Leads that land in this group are enrolled automatically by the cadence
   // sweep — closes the sourcing -> outreach gap without agent judgment.
   autoEnrollGroupId   String?
@@ -320,6 +357,7 @@ model Campaign {
   updatedAt DateTime @updatedAt
 
   campaignLeads CampaignLead[]
+  cycles        CampaignCycle[]
   autopilotGoals AutopilotGoal[]
   activities    Activity[]
   agentJobs     AgentJob[]
@@ -328,6 +366,27 @@ model Campaign {
 
   @@index([organizationId, status])
   @@index([autoEnrollGroupId])
+}
+
+/// What makes one pass at a lead different from the last.
+///
+/// Repeating the same six emails ninety days later is what gets a sender marked
+/// as spam. Each cycle carries its own angle — a case study that has since
+/// landed, new pricing, a seasonal hook — which the SDR is told to lead with.
+model CampaignCycle {
+  id         String   @id @default(uuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  /// 1-based. Cycle 1 is the first pass, which needs no special angle.
+  cycle Int
+  /// The new thing to lead with this time round.
+  angle String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([campaignId, cycle])
 }
 
 enum CampaignLeadStatus {
@@ -350,6 +409,10 @@ model CampaignLead {
   touchCount Int                @default(0)
   lastTouchAt DateTime?
   nextTouchAt DateTime?
+  /// Which pass this lead is on. 0 until the first touch goes out.
+  cycle       Int                @default(0)
+  /// When this lead ran out of touches and went quiet. Drives re-engagement.
+  dormantSince DateTime?
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
 
@@ -566,6 +629,15 @@ model AgentRun {
   model          String?         // model that actually served the run (after any failover)
   status         AgentRunStatus  @default(RUNNING)
   summary        String?         // written by the Engine at the end (rolling memory)
+  /// Findings the agent recorded WHILE working, via the remember tool.
+  ///
+  /// Separate from `summary`, which is written once at the end and is therefore
+  /// lost when a run dies. These notes are durable the moment they are written,
+  /// live outside the message history so trimming context cannot drop them, and
+  /// are handed to the next attempt when a job retries — which previously
+  /// replayed the whole objective with no memory of what the failed attempt had
+  /// already done.
+  workingNotes   String?
   error          String?
   inputTokens    Int             @default(0)
   outputTokens   Int             @default(0)
@@ -636,6 +708,9 @@ model AgentJob {
   role      AgentRole      @default(COORDINATOR)
   objective String       // instruction the Engine executes when the job fires
   payload   Json?
+  /// Carried forward from the previous attempt's working notes, so a retry
+  /// resumes rather than starting the objective from scratch.
+  workingNotes String?
   runAt     DateTime
   status    AgentJobStatus @default(PENDING)
   attempts  Int            @default(0)
@@ -733,6 +808,49 @@ model PlatformSetting {
   key       String   @unique
   value     String
   updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// SUPPRESSION (opt-out that outlives the lead row)
+// ============================================
+
+enum SuppressionKind {
+  EMAIL
+  PHONE
+  /// Every address at a company, e.g. after a "remove our whole firm" request.
+  DOMAIN
+}
+
+/// A standing "never contact this" for an organization.
+///
+/// Opt-out used to be a flag on the lead and contact rows, which meant it died
+/// with them: delete a lead, or re-source the same business under a different
+/// name or website, and it came back with the flag cleared and started
+/// receiving mail again — a repeat violation the system could not even detect.
+/// Suppression is keyed on the contact detail itself, so it survives whatever
+/// happens to the records around it.
+model Suppression {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  kind  SuppressionKind
+  /// Normalized: lowercased email/domain, last-10-digits phone.
+  value String
+
+  /// Free text for a human reading the record later.
+  reason String?
+  /// Where it came from: unsubscribe_link | sms_stop | spam_complaint |
+  /// voice_optout | manual | bounce.
+  source String?
+  /// The lead it originated from, for context. Kept even if that lead is later
+  /// deleted, which is the whole point.
+  originLeadId String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([organizationId, kind, value])
+  @@index([organizationId, kind])
 }
 
 // ============================================
@@ -976,6 +1094,26 @@ model Playbook {
   /// commercial mail, and its absence is itself a spam-filter signal.
   identityPostalAddress String?
 
+  /// Who this line of business targets, and what it must not do.
+  ///
+  /// Job titles, decision-maker patterns and the forbidden-form list used to be
+  /// constants in code, tuned for one industry and shared by every playbook —
+  /// so launching a second vertical meant editing source, and the edit silently
+  /// re-graded the first. Shape:
+  ///
+  ///   {
+  ///     "targetTitles": ["General Manager", "Dealer Principal"],
+  ///     "decisionMakerPatterns": ["general manager", "principal", "owner"],
+  ///     "forbiddenFormIntents": ["test drive", "trade-in valuation"],
+  ///     "gatekeeperRoleLabel": "receptionist",
+  ///     "sourcingHints": ["franchise dealership", "rooftop"]
+  ///   }
+  ///
+  /// Anything omitted falls back to the platform defaults. Human-edited only —
+  /// an agent that can redefine its own targeting can quietly point the whole
+  /// operation at the wrong market.
+  icp Json?
+
   /// Mailboxes outreach under this playbook sends through. Null falls back to
   /// any cold-outreach mailbox the org has.
   senderPoolId String?
@@ -1007,6 +1145,9 @@ enum CalendarEventStatus {
   SCHEDULED
   COMPLETED
   CANCELLED
+  /// Start time passed with no outcome recorded. Distinct from COMPLETED so a
+  /// meeting nobody turned up to can be chased rather than counted as a win.
+  NO_SHOW
 }
 
 model CalendarEvent {

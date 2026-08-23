@@ -212,3 +212,122 @@
     }
   }
 }
+
+// --- upcoming touches -------------------------------------------------------
+
+.schedule-card {
+  margin-top: $spacing-lg;
+
+  .card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: $spacing-md;
+    margin-bottom: $spacing-md;
+
+    h2 { margin: 0; font-size: $font-size-lg; }
+    .subtitle {
+      margin: $spacing-xs 0 0;
+      color: var(--text-secondary);
+      font-size: $font-size-sm;
+      max-width: 68ch;
+    }
+  }
+}
+
+.touch-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.touch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  padding: $spacing-sm 0;
+  border-top: 1px solid var(--border-primary);
+  flex-wrap: wrap;
+
+  &.blocked { opacity: 0.65; }
+
+  .touch-who {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 220px;
+
+    a { font-weight: 500; text-decoration: none; color: var(--text-primary); }
+    a:hover { text-decoration: underline; }
+  }
+
+  .touch-meta { font-size: $font-size-xs; color: var(--text-tertiary); }
+  .touch-blocked { font-size: $font-size-xs; color: var(--warning, #d97706); }
+
+  .touch-when {
+    display: flex;
+    align-items: center;
+    gap: $spacing-sm;
+  }
+
+  .due {
+    font-size: $font-size-sm;
+    color: var(--text-secondary);
+    min-width: 76px;
+    text-align: right;
+  }
+}
+
+.date-input {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-sm;
+  padding: 4px 8px;
+  font-size: $font-size-sm;
+  font-family: inherit;
+
+  &:focus-visible { outline: 2px solid $primary-blue; outline-offset: 1px; }
+  &:disabled { opacity: 0.5; }
+}
+
+// --- repeat-pass angles -----------------------------------------------------
+
+.cycles {
+  margin-top: $spacing-lg;
+  padding-top: $spacing-md;
+  border-top: 1px solid var(--border-primary);
+
+  h3 { margin: 0; font-size: $font-size-base; }
+  .subtitle {
+    margin: $spacing-xs 0 $spacing-md;
+    color: var(--text-secondary);
+    font-size: $font-size-sm;
+    max-width: 68ch;
+  }
+}
+
+.cycle-row {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm 0;
+  flex-wrap: wrap;
+
+  .cycle-label {
+    font-weight: 500;
+    font-size: $font-size-sm;
+    min-width: 62px;
+  }
+
+  .cycle-angle {
+    flex: 1;
+    min-width: 220px;
+    font-size: $font-size-sm;
+    color: var(--text-secondary);
+
+    &.unset { color: var(--text-tertiary); font-style: italic; }
+  }
+
+  .cycle-input { flex: 1; min-width: 260px; }
+}

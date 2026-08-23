@@ -3,6 +3,7 @@ import { prisma } from '../config/database';
 import { AppError } from '../middleware/error.middleware';
 import { JwtPayload, signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt';
 import { isSuperAdmin } from './settings.service';
+import { forgetUserState } from '../middleware/auth.middleware';
 
 const SALT_ROUNDS = 10;
 
@@ -151,6 +152,9 @@ class AuthService {
       where: { id: userId },
       data: { tokenVersion: { increment: 1 } },
     });
+    // The auth middleware caches this for a few seconds; clear it so the
+    // revocation bites on the very next request rather than after the window.
+    forgetUserState(userId);
   }
 
   /**
@@ -240,6 +244,7 @@ class AuthService {
       },
       include: { organization: true },
     });
+    forgetUserState(user.id);
 
     const payload: JwtPayload = {
       userId: updated.id,

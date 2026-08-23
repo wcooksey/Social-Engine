@@ -13,6 +13,7 @@ import {
   outboundBlockReason,
   recordCampaignTouch,
 } from './outbound.service';
+import { suppressionReason } from './suppression.service';
 import { recordSend } from './experiment.service';
 import {
   markMailboxSent,
@@ -147,6 +148,17 @@ async function deliver(messageId: string, now: Date): Promise<Outcome> {
   }
   if (contact.optedOut || contact.emailStatus) {
     await close(message.id, 'cancelled', organizationId, lead.id, `Queued email cancelled — ${contact.email} is ${contact.emailStatus || 'opted out'}.`);
+    return 'cancelled';
+  }
+  // The standing list, re-checked here because a message composed hours ago may
+  // be addressed to someone who has opted out since.
+  const suppressed = await suppressionReason(organizationId, { email: contact.email });
+  if (suppressed) {
+    await close(message.id, 'cancelled', organizationId, lead.id, `Queued email cancelled — ${suppressed}`);
+    return 'cancelled';
+  }
+  if (lead.contactReviewReason) {
+    await close(message.id, 'cancelled', organizationId, lead.id, `Queued email cancelled — ${lead.companyName} is on hold: ${lead.contactReviewReason}`);
     return 'cancelled';
   }
 

@@ -29,6 +29,7 @@ router.get(
         engineModel: true,
         coachModel: true,
         dailySendCap: true,
+        dailyAiSpendCapUsd: true,
         quietHoursStart: true,
         quietHoursEnd: true,
         paused: true,
@@ -49,6 +50,20 @@ router.patch(
     const data: Record<string, unknown> = {};
     for (const key of allowed) {
       if (key in req.body) data[key] = req.body[key];
+    }
+
+    // Daily AI spend ceiling. Blank clears it back to no limit.
+    if ('dailyAiSpendCapUsd' in req.body) {
+      const raw = req.body.dailyAiSpendCapUsd;
+      if (raw === null || raw === '' || raw === undefined) {
+        data.dailyAiSpendCapUsd = null;
+      } else {
+        const amount = Number(raw);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          throw new AppError('Daily AI spend cap must be a positive amount, or blank for no limit');
+        }
+        data.dailyAiSpendCapUsd = amount;
+      }
     }
 
     if ('name' in req.body) {

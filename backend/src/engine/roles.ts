@@ -28,6 +28,10 @@ const SHARED = [
   // Every role benefits from knowing what the platform can actually send today
   // before it plans work that depends on it.
   'get_sending_capacity',
+  // Replying well means reading what was actually said, not a summary of it.
+  'read_conversation',
+  // Durable working notes: survive context trimming and carry into a retry.
+  'remember',
 ];
 
 export const ROLES: Record<AgentRole, RoleDefinition> = {
@@ -58,6 +62,8 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
       'verify_email',
       'record_enrichment_attempt',
       'find_business_page',
+      // Establishing whether a held location is a separate business is research.
+      'clear_contact_review',
     ],
   },
   CALLER: {
@@ -85,6 +91,7 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
       'submit_contact_form',
       'check_social_inbox',
       'create_campaign',
+      'update_campaign',
       'add_leads_to_campaign',
       'create_calendar_event',
       'update_calendar_event',
