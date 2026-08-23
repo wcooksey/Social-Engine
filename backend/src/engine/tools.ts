@@ -113,7 +113,7 @@ export const engineTools: Anthropic.Tool[] = [
   {
     name: 'fetch_page',
     description:
-      'Fetch a web page and return its readable text content. Use to research a business website, find contact/about pages, emails, phone numbers, and social links.',
+      "Fetch a web page. Returns any emails, phone numbers and named people with titles it can find as a short `found` list, plus a bounded excerpt of the page text. Use for researching a business website, contact/about pages and social links. The `found` list is the answer to most contact-hunting questions — read it before the excerpt. If the excerpt comes back `truncated` and you still need something specific, fetch the more specific page (e.g. /about, /our-team) rather than asking for this one again.",
     input_schema: {
       type: 'object' as const,
       properties: { url: { type: 'string', description: 'Absolute http(s) URL' } },
@@ -895,6 +895,21 @@ export const engineTools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'remember',
+    description:
+      "Write down something you have established, so it survives. Notes are kept outside the conversation, so they are not lost when older context is trimmed, and they are handed to the next attempt if this job is retried — meaning a retry resumes instead of redoing work. Use it as you go, not at the end: after finishing a coverage cell, after establishing a fact about an account, after deciding an approach, and before starting anything long. Write facts and decisions, not narration — 'Morgan Auto: 3 rooftops, one owner, GM is Dana Reeves' beats 'I looked at some dealerships'.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        note: {
+          type: 'string',
+          description: 'One finding or decision, in a sentence or two.',
+        },
+      },
+      required: ['note'],
+    },
+  },
+  {
     name: 'clear_contact_review',
     description:
       "Release — or confirm the hold on — a lead that was put on hold because a location sharing its website opted out. Call this only after establishing whether it is genuinely a separate business (ownership on its site, an 'our locations' page, corporate registries). Release it only on real evidence of separate ownership; if the evidence is weak or absent, keep the hold and say why. Contacting someone who told us to stop is the expensive mistake here, so err toward keeping the hold.",
@@ -1055,6 +1070,13 @@ async function requireLead(leadId: string, organizationId: string) {
   if (!lead) throw new Error(`Lead ${leadId} not found in this organization`);
   return lead;
 }
+
+/**
+ * Cap on a run's working notes. Generous enough for a long research run's
+ * findings, small enough that it stays cheap to carry into the next attempt.
+ * Oldest notes fall off first.
+ */
+const WORKING_NOTES_LIMIT = 6000;
 
 /** Send tools throw before any draft or send when a lead has opted out. */
 function assertContactable(lead: { doNotContact: boolean; companyName: string }): void {
@@ -3192,6 +3214,33 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
           ? 'No capacity left today. Cold email sent now will be queued for when a mailbox frees up, not delivered immediately — plan research or calls instead.'
           : `About ${remainingToday} cold email(s) can go out today across ${sendable.length} mailbox(es).`,
     };
+  },
+
+  remember: async (input, ctx) => {
+    const note = String(input.note || '').trim();
+    if (!note) throw new Error('note is required');
+
+    const run = await prisma.agentRun.findFirst({
+      where: { id: ctx.runId, organizationId: ctx.organizationId },
+      select: { workingNotes: true },
+    });
+    if (!run) throw new Error('Run not found');
+
+    // Appended with a marker rather than rewritten, so one note can never
+    // clobber another, and bounded so a looping agent cannot grow it forever.
+    const line = `- ${note.slice(0, 500)}`;
+    const combined = run.workingNotes ? `${run.workingNotes}\n${line}` : line;
+    const trimmed =
+      combined.length > WORKING_NOTES_LIMIT
+        ? combined.slice(combined.length - WORKING_NOTES_LIMIT).replace(/^[^\n]*\n/, '')
+        : combined;
+
+    await prisma.agentRun.update({
+      where: { id: ctx.runId },
+      data: { workingNotes: trimmed },
+    });
+    const count = trimmed.split('\n').filter(Boolean).length;
+    return { remembered: true, noteCount: count };
   },
 
   clear_contact_review: async (input, ctx) => {

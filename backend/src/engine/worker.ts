@@ -64,6 +64,8 @@ interface ClaimedJob {
   campaignId: string | null;
   attempts: number;
   payload: unknown;
+  /** Findings carried over from a previous attempt at this job. */
+  workingNotes: string | null;
 }
 
 /** Key for the per-playbook tally; unfiled jobs share one bucket per org. */
@@ -191,6 +193,7 @@ async function claimNextJob(
       campaignId: job.campaignId,
       attempts: job.attempts + 1,
       payload: job.payload,
+      workingNotes: job.workingNotes,
     };
   }
   return null;
@@ -250,11 +253,20 @@ async function runJob(job: ClaimedJob): Promise<void> {
         trigger: 'SCHEDULED_JOB',
         role: job.role,
         objective,
+        // What the last attempt at this job established. A retry used to replay
+        // the objective with no memory of it and redo the work at full price.
+        priorNotes: job.workingNotes ?? undefined,
         // Keeps the line of business intact through the chain: work this run
         // schedules inherits the playbook and counts against its allowance.
         playbookId: job.playbookId ?? undefined,
       }),
-      new Promise<{ runId?: string; status: 'FAILED'; error: string; finalText?: string }>((resolve) =>
+      new Promise<{
+        runId?: string;
+        status: 'FAILED';
+        error: string;
+        finalText?: string;
+        workingNotes?: string;
+      }>((resolve) =>
         setTimeout(
           () => resolve({ status: 'FAILED', error: `Run exceeded its ${RUN_DEADLINE_MS / 60000}-minute deadline and was abandoned` }),
           RUN_DEADLINE_MS
@@ -266,6 +278,14 @@ async function runJob(job: ClaimedJob): Promise<void> {
     // objective an operator just stopped — the emergency brake over an
     // autonomous fleet has to actually hold.
     const cancelled = result.status === 'CANCELLED';
+
+    // Carry findings to the next attempt before the status write, so they
+    // survive even a job that is about to be marked failed.
+    if (result.workingNotes) {
+      await prisma.agentJob
+        .update({ where: { id: job.id }, data: { workingNotes: result.workingNotes } })
+        .catch(() => undefined);
+    }
 
     await prisma.agentJob.update({
       where: { id: job.id },

@@ -30,6 +30,8 @@ const SHARED = [
   'get_sending_capacity',
   // Replying well means reading what was actually said, not a summary of it.
   'read_conversation',
+  // Durable working notes: survive context trimming and carry into a retry.
+  'remember',
 ];
 
 export const ROLES: Record<AgentRole, RoleDefinition> = {

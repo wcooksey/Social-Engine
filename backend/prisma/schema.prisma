@@ -592,6 +592,15 @@ model AgentRun {
   model          String?         // model that actually served the run (after any failover)
   status         AgentRunStatus  @default(RUNNING)
   summary        String?         // written by the Engine at the end (rolling memory)
+  /// Findings the agent recorded WHILE working, via the remember tool.
+  ///
+  /// Separate from `summary`, which is written once at the end and is therefore
+  /// lost when a run dies. These notes are durable the moment they are written,
+  /// live outside the message history so trimming context cannot drop them, and
+  /// are handed to the next attempt when a job retries — which previously
+  /// replayed the whole objective with no memory of what the failed attempt had
+  /// already done.
+  workingNotes   String?
   error          String?
   inputTokens    Int             @default(0)
   outputTokens   Int             @default(0)
@@ -662,6 +671,9 @@ model AgentJob {
   role      AgentRole      @default(COORDINATOR)
   objective String       // instruction the Engine executes when the job fires
   payload   Json?
+  /// Carried forward from the previous attempt's working notes, so a retry
+  /// resumes rather than starting the objective from scratch.
+  workingNotes String?
   runAt     DateTime
   status    AgentJobStatus @default(PENDING)
   attempts  Int            @default(0)

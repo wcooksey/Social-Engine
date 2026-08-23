@@ -48,10 +48,23 @@ export interface RunEngineOptions {
   /** Start parked, advancing only when the operator steps it (watch mode). */
   watch?: boolean;
   /**
+   * Working notes from a previous attempt at this job. Handed to the run so a
+   * retry resumes rather than repeating what the failed attempt already did.
+   */
+  priorNotes?: string;
+  /**
    * Sandbox rehearsal: real prompt, playbooks, role and tools, but every
    * side-effecting tool is intercepted so nothing reaches a real person.
    */
   simulate?: boolean;
+}
+
+/** Whatever this run wrote down, for the next attempt to inherit. */
+async function readWorkingNotes(runId: string): Promise<string | undefined> {
+  const row = await prisma.agentRun
+    .findUnique({ where: { id: runId }, select: { workingNotes: true } })
+    .catch(() => null);
+  return row?.workingNotes ?? undefined;
 }
 
 export interface RunEngineResult {
@@ -59,6 +72,8 @@ export interface RunEngineResult {
   status: 'COMPLETED' | 'FAILED' | 'CANCELLED';
   finalText: string;
   error?: string;
+  /** What the run recorded via `remember`, for the next attempt to inherit. */
+  workingNotes?: string;
 }
 
 const llmTools: LlmToolDefinition[] = engineTools.map((t) => ({
@@ -102,6 +117,9 @@ class EngineService {
         role,
         objective: options.objective.slice(0, 2000),
         model,
+        // Inherited, so the notes accumulate across attempts at one job rather
+        // than each retry starting blank.
+        workingNotes: options.priorNotes || undefined,
       },
     });
     const ctx: ToolContext = {
@@ -150,11 +168,17 @@ class EngineService {
       });
     };
 
+    const objectiveWithNotes = options.priorNotes
+      ? `${options.objective}\n\n--- What a previous attempt at this already established ---\n` +
+        `${options.priorNotes}\n\nBuild on these rather than redoing the work. Use the remember ` +
+        'tool to add anything further you establish.'
+      : options.objective;
+
     const messages: LlmMessage[] = [
       ...(options.history ?? []).map(
         (m): LlmMessage => ({ role: m.role, content: m.content })
       ),
-      { role: 'user', content: options.objective },
+      { role: 'user', content: objectiveWithNotes },
     ];
     const orgConfig = await getOrgConfig(options.organizationId);
     const providerKeys: ProviderKeys = orgConfig.providerKeys;
@@ -282,7 +306,12 @@ class EngineService {
         },
       });
       runRegistry.finishRun(run.id, 'COMPLETED');
-      return { runId: run.id, status: 'COMPLETED', finalText };
+      return {
+        runId: run.id,
+        status: 'COMPLETED',
+        finalText,
+        workingNotes: await readWorkingNotes(run.id),
+      };
     } catch (err) {
       // An operator cancel is a clean stop, not a failure — it keeps whatever
       // work already landed and reports the partial result.
@@ -312,11 +341,24 @@ class EngineService {
 
       if (cancelled) {
         runRegistry.finishRun(run.id, 'CANCELLED');
-        return { runId: run.id, status: 'CANCELLED', finalText };
+        return {
+          runId: run.id,
+          status: 'CANCELLED',
+          finalText,
+          workingNotes: await readWorkingNotes(run.id),
+        };
       }
       emit({ type: 'error', message });
       runRegistry.finishRun(run.id, 'FAILED');
-      return { runId: run.id, status: 'FAILED', finalText, error: message };
+      // Especially on failure: this is the attempt whose work would otherwise
+      // be repeated wholesale by the retry.
+      return {
+        runId: run.id,
+        status: 'FAILED',
+        finalText,
+        error: message,
+        workingNotes: await readWorkingNotes(run.id),
+      };
     }
   }
 }
