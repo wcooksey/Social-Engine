@@ -60,6 +60,8 @@ export const ROLES: Record<AgentRole, RoleDefinition> = {
       'verify_email',
       'record_enrichment_attempt',
       'find_business_page',
+      // Establishing whether a held location is a separate business is research.
+      'clear_contact_review',
     ],
   },
   CALLER: {

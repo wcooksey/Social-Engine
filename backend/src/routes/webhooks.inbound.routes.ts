@@ -7,6 +7,8 @@ import { multipartFormData } from '../middleware/multipart.middleware';
 import { handleInbound } from '../services/inbound.service';
 import { recomputeLeadEnrichment } from '../services/lead-enrichment.service';
 import { recordMailboxEvent } from '../services/sender.service';
+import { suppress } from '../services/suppression.service';
+import { resolveOrg } from '../services/settings.service';
 
 const router = Router();
 
@@ -114,36 +116,91 @@ router.post(
 );
 
 /**
+ * Which organization a social webhook call is for.
+ *
+ * The tenant is derived from the SECRET, never from the request body. Email and
+ * SMS resolve their org from the recipient address or number, which the sender
+ * cannot choose; social bridges have no such anchor, so a body-supplied
+ * organizationId behind one deployment-wide secret let anyone holding that
+ * secret write a fabricated reply into any tenant — flipping a lead to engaged,
+ * pausing its cadence and queueing an SDR job carrying the attacker's text.
+ *
+ * A per-organization secret (Settings → Integrations) identifies the tenant on
+ * its own. The deployment-wide secret still works, but only where it cannot be
+ * ambiguous: a single-organization install.
+ */
+async function resolveSocialOrg(
+  slug: string | undefined,
+  provided: unknown
+): Promise<{ organizationId?: string; error?: string }> {
+  if (typeof provided !== 'string' || provided.length === 0) {
+    return { error: 'missing secret' };
+  }
+
+  if (slug) {
+    const org = await prisma.organization.findUnique({ where: { slug }, select: { id: true } });
+    if (!org) return { error: 'unknown organization' };
+    const secret = await resolveOrg(org.id, 'INBOUND_WEBHOOK_SECRET');
+    if (!secret || !timingSafeMatch(provided, secret)) return { error: 'bad secret' };
+    return { organizationId: org.id };
+  }
+
+  // No slug: only safe when the deployment holds a single organization, since
+  // the platform secret says nothing about which tenant is meant.
+  if (!checkSecret(provided)) return { error: 'bad secret' };
+  const orgs = await prisma.organization.findMany({ select: { id: true }, take: 2 });
+  if (orgs.length === 1) return { organizationId: orgs[0].id };
+  return {
+    error:
+      'this deployment hosts multiple organizations — post to /api/webhooks/inbound/social/<org-slug> with that organization\'s own inbound webhook secret',
+  };
+}
+
+function timingSafeMatch(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/**
  * Generic social inbound. Forward DMs from a bridge (ManyChat / GoHighLevel /
  * Make / a native Graph API webhook) here as JSON so the AI can reply two-way.
  * Match by socialHandle, or pass leadId/contactId directly if the bridge knows them.
  */
-router.post(
-  '/social',
-  asyncHandler(async (req, res) => {
-    if (!checkSecret(req.query.secret || req.headers['x-inbound-secret'])) {
-      rejectUnauthorized(res);
-      return;
-    }
-    const body = req.body || {};
-    const result = await handleInbound({
-      organizationId: body.organizationId,
-      channel: 'SOCIAL',
-      socialHandle: body.socialHandle || body.from,
-      leadId: body.leadId,
-      contactId: body.contactId,
-      body: String(body.text || body.message || ''),
-      externalId: body.id,
+const handleSocialInbound = asyncHandler(async (req, res) => {
+  const resolved = await resolveSocialOrg(
+    req.params.orgSlug,
+    req.query.secret || req.headers['x-inbound-secret']
+  );
+  if (!resolved.organizationId) {
+    // Deliberately terse to the caller; the reason is logged, not returned.
+    console.warn(`Inbound social rejected: ${resolved.error}`);
+    rejectUnauthorized(res);
+    return;
+  }
+
+  const body = req.body || {};
+  const result = await handleInbound({
+    // From the authenticated secret, never from the body.
+    organizationId: resolved.organizationId,
+    channel: 'SOCIAL',
+    socialHandle: body.socialHandle || body.from,
+    leadId: body.leadId,
+    contactId: body.contactId,
+    body: String(body.text || body.message || ''),
+    externalId: body.id,
+  });
+  if (!result.matched) {
+    logDropped('social', result.reason || 'no match', {
+      handle: body.socialHandle || body.from,
+      organizationId: resolved.organizationId,
     });
-    if (!result.matched) {
-      logDropped('social', result.reason || 'no match', {
-        handle: body.socialHandle || body.from,
-        organizationId: body.organizationId,
-      });
-    }
-    res.json({ success: true, data: result });
-  })
-);
+  }
+  res.json({ success: true, data: result });
+});
+
+router.post('/social', handleSocialInbound);
+router.post('/social/:orgSlug', handleSocialInbound);
 
 /**
  * Mailgun event webhook (deliverability). Point Mailgun's "permanent failure"
@@ -267,6 +324,14 @@ router.post(
       // A spam complaint is a hard opt-out signal across all channels.
       if (isComplaint) {
         await prisma.lead.update({ where: { id: contact.leadId }, data: { doNotContact: true } });
+        await suppress({
+          organizationId: contact.organizationId,
+          kind: 'EMAIL',
+          value: recipient,
+          reason: 'Marked our mail as spam',
+          source: 'spam_complaint',
+          originLeadId: contact.leadId,
+        });
       }
       // A dead/complained address stops counting as a usable email — the lead's
       // enrichment tier must reflect that it just got harder to reach.

@@ -67,6 +67,7 @@ model Organization {
   emailDomains EmailDomain[]
   mailboxes    Mailbox[]
   senderPools  SenderPool[]
+  suppressions Suppression[]
 }
 
 model User {
@@ -197,6 +198,11 @@ model Lead {
   /// the real identity for a physical location, so two rooftops of the same
   /// group stay two leads.
   placeId     String?
+  /// Set when a sibling location sharing this lead's website opted out. The
+  /// rooftops are legally separate businesses, so this is not an opt-out — it
+  /// is a "check before contacting", cleared once the Engine or a human has
+  /// established whether they are genuinely independent.
+  contactReviewReason String?
   phone       String?
   /// Last 10 digits of `phone`, kept in step by the lead service. Stored so
   /// phone dedup is an indexed lookup: it used to scan an arbitrary unordered
@@ -753,6 +759,49 @@ model PlatformSetting {
   key       String   @unique
   value     String
   updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// SUPPRESSION (opt-out that outlives the lead row)
+// ============================================
+
+enum SuppressionKind {
+  EMAIL
+  PHONE
+  /// Every address at a company, e.g. after a "remove our whole firm" request.
+  DOMAIN
+}
+
+/// A standing "never contact this" for an organization.
+///
+/// Opt-out used to be a flag on the lead and contact rows, which meant it died
+/// with them: delete a lead, or re-source the same business under a different
+/// name or website, and it came back with the flag cleared and started
+/// receiving mail again — a repeat violation the system could not even detect.
+/// Suppression is keyed on the contact detail itself, so it survives whatever
+/// happens to the records around it.
+model Suppression {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  kind  SuppressionKind
+  /// Normalized: lowercased email/domain, last-10-digits phone.
+  value String
+
+  /// Free text for a human reading the record later.
+  reason String?
+  /// Where it came from: unsubscribe_link | sms_stop | spam_complaint |
+  /// voice_optout | manual | bounce.
+  source String?
+  /// The lead it originated from, for context. Kept even if that lead is later
+  /// deleted, which is the whole point.
+  originLeadId String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([organizationId, kind, value])
+  @@index([organizationId, kind])
 }
 
 // ============================================

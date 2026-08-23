@@ -4,6 +4,7 @@ import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { book, computeSlots, getActiveLink } from '../services/booking.service';
 import { recomputeLeadEnrichment } from '../services/lead-enrichment.service';
 import { verifyToken } from '../utils/signing';
+import { flagSiblingLocations, suppress } from '../services/suppression.service';
 
 /**
  * Public, unauthenticated endpoints that leads interact with directly:
@@ -60,6 +61,18 @@ async function applyUnsubscribe(token: string): Promise<boolean> {
   await prisma.contact.update({ where: { id: contact.id }, data: { optedOut: true } });
   await prisma.lead.update({ where: { id: contact.leadId }, data: { doNotContact: true } });
   await recomputeLeadEnrichment(contact.leadId);
+  // The durable record. The row flags above are what the send tools read, but
+  // they die with the rows; this survives deletion and re-sourcing.
+  if (contact.email) {
+    await suppress({
+      organizationId: contact.organizationId,
+      kind: 'EMAIL',
+      value: contact.email,
+      reason: 'Unsubscribed via email link',
+      source: 'unsubscribe_link',
+      originLeadId: contact.leadId,
+    });
+  }
   await prisma.activity.create({
     data: {
       organizationId: contact.organizationId,
@@ -69,6 +82,13 @@ async function applyUnsubscribe(token: string): Promise<boolean> {
       payload: { optOut: true, via: 'unsubscribe_link' },
     },
   });
+  // Sibling locations sharing this website go on hold pending a check that
+  // they are separate businesses.
+  await flagSiblingLocations(
+    contact.organizationId,
+    contact.leadId,
+    'unsubscribed via email link'
+  ).catch(() => 0);
   return true;
 }
 
