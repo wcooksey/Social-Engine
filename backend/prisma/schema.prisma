@@ -337,6 +337,17 @@ model Campaign {
   aiSummary      String?
   followUpCadenceDays Int       @default(3)
   maxTouches          Int       @default(6)
+  /// Days a worked-out lead rests before the campaign tries again. Null turns
+  /// re-engagement off entirely (one pass, then done — the old behaviour).
+  ///
+  /// Cold outreach usually converts on a later attempt, months apart. Without
+  /// this a lead got six touches over about eighteen days and was then never
+  /// contacted again, so the largest asset the platform builds — thousands of
+  /// enriched, contacted, unconverted businesses — was written off after two
+  /// and a half weeks.
+  reEngageAfterDays   Int?      @default(90)
+  /// How many passes a lead may receive in total, including the first.
+  maxCycles           Int       @default(3)
   // Leads that land in this group are enrolled automatically by the cadence
   // sweep — closes the sourcing -> outreach gap without agent judgment.
   autoEnrollGroupId   String?
@@ -346,6 +357,7 @@ model Campaign {
   updatedAt DateTime @updatedAt
 
   campaignLeads CampaignLead[]
+  cycles        CampaignCycle[]
   autopilotGoals AutopilotGoal[]
   activities    Activity[]
   agentJobs     AgentJob[]
@@ -354,6 +366,27 @@ model Campaign {
 
   @@index([organizationId, status])
   @@index([autoEnrollGroupId])
+}
+
+/// What makes one pass at a lead different from the last.
+///
+/// Repeating the same six emails ninety days later is what gets a sender marked
+/// as spam. Each cycle carries its own angle — a case study that has since
+/// landed, new pricing, a seasonal hook — which the SDR is told to lead with.
+model CampaignCycle {
+  id         String   @id @default(uuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  /// 1-based. Cycle 1 is the first pass, which needs no special angle.
+  cycle Int
+  /// The new thing to lead with this time round.
+  angle String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([campaignId, cycle])
 }
 
 enum CampaignLeadStatus {
@@ -376,6 +409,10 @@ model CampaignLead {
   touchCount Int                @default(0)
   lastTouchAt DateTime?
   nextTouchAt DateTime?
+  /// Which pass this lead is on. 0 until the first touch goes out.
+  cycle       Int                @default(0)
+  /// When this lead ran out of touches and went quiet. Drives re-engagement.
+  dormantSince DateTime?
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
 
@@ -1056,6 +1093,26 @@ model Playbook {
   /// Physical postal address for the email footer. CAN-SPAM requires one on
   /// commercial mail, and its absence is itself a spam-filter signal.
   identityPostalAddress String?
+
+  /// Who this line of business targets, and what it must not do.
+  ///
+  /// Job titles, decision-maker patterns and the forbidden-form list used to be
+  /// constants in code, tuned for one industry and shared by every playbook —
+  /// so launching a second vertical meant editing source, and the edit silently
+  /// re-graded the first. Shape:
+  ///
+  ///   {
+  ///     "targetTitles": ["General Manager", "Dealer Principal"],
+  ///     "decisionMakerPatterns": ["general manager", "principal", "owner"],
+  ///     "forbiddenFormIntents": ["test drive", "trade-in valuation"],
+  ///     "gatekeeperRoleLabel": "receptionist",
+  ///     "sourcingHints": ["franchise dealership", "rooftop"]
+  ///   }
+  ///
+  /// Anything omitted falls back to the platform defaults. Human-edited only —
+  /// an agent that can redefine its own targeting can quietly point the whole
+  /// operation at the wrong market.
+  icp Json?
 
   /// Mailboxes outreach under this playbook sends through. Null falls back to
   /// any cold-outreach mailbox the org has.

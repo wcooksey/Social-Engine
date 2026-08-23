@@ -24,6 +24,7 @@ import {
 import { getOrgConfig } from '../services/settings.service';
 import { markBooked } from '../services/booking.service';
 import { suppressionReason } from '../services/suppression.service';
+import { resolveIcp } from '../services/icp.service';
 import {
   identityFromName,
   identityIntro,
@@ -372,7 +373,8 @@ export const engineTools: Anthropic.Tool[] = [
         titles: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Job titles to target, e.g. ["Owner", "General Manager", "Sales Manager"]',
+          description:
+            'Job titles to target. Omit to use the titles defined for this line of business (its playbook ICP), which is usually right.',
         },
       },
       required: ['leadId'],
@@ -1558,9 +1560,13 @@ const executors: Record<string, ToolExecutor> = {
     if (!domain) {
       return { people: [], note: 'No website/domain on this lead — Apollo searches by company domain. Find the website first.' };
     }
+    // Defaults come from the line of business, not from a constant tuned for
+    // one industry — searching a dental practice for "Sales Manager" finds
+    // nobody and then records the lead as having no decision maker.
+    const icp = await resolveIcp(ctx.organizationId, ctx.playbookId);
     const titles = Array.isArray(input.titles) && input.titles.length
       ? input.titles.map(String)
-      : ['Owner', 'General Manager', 'Sales Manager'];
+      : icp.targetTitles;
     const { people, error } = await apolloPeopleSearch(domain, titles, orgConfig.search.apolloApiKey);
     if (error) return { people: [], error };
 
@@ -2236,6 +2242,7 @@ const executors: Record<string, ToolExecutor> = {
       ? buildCallTools({ hasSms: capabilities.canText, hasBookingLink: capabilities.canBook })
       : [];
 
+    const callIcp = await resolveIcp(ctx.organizationId, ctx.playbookId);
     const systemPrompt = buildCallSystemPrompt({
       organizationName: identity.orgName,
       callerIdentity: identity.personName ? identityIntro(identity) : undefined,
@@ -2248,6 +2255,10 @@ const executors: Record<string, ToolExecutor> = {
         recentTimeline: recentActivities.map((a) => `${a.type}: ${a.summary}`),
       },
       voicePlaybooks,
+      // Ask for the role this industry actually uses. "Is the general manager
+      // around?" is right for a dealership and wrong for a dental practice.
+      decisionMakerRole: callIcp.targetTitles[0],
+      gatekeeperRole: callIcp.gatekeeperRoleLabel,
       capabilities,
     });
     const caller = identity.personName
@@ -2403,6 +2414,10 @@ const executors: Record<string, ToolExecutor> = {
     }
     const senderName = orgConfig.outreachIdentity.name?.trim() || org?.name || 'Sales team';
     const senderPhone = orgConfig.outreachIdentity.phone?.trim() || orgConfig.twilio.fromNumber || '';
+    // Which enquiry types create an obligation is industry-specific: a test
+    // drive for a dealership, a sample request for a lab, an appointment for a
+    // clinic. The list belongs to the line of business, not to this file.
+    const formIcp = await resolveIcp(ctx.organizationId, ctx.playbookId);
 
     const record = async (status: string, summary: string, extra?: Record<string, unknown>) => {
       const conversation =
@@ -2456,8 +2471,8 @@ const executors: Record<string, ToolExecutor> = {
 ${input.subject ? `- Subject: ${input.subject}\n` : ''}- Message: "${input.message}"
 
 Rules:
-- This must be a general enquiry/contact form. Do NOT submit a form that books a test drive, requests a vehicle quote, applies for financing, or schedules service — those create real obligations for the business. If only those exist, do not submit anything and report what you found.
-- Fill required fields only. If a required field asks for something we do not have (a VIN, a vehicle of interest, a trade-in), pick the most neutral option available, and if none is neutral, abandon the form and report why.
+- This must be a general enquiry/contact form. Do NOT submit a form that creates a real obligation for the business — for this line of business that means anything about: ${formIcp.forbiddenFormIntents.join('; ')}. If only those exist, do not submit anything and report what you found.
+- Fill required fields only. If a required field asks for something we do not have, pick the most neutral option available, and if none is neutral, abandon the form and report why.
 - Submit ONCE, then confirm the page showed a success/thank-you message. Never resubmit.
 - If a CAPTCHA blocks submission, do not attempt to solve it — abandon and report that a CAPTCHA stopped you.`,
       startUrl,

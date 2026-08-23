@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CampaignsService } from '../../core/services/campaigns.service';
@@ -7,8 +7,12 @@ import {
   CampaignActivity,
   CampaignLeadEntry,
   CampaignLeadStatus,
-  CampaignStatus
+  CampaignSchedule,
+  CampaignStatus,
+  ScheduledTouch
 } from '../../core/models/campaign.model';
+import { FormsModule } from '@angular/forms';
+import { InputComponent } from '../../shared/components/input/input.component';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { ButtonComponent } from '../../shared/components/button/button.component';
 import { BadgeComponent, BadgeVariant } from '../../shared/components/badge/badge.component';
@@ -20,7 +24,9 @@ import { ToastService } from '../../core/services/toast.service';
   standalone: true,
   imports: [
     CommonModule,
+    FormsModule,
     RouterLink,
+    InputComponent,
     CardComponent,
     ButtonComponent,
     BadgeComponent,
@@ -50,6 +56,24 @@ export class CampaignDetailComponent implements OnInit {
     { key: 'nextTouchAt', header: 'Next touch' }
   ];
 
+  // --- schedule -----------------------------------------------------------
+  schedule = signal<CampaignSchedule | null>(null);
+  loadingSchedule = signal(true);
+  savingTouchId = signal<string | null>(null);
+  editingCycle = signal<number | null>(null);
+  cycleAngle = signal('');
+
+  /** Repeat passes that could carry an angle, whether one is written yet or not. */
+  cycleSlots = computed<{ cycle: number; angle: string | null }[]>(() => {
+    const s = this.schedule();
+    if (!s) return [];
+    const byCycle = new Map(s.cycles.map(c => [c.cycle, c.angle]));
+    return Array.from({ length: Math.max(0, s.maxCycles - 1) }, (_, i) => {
+      const cycle = i + 2;
+      return { cycle, angle: byCycle.get(cycle) ?? null };
+    });
+  });
+
   private id = '';
 
   constructor(
@@ -63,6 +87,100 @@ export class CampaignDetailComponent implements OnInit {
     this.id = this.route.snapshot.paramMap.get('id') || '';
     this.load();
     this.loadActivity();
+    this.loadSchedule();
+  }
+
+  // --- schedule -----------------------------------------------------------
+
+  loadSchedule(): void {
+    this.loadingSchedule.set(true);
+    this.campaignsService.schedule(this.id).subscribe({
+      next: (s) => {
+        this.schedule.set(s);
+        this.loadingSchedule.set(false);
+      },
+      error: () => this.loadingSchedule.set(false)
+    });
+  }
+
+  /** Date input wants yyyy-MM-dd; the API speaks ISO. */
+  touchDateValue(touch: ScheduledTouch): string {
+    if (!touch.nextTouchAt) return '';
+    return new Date(touch.nextTouchAt).toISOString().slice(0, 10);
+  }
+
+  rescheduleTouch(touch: ScheduledTouch, value: string): void {
+    // Midday, so a timezone shift can't move it to the previous day.
+    const iso = value ? new Date(`${value}T12:00:00`).toISOString() : null;
+    this.savingTouchId.set(touch.id);
+    this.campaignsService.updateTouch(this.id, touch.id, { nextTouchAt: iso }).subscribe({
+      next: () => {
+        this.savingTouchId.set(null);
+        this.toast.success(value ? `${touch.companyName} moved to ${value}.` : `${touch.companyName} is now due immediately.`);
+        this.loadSchedule();
+      },
+      error: () => {
+        this.savingTouchId.set(null);
+        this.toast.error('Could not move that touch');
+      }
+    });
+  }
+
+  removeFromSequence(touch: ScheduledTouch): void {
+    if (!confirm(`Stop contacting ${touch.companyName} in this campaign? Their history is kept.`)) return;
+    this.savingTouchId.set(touch.id);
+    this.campaignsService.updateTouch(this.id, touch.id, { status: 'REMOVED' }).subscribe({
+      next: () => {
+        this.savingTouchId.set(null);
+        this.toast.success(`${touch.companyName} removed from the sequence.`);
+        this.loadSchedule();
+      },
+      error: () => {
+        this.savingTouchId.set(null);
+        this.toast.error('Could not remove that lead');
+      }
+    });
+  }
+
+  dueLabel(touch: ScheduledTouch): string {
+    if (!touch.nextTouchAt) return 'Due now';
+    const days = Math.round((new Date(touch.nextTouchAt).getTime() - Date.now()) / 86_400_000);
+    if (days <= 0) return 'Due now';
+    if (days === 1) return 'Tomorrow';
+    return `In ${days} days`;
+  }
+
+  // --- cycle angles --------------------------------------------------------
+
+  startEditingCycle(cycle: number, angle: string | null): void {
+    this.editingCycle.set(cycle);
+    this.cycleAngle.set(angle ?? '');
+  }
+
+  saveCycleAngle(cycle: number): void {
+    const angle = this.cycleAngle().trim();
+    if (!angle) {
+      this.toast.error('Say what is new this time round');
+      return;
+    }
+    this.campaignsService.saveCycleAngle(this.id, cycle, angle).subscribe({
+      next: () => {
+        this.editingCycle.set(null);
+        this.toast.success(`Pass ${cycle} will lead with that.`);
+        this.loadSchedule();
+      },
+      error: () => this.toast.error('Could not save that angle')
+    });
+  }
+
+  clearCycleAngle(cycle: number): void {
+    this.campaignsService.deleteCycleAngle(this.id, cycle).subscribe({
+      next: () => {
+        this.editingCycle.set(null);
+        this.loadSchedule();
+      },
+      error: () => this.toast.error('Could not clear that angle')
+    });
   }
 
   load(): void {

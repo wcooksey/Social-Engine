@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
-import { Campaign, CampaignActivityPage, CampaignChannel, CampaignMode } from '../models/campaign.model';
+import { Campaign, CampaignActivityPage, CampaignChannel, CampaignMode, CampaignSchedule } from '../models/campaign.model';
 
 export interface CampaignInput {
   name: string;
@@ -15,6 +15,28 @@ export interface CampaignInput {
 @Injectable({ providedIn: 'root' })
 export class CampaignsService {
   private api = inject(ApiService);
+
+  /** The next fortnight of scheduled touches for one campaign. */
+  schedule(id: string, days = 14): Observable<CampaignSchedule> {
+    return this.api.get<CampaignSchedule>(`/api/campaigns/${id}/schedule`, { days });
+  }
+
+  /** Move or drop one lead's next touch. */
+  updateTouch(
+    campaignId: string,
+    campaignLeadId: string,
+    body: { nextTouchAt?: string | null; status?: string }
+  ): Observable<unknown> {
+    return this.api.patch(`/api/campaigns/${campaignId}/schedule/${campaignLeadId}`, body);
+  }
+
+  saveCycleAngle(campaignId: string, cycle: number, angle: string): Observable<unknown> {
+    return this.api.put(`/api/campaigns/${campaignId}/cycles/${cycle}`, { angle });
+  }
+
+  deleteCycleAngle(campaignId: string, cycle: number): Observable<unknown> {
+    return this.api.delete(`/api/campaigns/${campaignId}/cycles/${cycle}`);
+  }
 
   list(): Observable<Campaign[]> {
     return this.api.get<Campaign[]>('/api/campaigns');

@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
+import { forgetIcpCache } from '../services/icp.service';
 
 const router = Router();
 
@@ -53,6 +55,51 @@ async function senderPoolData(
   const pool = await prisma.senderPool.findFirst({ where: { id, organizationId } });
   if (!pool) throw new AppError('Sender pool not found');
   return { senderPoolId: pool.id };
+}
+
+/**
+ * The ICP block, validated into a known shape.
+ *
+ * Stored as JSON so a vertical's definition is a row rather than a deploy, but
+ * validated on the way in so a typo cannot silently switch a list off — an
+ * empty decision-maker list would grade every lead as having no decision maker.
+ */
+const ICP_LIST_FIELDS = [
+  'targetTitles',
+  'decisionMakerPatterns',
+  'forbiddenFormIntents',
+  'sourcingHints',
+] as const;
+
+type IcpUpdate = { icp?: Prisma.InputJsonValue | typeof Prisma.DbNull };
+
+function icpData(body: Record<string, unknown>): IcpUpdate {
+  if (!('icp' in body)) return {};
+  const raw = body.icp;
+  // DbNull rather than null: Prisma distinguishes "SQL NULL" from "JSON null".
+  if (raw === null || raw === '') return { icp: Prisma.DbNull };
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new AppError('icp must be an object');
+  }
+
+  const input = raw as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of ICP_LIST_FIELDS) {
+    if (!(key in input)) continue;
+    const value = input[key];
+    if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
+      throw new AppError(`${key} must be a list of strings`);
+    }
+    const items = value.map((v) => String(v).trim()).filter(Boolean);
+    // An empty list would read as "nothing qualifies" rather than "use the
+    // defaults", so it is stored as absent.
+    if (items.length) out[key] = items;
+  }
+  if ('gatekeeperRoleLabel' in input) {
+    const label = String(input.gatekeeperRoleLabel ?? '').trim();
+    if (label) out.gatekeeperRoleLabel = label;
+  }
+  return { icp: Object.keys(out).length ? (out as Prisma.InputJsonValue) : Prisma.DbNull };
 }
 
 async function validateScopeTarget(
@@ -112,10 +159,12 @@ router.post(
         isActive: req.body.isActive ?? true,
         priority: req.body.priority ?? 100,
         ...identityData(req.body),
+        ...icpData(req.body),
         ...(await senderPoolData(req.body, req.user!.organizationId)),
       },
       include: includeRelations,
     });
+    forgetIcpCache(req.user!.organizationId);
     res.status(201).json({ success: true, data: playbook });
   })
 );
@@ -130,6 +179,7 @@ router.patch(
 
     const data: Record<string, unknown> = {
       ...identityData(req.body),
+      ...icpData(req.body),
       ...(await senderPoolData(req.body, req.user!.organizationId)),
     };
     for (const key of ['name', 'instructions', 'channel', 'isActive', 'priority'] as const) {
@@ -148,6 +198,7 @@ router.patch(
       data,
       include: includeRelations,
     });
+    forgetIcpCache(req.user!.organizationId);
     res.json({ success: true, data: playbook });
   })
 );
