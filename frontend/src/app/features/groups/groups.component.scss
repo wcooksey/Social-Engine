@@ -211,3 +211,43 @@
     }
   }
 }
+
+/* The orphan pool: leads that outlived a deleted group. Deliberately quiet —
+   it is information, not an error — but always present while the pool is
+   non-empty, because the alternative is leads that inflate every total from
+   somewhere you cannot see. */
+.ungrouped-card {
+  display: block;
+  margin-top: $spacing-lg;
+}
+
+.ungrouped-body {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-md;
+
+  > i {
+    font-size: 1.25rem;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  > div { flex: 1; min-width: 0; }
+
+  strong { display: block; margin-bottom: $spacing-xs; }
+
+  p {
+    color: var(--text-secondary);
+    font-size: $font-size-sm;
+    margin: 0;
+    max-width: 68ch;
+  }
+
+  /* Stacks on narrow screens so the action never squeezes into a sliver. */
+  @include responsive($breakpoint-md) {
+    flex-wrap: wrap;
+
+    app-button { width: 100%; }
+  }
+}

@@ -134,8 +134,8 @@ export class PlaybooksComponent implements OnInit {
 
   loadGroups(): void {
     this.leadGroupsService.list().subscribe({
-      next: (groups) => {
-        this.groupOptions = groups.map(group => ({ label: group.name, value: group.id }));
+      next: (res) => {
+        this.groupOptions = res.groups.map(group => ({ label: group.name, value: group.id }));
       }
     });
   }

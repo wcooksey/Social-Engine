@@ -9,30 +9,42 @@
   <div class="stat-grid">
     @if (overview(); as o) {
       <app-card padding="md" class="stat-card">
-        <span class="stat-label">Organizations</span>
-        <span class="stat-value">{{ o.organizations }}</span>
+        <div class="stat-body">
+          <span class="stat-label">Organizations</span>
+          <span class="stat-value">{{ o.organizations }}</span>
+        </div>
       </app-card>
       <app-card padding="md" class="stat-card">
-        <span class="stat-label">Users</span>
-        <span class="stat-value">{{ o.users }}</span>
+        <div class="stat-body">
+          <span class="stat-label">Users</span>
+          <span class="stat-value">{{ o.users }}</span>
+        </div>
       </app-card>
       <app-card padding="md" class="stat-card">
-        <span class="stat-label">Leads</span>
-        <span class="stat-value">{{ o.leads | number }}</span>
+        <div class="stat-body">
+          <span class="stat-label">Leads</span>
+          <span class="stat-value">{{ o.leads | number }}</span>
+        </div>
       </app-card>
       <app-card padding="md" class="stat-card">
-        <span class="stat-label">Running now</span>
-        <span class="stat-value">{{ o.runningNow }}</span>
-        <span class="stat-sub">{{ o.activeJobs }} queued</span>
+        <div class="stat-body">
+          <span class="stat-label">Running now</span>
+          <span class="stat-value">{{ o.runningNow }}</span>
+          <span class="stat-sub">{{ o.activeJobs }} queued</span>
+        </div>
       </app-card>
       <app-card padding="md" class="stat-card">
-        <span class="stat-label">Runs (7d)</span>
-        <span class="stat-value">{{ o.runsThisWeek | number }}</span>
+        <div class="stat-body">
+          <span class="stat-label">Runs (7d)</span>
+          <span class="stat-value">{{ o.runsThisWeek | number }}</span>
+        </div>
       </app-card>
       <app-card padding="md" class="stat-card">
-        <span class="stat-label">Spend (7d)</span>
-        <span class="stat-value">{{ o.spendThisWeekUsd | currency:'USD' }}</span>
-        <span class="stat-sub">estimated, list prices</span>
+        <div class="stat-body">
+          <span class="stat-label">Spend (7d)</span>
+          <span class="stat-value">{{ o.spendThisWeekUsd | currency:'USD' }}</span>
+          <span class="stat-sub">estimated, list prices</span>
+        </div>
       </app-card>
     } @else if (loadingOverview) {
       <p class="loading-hint">Loading platform overview…</p>

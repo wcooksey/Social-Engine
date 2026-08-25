@@ -8,7 +8,7 @@ router.get(
   '/',
   asyncHandler(async (req, res) => {
     const organizationId = req.user!.organizationId;
-    const [groups, tierRows, contactability] = await Promise.all([
+    const [groups, tierRows, contactability, ungroupedCount] = await Promise.all([
       prisma.leadGroup.findMany({
         where: { organizationId },
         // Playbooks and coverage cells CASCADE when a group is deleted, unlike
@@ -31,6 +31,10 @@ router.get(
         _avg: { enrichmentScore: true },
         _sum: { emailCount: true },
       }),
+      // Leads that outlived their group. Deleting a group unlinks its leads
+      // rather than destroying them, so without this number the orphans are
+      // invisible while still inflating every total on the Leads page.
+      prisma.lead.count({ where: { organizationId, groupId: null } }),
     ]);
 
     const withEmail = await prisma.lead.groupBy({
@@ -50,30 +54,33 @@ router.get(
 
     res.json({
       success: true,
-      data: groups.map((g) => ({
-        id: g.id,
-        name: g.name,
-        goal: g.goal,
-        aiSummary: g.aiSummary,
-        leadCount: g._count.leads,
-        // What a delete would take with it — leads survive, these do not.
-        playbookCount: g._count.playbooks,
-        coverageCellCount: g._count.coverageCells,
-        createdAt: g.createdAt,
-        // At-a-glance list quality: how much of this group is actually workable.
-        enrichment: {
-          averageScore: averages.get(g.id) || 0,
-          withEmail: emailReady.get(g.id) || 0,
-          tiers: {
-            NONE: 0,
-            MINIMAL: 0,
-            PARTIAL: 0,
-            GOOD: 0,
-            RICH: 0,
-            ...(tiersByGroup.get(g.id) || {}),
+      data: {
+        ungroupedLeads: ungroupedCount,
+        groups: groups.map((g) => ({
+          id: g.id,
+          name: g.name,
+          goal: g.goal,
+          aiSummary: g.aiSummary,
+          leadCount: g._count.leads,
+          // What a delete would take with it — leads survive, these do not.
+          playbookCount: g._count.playbooks,
+          coverageCellCount: g._count.coverageCells,
+          createdAt: g.createdAt,
+          // At-a-glance list quality: how much of this group is actually workable.
+          enrichment: {
+            averageScore: averages.get(g.id) || 0,
+            withEmail: emailReady.get(g.id) || 0,
+            tiers: {
+              NONE: 0,
+              MINIMAL: 0,
+              PARTIAL: 0,
+              GOOD: 0,
+              RICH: 0,
+              ...(tiersByGroup.get(g.id) || {}),
+            },
           },
-        },
-      })),
+        })),
+      },
     });
   })
 );
@@ -111,15 +118,43 @@ router.patch(
   })
 );
 
+/**
+ * Delete a group.
+ *
+ * By default the leads survive and become ungrouped — a list is a view over
+ * leads, not their owner, and destroying hundreds of enriched businesses
+ * because someone tidied a list would be the worse default by far.
+ *
+ * `?withLeads=true` is the other intent: the list was a mistake and the leads
+ * should go with it. Both are legitimate; the difference just has to be a
+ * choice rather than a surprise, because the "keep" branch silently grows an
+ * invisible orphan pool that keeps every total looking unchanged.
+ */
 router.delete(
   '/:id',
   asyncHandler(async (req, res) => {
+    const organizationId = req.user!.organizationId;
     const existing = await prisma.leadGroup.findFirst({
-      where: { id: req.params.id, organizationId: req.user!.organizationId },
+      where: { id: req.params.id, organizationId },
     });
     if (!existing) throw new AppError('Group not found', 404);
+
+    const withLeads = req.query.withLeads === 'true';
+    let deletedLeads = 0;
+
+    if (withLeads) {
+      // Before the group, so a failure here cannot leave leads orphaned with
+      // the group already gone — the caller can simply retry.
+      const removed = await prisma.lead.deleteMany({
+        where: { organizationId, groupId: existing.id },
+      });
+      deletedLeads = removed.count;
+    }
+
     await prisma.leadGroup.delete({ where: { id: existing.id } });
-    res.json({ success: true, data: null });
+
+    const ungroupedLeads = await prisma.lead.count({ where: { organizationId, groupId: null } });
+    res.json({ success: true, data: { deletedLeads, ungroupedLeads } });
   })
 );
 

@@ -7,6 +7,7 @@ import {
   tiersFrom,
   tiersUpTo,
 } from './lead-enrichment.service';
+import { groupIdFilter } from '../utils/lead-filters';
 
 /** Normalize a website/URL/domain string to a bare dedup key like "sunshinetoyota.com". */
 export function normalizeDomain(input?: string | null): string | null {
@@ -174,6 +175,7 @@ class LeadService {
     return { lead: await withFreshEnrichment(created), created: true };
   }
 
+  /** `groupId` accepts the UNGROUPED sentinel to reach orphaned leads. */
   async searchLeads(
     organizationId: string,
     params: {
@@ -216,7 +218,7 @@ class LeadService {
     const where: Prisma.LeadWhereInput = {
       organizationId,
       ...(params.status ? { status: params.status as never } : {}),
-      ...(params.groupId ? { groupId: params.groupId } : {}),
+      ...(params.groupId ? { groupId: groupIdFilter(params.groupId) } : {}),
       ...(params.state ? { state: { equals: params.state, mode: 'insensitive' } } : {}),
       ...(tierFilter ? { enrichmentTier: { in: tierFilter } } : {}),
       ...(params.minScore != null || params.maxScore != null

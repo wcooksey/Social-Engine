@@ -161,7 +161,7 @@
       <app-input label="State" [(ngModel)]="newLead.state" [ngModelOptions]="{ standalone: true }"></app-input>
     </div>
     <app-input label="Industry" [(ngModel)]="newLead.industry" [ngModelOptions]="{ standalone: true }"></app-input>
-    <app-select label="Group" [options]="groupOptions" [(ngModel)]="newLead.groupId" [ngModelOptions]="{ standalone: true }"></app-select>
+    <app-select label="Group" [options]="assignableGroupOptions" [(ngModel)]="newLead.groupId" [ngModelOptions]="{ standalone: true }"></app-select>
   </div>
 
   <div dialog-footer>

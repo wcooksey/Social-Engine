@@ -62,6 +62,28 @@
       <p>No groups yet. Ask the Engine to build one, or create one manually.</p>
     </div>
   }
+
+  <!-- Leads that outlived their group. Visible here because this is the page
+       you are on when you create them, and until now they simply vanished from
+       view while staying in every count. -->
+  @if (!loading() && ungroupedLeads() > 0) {
+    <app-card variant="outlined" class="ungrouped-card">
+      <div class="ungrouped-body">
+        <i class="bi bi-box"></i>
+        <div>
+          <strong>{{ ungroupedLeads() }} ungrouped lead{{ ungroupedLeads() === 1 ? '' : 's' }}</strong>
+          <p>
+            Leads that outlived a deleted group. They still count toward your totals and the Engine
+            can still work them — they just aren't in any list. Put them in a group, or delete them
+            for good.
+          </p>
+        </div>
+        <app-button variant="secondary" size="sm" icon="bi-arrow-right" (clicked)="viewUngrouped()">
+          Review them
+        </app-button>
+      </div>
+    </app-card>
+  }
 </div>
 
 <app-dialog

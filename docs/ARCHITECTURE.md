@@ -529,6 +529,13 @@ pool simultaneously without conflict.
 - **Organization** — tenant. Users belong to orgs; every record is org-scoped.
 - **User** — auth identity (email+password now; Google/Microsoft OAuth later), role (owner/admin/member).
 - **LeadGroup** — a named list/segment ("Florida Dealerships"), with `aiSummary` + goal.
+  Deleting one does NOT delete its leads: `Lead.group` is `SetNull`, so a list is a view over
+  leads rather than their owner. Those leads become **ungrouped** — still counted, still
+  enrichable — and are reached through the `groupId=none` sentinel (an "Ungrouped" entry on the
+  Leads filter, and a card on the Groups page). Without that route in, deleting a group looked
+  like it had done nothing: the leads vanished from every list while every total stayed put.
+  `DELETE /api/lead-groups/:id?withLeads=true` is the other intent — destroy the leads with the
+  list — and the UI asks which one you mean rather than assuming.
 - **Lead** — a business/prospect: name, website/domain, address, industry, status
   (new → researching → contacted → engaged → interested → customer / not_interested), dedup keys,
   plus the enrichment snapshot (score, tier, email/phone counts, gaps, attempts, capability version).
