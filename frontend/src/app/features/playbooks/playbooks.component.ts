@@ -113,7 +113,8 @@ export class PlaybooksComponent implements OnInit {
       identityOrgName: '',
       identityTitle: '',
       identityEmail: '',
-      identitySignature: ''
+      identitySignature: '',
+      identityPostalAddress: ''
     };
   }
 
@@ -171,7 +172,8 @@ export class PlaybooksComponent implements OnInit {
       identityOrgName: playbook.identityOrgName ?? '',
       identityTitle: playbook.identityTitle ?? '',
       identityEmail: playbook.identityEmail ?? '',
-      identitySignature: playbook.identitySignature ?? ''
+      identitySignature: playbook.identitySignature ?? '',
+      identityPostalAddress: playbook.identityPostalAddress ?? ''
     };
     this.showIdentity.set(hasIdentity(playbook));
     this.showDialog.set(true);

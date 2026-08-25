@@ -111,6 +111,20 @@ export interface SendEmailOptions {
   unsubscribeUrl?: string;
   /** Calendar invite to attach (renders as an "add to calendar" invite). */
   ics?: IcsAttachment;
+  /**
+   * Let Mailgun rewrite links through its tracking domain. Default OFF.
+   *
+   * Left unset, Mailgun applies the DOMAIN's default, which meant behaviour
+   * depended on a checkbox in someone else's dashboard. With tracking on and a
+   * text-only message, Mailgun replaces the readable URL IN THE BODY with an
+   * opaque redirector — `http://email.<domain>/c/eJxVj8...` — with no anchor
+   * text to hide behind. In a message written to read like a personal note that
+   * is the loudest possible "this is bulk mail" tell.
+   *
+   * Open tracking is never enabled here: it works by embedding a pixel in an
+   * HTML part, and these sends are text-only, so it can only ever be a no-op.
+   */
+  trackClicks?: boolean;
 }
 
 export async function sendEmail(opts: SendEmailOptions, creds: EmailCreds): Promise<SendResult> {
@@ -125,13 +139,15 @@ export async function sendEmail(opts: SendEmailOptions, creds: EmailCreds): Prom
   if (opts.replyTo?.trim()) form.append('h:Reply-To', opts.replyTo.trim());
   form.append('subject', opts.subject);
   form.append('text', opts.body);
+  // Stated explicitly rather than inherited, so what a prospect receives does
+  // not depend on a domain-level checkbox no one remembers setting.
+  form.append('o:tracking-opens', 'no');
+  form.append('o:tracking-clicks', opts.trackClicks ? 'htmlonly' : 'no');
   if (opts.html) form.append('html', opts.html);
   if (opts.unsubscribeUrl) {
-    // Header value differs for mailto vs http; add one-click for http targets.
-    const value = opts.unsubscribeUrl.startsWith('mailto:')
-      ? `<${opts.unsubscribeUrl}>`
-      : `<${opts.unsubscribeUrl}>`;
-    form.append('h:List-Unsubscribe', value);
+    form.append('h:List-Unsubscribe', `<${opts.unsubscribeUrl}>`);
+    // One-click only applies to an http(s) target; a mailto: unsubscribe is a
+    // reply, not a POST endpoint.
     if (!opts.unsubscribeUrl.startsWith('mailto:')) {
       form.append('h:List-Unsubscribe-Post', 'List-Unsubscribe=One-Click');
     }

@@ -1,4 +1,6 @@
 import { prisma } from '../config/database';
+import { config } from '../config/environment';
+import { signToken } from '../utils/signing';
 import { isWithinQuietHours, localHourIn, resolveLeadTimezone } from '../utils/timezone';
 
 /**
@@ -11,6 +13,19 @@ import { isWithinQuietHours, localHourIn, resolveLeadTimezone } from '../utils/t
  * unsubscribed in the meantime. Sharing the checks is what keeps the two paths
  * from drifting apart.
  */
+
+/**
+ * The one-click unsubscribe target for a contact.
+ *
+ * Built here rather than at each call site because it had already drifted: the
+ * agent and queue paths set it, the human-approval path did not, so every email
+ * an operator personally approved went out with no List-Unsubscribe header at
+ * all. A single helper makes omitting it require deleting a line rather than
+ * merely forgetting one.
+ */
+export function unsubscribeUrlFor(contactId: string): string {
+  return `${config.appPublicUrl}/api/public/unsubscribe?c=${signToken(contactId)}`;
+}
 
 /** Compliance stop for opted-out leads. Enforced in code, never by the model. */
 export function contactableRefusal(lead: {
@@ -32,6 +47,19 @@ export async function outboundBlockReason(
   const org = await prisma.organization.findUnique({ where: { id: organizationId } });
   if (!org) return 'Organization not found';
   if (org.paused) return 'Organization is paused (kill switch) — no outbound allowed. Save drafts instead.';
+
+  // Every outbound email carries an unsubscribe link built from APP_PUBLIC_URL.
+  // Pointed at localhost, that link is dead on arrival for every recipient — a
+  // compliance failure invisible from inside the app and only discovered through
+  // complaints. Refuse rather than send mail nobody can unsubscribe from. Dev is
+  // unaffected.
+  if (config.isProduction && config.appPublicUrlIsUnreachable) {
+    return (
+      `APP_PUBLIC_URL is ${config.appPublicUrl}, which no recipient can reach — every ` +
+      'unsubscribe and booking link in this email would be dead on arrival. Set APP_PUBLIC_URL ' +
+      "to this deployment's real public URL before sending."
+    );
+  }
 
   // Quiet hours are evaluated in the LEAD's timezone when known, so we never
   // text/email someone in the middle of their night.

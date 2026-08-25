@@ -89,6 +89,27 @@
             <app-input label="Quiet hours end" type="time" [(ngModel)]="quietHoursEnd" [ngModelOptions]="{ standalone: true }"></app-input>
           </div>
 
+          <div class="postal-field">
+            <label for="postal-address">Mailing address</label>
+            <textarea
+              id="postal-address"
+              rows="2"
+              [(ngModel)]="postalAddress"
+              [ngModelOptions]="{ standalone: true }"
+              placeholder="100 Main St, Suite 200, Tampa FL 33602"></textarea>
+            <p class="field-hint" [class.is-warning]="!postalAddress.trim()">
+              @if (!postalAddress.trim()) {
+                <i class="bi bi-exclamation-triangle"></i>
+                Not set. US commercial email legally requires a physical mailing address in the
+                footer, and spam filters read a missing one as a signal. Add yours before running
+                cold outreach.
+              } @else {
+                Appended to the footer of every commercial email. A playbook can override it when
+                one account fronts several businesses.
+              }
+            </p>
+          </div>
+
           <div class="kill-switch-row">
             <div class="kill-switch-label">
               <span class="label-title">Engine active</span>

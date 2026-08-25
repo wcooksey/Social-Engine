@@ -25,6 +25,8 @@ export interface Playbook {
   identityTitle?: string | null;
   identityEmail?: string | null;
   identitySignature?: string | null;
+  /** Overrides the organization's mailing address in the email footer. */
+  identityPostalAddress?: string | null;
 }
 
 /** True when a playbook overrides any part of the sender identity. */
@@ -34,6 +36,7 @@ export function hasIdentity(playbook: Playbook): boolean {
     playbook.identityOrgName ||
     playbook.identityTitle ||
     playbook.identityEmail ||
-    playbook.identitySignature
+    playbook.identitySignature ||
+    playbook.identityPostalAddress
   );
 }

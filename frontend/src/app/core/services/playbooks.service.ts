@@ -18,6 +18,7 @@ export interface PlaybookInput {
   identityTitle?: string | null;
   identityEmail?: string | null;
   identitySignature?: string | null;
+  identityPostalAddress?: string | null;
 }
 
 @Injectable({ providedIn: 'root' })

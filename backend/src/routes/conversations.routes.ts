@@ -6,7 +6,14 @@ import * as channels from '../services/channels.service';
 import { getOrgConfig } from '../services/settings.service';
 import { leadService } from '../services/lead.service';
 import { dispatchApprovedSocialDm } from '../services/social-send.service';
-import { identityFromName, resolveSenderIdentity, withSignature } from '../services/identity.service';
+import {
+  fromNameFor,
+  identityFromName,
+  resolveSenderIdentity,
+  withSignature,
+} from '../services/identity.service';
+import { unsubscribeUrlFor } from '../services/outbound.service';
+import { findKnownPlaceholders } from '../services/placeholder-guard';
 import { markMailboxSent, resolveSenderDecision } from '../services/sender.service';
 
 const router = Router();
@@ -79,15 +86,31 @@ async function deliverOnConversation(
         400
       );
     }
+    // Known merge tokens only: an operator writing a reply may legitimately use
+    // brackets, so this blocks "[first]" and leaves "[see attached]" alone.
+    const unfilled = findKnownPlaceholders(`${subject ?? ''}\n${body}`);
+    if (unfilled.length) {
+      throw new AppError(
+        `This message still has placeholders in it: ${unfilled.join(', ')}. Replace them with real ` +
+          'values before sending — edit the draft and approve again.',
+        400
+      );
+    }
+
     const delivery = await channels.sendEmail(
       {
         to: contact.email,
         subject: subject || conversation.subject || 'Re: our conversation',
         // Idempotent: an approved draft already carries the sign-off.
         body: withSignature(body, identity),
-        fromName: identityFromName(identity),
+        fromName: fromNameFor(identity, sender.displayName),
         fromEmail: sender.fromEmail,
         replyTo: sender.replyTo && sender.replyTo !== sender.fromEmail ? sender.replyTo : undefined,
+        // A human approving a send does not make the recipient's opt-out
+        // optional. This path shipped without the header while the agent and
+        // queue paths carried it, so approval mode — the cautious setting —
+        // was the only one sending mail nobody could unsubscribe from.
+        unsubscribeUrl: unsubscribeUrlFor(contact.id),
       },
       sender.creds
     );

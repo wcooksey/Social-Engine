@@ -40,6 +40,16 @@ model Organization {
   dailyAiSpendCapUsd Decimal? @db.Decimal(10, 2)
   quietHoursStart Int  @default(20) // 24h local hour — no outbound after
   quietHoursEnd   Int  @default(8)
+
+  /// Physical mailing address for the footer of commercial email.
+  ///
+  /// Required on commercial mail by CAN-SPAM, and filters read its absence as a
+  /// spam signal. It lived only on playbook identities, which meant an org that
+  /// had not configured a persona sent every cold email without one — and there
+  /// was no field anywhere to type it into. It belongs to the business rather
+  /// than to a persona, so it lives here; a playbook may still override it when
+  /// one account fronts several brands.
+  postalAddress String?
   paused          Boolean @default(false) // kill switch: Engine takes no outbound actions
   // Autonomous social DMs are off by default (platform ToS risk): the browser
   // agent researches freely but drafts DMs for approval unless this is on.

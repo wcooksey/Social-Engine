@@ -24,6 +24,7 @@ import {
 import { getOrgConfig } from '../services/settings.service';
 import { markBooked } from '../services/booking.service';
 import { suppressionReason } from '../services/suppression.service';
+import { placeholderBlockReason } from '../services/placeholder-guard';
 import { resolveIcp } from '../services/icp.service';
 import {
   applyToFilter,
@@ -35,6 +36,7 @@ import {
   type ScheduledState,
 } from '../services/scheduled.service';
 import {
+  fromNameFor,
   identityFromName,
   identityIntro,
   resolveSenderIdentity,
@@ -42,6 +44,7 @@ import {
 } from '../services/identity.service';
 import {
   getSendingOverview,
+  knownAddresses,
   markMailboxSent,
   releaseSend,
   reserveSend,
@@ -67,12 +70,12 @@ import { llmService } from './llm/llm.service';
 import { GUIDE_TOPICS, PLATFORM_GUIDE } from './platform-guide';
 import { recordBrowserAction, recordBrowserFrame } from './live-view.registry';
 import { notify } from '../services/notification.service';
-import { signToken } from '../utils/signing';
 import {
   contactableRefusal,
   deferCampaignTouch,
   outboundBlockReason,
   recordCampaignTouch,
+  unsubscribeUrlFor,
 } from '../services/outbound.service';
 import { runBrowserAgent } from './browser/browser-agent.service';
 import { AgentRole, defaultRoleForJobType } from './roles';
@@ -802,6 +805,11 @@ export const engineTools: Anthropic.Tool[] = [
           description: 'From/Reply-To address. Only takes effect if it is on the org\'s Mailgun sending domain.',
         },
         identitySignature: { type: 'string', description: 'Sign-off appended to email sent under this playbook.' },
+        identityPostalAddress: {
+          type: 'string',
+          description:
+            'Physical mailing address for the email footer. Required on commercial mail by CAN-SPAM and read as a spam signal when missing. Only needed when this playbook fronts a different business from the organization — otherwise set it once for the whole org with update_org_guardrails.',
+        },
       },
       required: ['name', 'instructions'],
     },
@@ -991,7 +999,30 @@ export const engineTools: Anthropic.Tool[] = [
         dailySendCap: { type: 'number', description: '1–2000' },
         quietHoursStart: { type: 'number', description: '0–23, start of no-contact window' },
         quietHoursEnd: { type: 'number', description: '0–23, end of no-contact window' },
+        postalAddress: {
+          type: 'string',
+          description:
+            "The organization's physical mailing address, appended to the footer of every commercial email. Required by CAN-SPAM; its absence is read as a spam signal. Set this when the user gives you their business address.",
+        },
       },
+    },
+  },
+  {
+    name: 'set_playbook_identity',
+    description:
+      "Set or change WHO a playbook's outreach presents as, on a playbook that already exists. Use this when the user says outreach should go out as a named person, or when you created a playbook without an identity and now know one. Only the fields you pass change; pass an empty string to clear one. Note the sender's NAME is best set on the mailbox itself (Settings → Sending) so it always matches the address that carries the send — use this for the brand, title, sign-off, and for the case where one account fronts several businesses.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        playbookName: { type: 'string', description: 'Name of the playbook to update' },
+        identityName: { type: 'string' },
+        identityOrgName: { type: 'string' },
+        identityTitle: { type: 'string' },
+        identityEmail: { type: 'string' },
+        identitySignature: { type: 'string' },
+        identityPostalAddress: { type: 'string' },
+      },
+      required: ['playbookName'],
     },
   },
   {
@@ -1968,6 +1999,14 @@ const executors: Record<string, ToolExecutor> = {
     const emailSuppressed = await suppressionRefusal(ctx.organizationId, { email: contact.email });
     if (emailSuppressed) return { sent: false, reason: emailSuppressed };
 
+    // Template tokens the model failed to substitute. Checked before anything
+    // is written or queued, so a refusal costs nothing and the agent can retry.
+    const unfilled = placeholderBlockReason(
+      `${input.subject ?? ''}\n${input.body ?? ''}`,
+      'email'
+    );
+    if (unfilled) return { sent: false, reason: unfilled };
+
     const orgConfig = await getOrgConfig(ctx.organizationId);
     // Whose name this goes out under — decided by playbook scope, not by the
     // model, so the header and the body can't disagree.
@@ -2119,12 +2158,12 @@ const executors: Record<string, ToolExecutor> = {
         to: contact.email,
         subject: input.subject,
         body,
-        fromName: identityFromName(identity),
+        fromName: fromNameFor(identity, sender.displayName),
         fromEmail: sender.fromEmail,
         // Only worth a header when it actually differs from the From address.
         replyTo: sender.replyTo && sender.replyTo !== sender.fromEmail ? sender.replyTo : undefined,
         // One-click unsubscribe (List-Unsubscribe header) — deliverability + CAN-SPAM.
-        unsubscribeUrl: `${config.appPublicUrl}/api/public/unsubscribe?c=${signToken(contact.id)}`,
+        unsubscribeUrl: unsubscribeUrlFor(contact.id),
       },
       sender.creds
     );
@@ -2181,6 +2220,9 @@ const executors: Record<string, ToolExecutor> = {
     if (contact.optedOut) return { sent: false, reason: 'Contact has opted out — do not message them.' };
     const smsSuppressed = await suppressionRefusal(ctx.organizationId, { phone: contact.phone });
     if (smsSuppressed) return { sent: false, reason: smsSuppressed };
+
+    const unfilledSms = placeholderBlockReason(input.body ?? '', 'SMS');
+    if (unfilledSms) return { sent: false, reason: unfilledSms };
 
     const orgConfig = await getOrgConfig(ctx.organizationId);
     const blocked = await outboundBlockReason(ctx.organizationId, lead);
@@ -2427,6 +2469,9 @@ const executors: Record<string, ToolExecutor> = {
     assertContactable(lead);
     assertNotUnderReview(lead);
 
+    const unfilledForm = placeholderBlockReason(input.message ?? '', 'form');
+    if (unfilledForm) return { submitted: false, note: unfilledForm };
+
     const startUrl = String(input.formUrl || lead.website || '').trim();
     if (!startUrl) {
       return {
@@ -2646,6 +2691,9 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
     const lead = await requireLead(input.leadId, ctx.organizationId);
     assertContactable(lead);
     assertNotUnderReview(lead);
+
+    const unfilledDm = placeholderBlockReason(input.message ?? '', 'DM');
+    if (unfilledDm) return { sent: false, reason: unfilledDm };
 
     // Business page first: it's the company's own inbox, so there is no
     // identity guesswork and no wrong-person risk. Default to it whenever one
@@ -3535,7 +3583,12 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
   },
 
   update_org_guardrails: async (input, ctx) => {
-    const data: Record<string, number> = {};
+    const data: Record<string, number | string | null> = {};
+    if (input.postalAddress !== undefined) {
+      const address = String(input.postalAddress).trim();
+      if (address && address.length > 300) throw new Error('postalAddress is too long (max 300 characters)');
+      data.postalAddress = address || null;
+    }
     if (input.dailySendCap !== undefined) {
       data.dailySendCap = Math.min(Math.max(Number(input.dailySendCap) || 0, 1), 2000);
     }
@@ -3555,7 +3608,63 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
       guardrails: {
         dailySendCap: org.dailySendCap,
         quietHours: `${org.quietHoursStart}:00–${org.quietHoursEnd}:00 (lead-local)`,
+        postalAddress: org.postalAddress ?? '(not set — commercial email needs one)',
       },
+    };
+  },
+
+  set_playbook_identity: async (input, ctx) => {
+    const playbook = await prisma.playbook.findFirst({
+      where: { organizationId: ctx.organizationId, name: String(input.playbookName || '').trim() },
+    });
+    if (!playbook) throw new Error(`No playbook named "${input.playbookName}". Use list_playbooks to see them.`);
+
+    // Only the fields actually passed move; an empty string clears one, which
+    // is the only way to undo an identity that was set by mistake.
+    const fields = [
+      'identityName',
+      'identityOrgName',
+      'identityTitle',
+      'identityEmail',
+      'identitySignature',
+      'identityPostalAddress',
+    ] as const;
+    const data: Record<string, string | null> = {};
+    for (const field of fields) {
+      if (input[field] === undefined) continue;
+      const value = String(input[field]).trim();
+      data[field] = value || null;
+    }
+    if (Object.keys(data).length === 0) return { ok: false, note: 'Nothing to change.' };
+
+    const updated = await prisma.playbook.update({ where: { id: playbook.id }, data });
+    const email = updated.identityEmail?.trim().toLowerCase();
+    // An identity address the org cannot actually send as is silently dropped at
+    // send time, so say so now rather than letting it look configured.
+    const sendable = email ? (await knownAddresses(ctx.organizationId)).has(email) : true;
+
+    return {
+      ok: true,
+      playbook: updated.name,
+      identity: {
+        name: updated.identityName,
+        orgName: updated.identityOrgName,
+        title: updated.identityTitle,
+        email: updated.identityEmail,
+        signature: updated.identitySignature,
+        postalAddress: updated.identityPostalAddress,
+      },
+      ...(email && !sendable
+        ? {
+            warning:
+              `${email} is not a mailbox this organization can send as, so it will be ignored and the ` +
+              'send will use an address from the pool instead. Add it under Settings → Sending first.',
+          }
+        : {}),
+      note:
+        'Identity applies to leads this playbook\'s scope matches. The sender NAME on the From header ' +
+        "comes from the sending mailbox's display name when it has one, so set that too if you want a " +
+        'specific person on every send from that address.',
     };
   },
 
