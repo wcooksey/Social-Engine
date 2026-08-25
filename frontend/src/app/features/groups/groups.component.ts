@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { LeadGroupsService } from '../../core/services/lead-groups.service';
-import { ENRICHMENT_TIERS, ENRICHMENT_TIER_LABEL, EnrichmentTier, LeadGroup } from '../../core/models/lead.model';
+import { ENRICHMENT_TIERS, ENRICHMENT_TIER_LABEL, EnrichmentTier, LeadGroup, UNGROUPED_ID } from '../../core/models/lead.model';
 import { CardComponent } from '../../shared/components/card/card.component';
 import { ButtonComponent } from '../../shared/components/button/button.component';
 import { InputComponent } from '../../shared/components/input/input.component';
@@ -19,6 +19,8 @@ import { ToastService } from '../../core/services/toast.service';
 })
 export class GroupsComponent implements OnInit {
   groups = signal<LeadGroup[]>([]);
+  /** Leads that outlived a deleted group. Shown so the pool never grows unseen. */
+  ungroupedLeads = signal(0);
   loading = signal(true);
 
   showDialog = signal(false);
@@ -40,8 +42,9 @@ export class GroupsComponent implements OnInit {
   load(): void {
     this.loading.set(true);
     this.leadGroupsService.list().subscribe({
-      next: (groups) => {
-        this.groups.set(groups);
+      next: (res) => {
+        this.groups.set(res.groups);
+        this.ungroupedLeads.set(res.ungroupedLeads);
         this.loading.set(false);
       },
       error: () => this.loading.set(false)
@@ -91,6 +94,11 @@ export class GroupsComponent implements OnInit {
    * already been searched — the thing that stops the Engine re-sourcing ground
    * it already covered.
    */
+  /** Open the Leads page filtered to the orphan pool. */
+  viewUngrouped(): void {
+    void this.router.navigate(['/leads'], { queryParams: { groupId: UNGROUPED_ID } });
+  }
+
   deleteGroup(group?: LeadGroup, event?: Event): void {
     event?.stopPropagation();
     const target = group ?? this.editingGroup;
@@ -103,20 +111,35 @@ export class GroupsComponent implements OnInit {
     if (target.coverageCellCount) {
       losses.push(`its coverage grid (${target.coverageCellCount} cells — the record of what has already been searched)`);
     }
-    const kept = target.leadCount
-      ? `Its ${target.leadCount} lead${target.leadCount === 1 ? '' : 's'} will be KEPT and become ungrouped.`
-      : '';
     const lost = losses.length ? `\n\nThis will also permanently delete ${losses.join(' and ')}.` : '';
 
-    if (!confirm(`Delete the "${target.name}" group?\n\n${kept}${lost}\n\nThis cannot be undone.`)) return;
+    // The leads' fate is the real decision here, and it used to be made
+    // silently: they were always kept, always unlinked, and then unreachable
+    // from any group view while still counted in every total. Asking makes the
+    // orphan pool something you chose rather than something you discover.
+    let withLeads = false;
+    if (target.leadCount) {
+      const n = target.leadCount;
+      const noun = `${n} lead${n === 1 ? '' : 's'}`;
+      if (!confirm(`Delete the "${target.name}" group?\n\nIts ${noun} will be KEPT and become ungrouped — still in your totals, still enriched, and reachable from Leads via the "Ungrouped" filter.${lost}\n\nOK to continue, or Cancel to stop.`)) {
+        return;
+      }
+      withLeads = confirm(`Also DELETE the ${noun}?\n\nOK — permanently delete the ${noun} along with the group.\nCancel — keep them as ungrouped leads (the normal choice).\n\nDeleting leads cannot be undone.`);
+    } else if (!confirm(`Delete the "${target.name}" group?${lost}\n\nThis cannot be undone.`)) {
+      return;
+    }
 
     this.deleting.set(true);
-    this.leadGroupsService.delete(target.id).subscribe({
-      next: () => {
+    this.leadGroupsService.delete(target.id, withLeads).subscribe({
+      next: (res) => {
         this.deleting.set(false);
         this.showDialog.set(false);
         this.toast.success(
-          target.leadCount ? `Group deleted — ${target.leadCount} lead(s) kept, now ungrouped` : 'Group deleted'
+          res?.deletedLeads
+            ? `Group and ${res.deletedLeads} lead(s) deleted`
+            : target.leadCount
+              ? `Group deleted — ${target.leadCount} lead(s) kept, now ungrouped (${res?.ungroupedLeads ?? 0} total ungrouped)`
+              : 'Group deleted'
         );
         this.load();
       },

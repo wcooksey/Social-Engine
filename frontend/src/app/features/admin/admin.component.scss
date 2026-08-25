@@ -22,7 +22,11 @@
   margin-bottom: $spacing-lg;
 }
 
-.stat-card {
+// The layout has to live on an element INSIDE app-card. `.stat-card` lands on
+// the <app-card> host, whose only child is the card's own wrapper div, so a
+// flex column there never reaches these spans — they stayed inline and the
+// label ran straight into the value ("ORGANIZATIONS2").
+.stat-body {
   display: flex;
   flex-direction: column;
   gap: $spacing-xs;

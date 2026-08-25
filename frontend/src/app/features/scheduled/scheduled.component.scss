@@ -1,0 +1,573 @@
+@import '../../../assets/styles/variables';
+@import '../../../assets/styles/mixins';
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-md;
+  margin-bottom: $spacing-lg;
+  flex-wrap: wrap;
+
+  .subtitle {
+    color: var(--text-secondary);
+    margin-top: $spacing-xs;
+  }
+}
+
+// ---- Notices -------------------------------------------------------------
+
+.notice {
+  margin-bottom: $spacing-md;
+
+  .notice-body {
+    display: flex;
+    align-items: flex-start;
+    gap: $spacing-md;
+
+    > i {
+      font-size: 1.25rem;
+      color: var(--text-tertiary);
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    > div { flex: 1; min-width: 0; }
+
+    strong { display: block; margin-bottom: $spacing-xs; }
+
+    p {
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+      margin: 0 0 $spacing-xs;
+      max-width: 78ch;
+
+      &:last-child { margin-bottom: 0; }
+      &.muted { color: var(--text-tertiary); }
+    }
+  }
+
+  &.warn .notice-body > i { color: $warning-yellow; }
+  &.stop .notice-body > i { color: $error-red; }
+  &.result .notice-body > i { color: $primary-blue; }
+}
+
+// ---- Headline tiles ------------------------------------------------------
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: $spacing-md;
+  margin-bottom: $spacing-md;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  // Each part needs its own line: run together, "will fire on its own" and
+  // "no human involved at any point" read as one broken sentence.
+  > span { display: block; }
+
+  .tile-value {
+    font-size: 1.9rem;
+    font-weight: 600;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tile-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+  }
+
+  .tile-note {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+  }
+
+  &--primary .tile-value { color: $primary-blue; }
+}
+
+// ---- Generators: the part that explains the surprise ---------------------
+
+.generators {
+  margin-bottom: $spacing-md;
+  border-color: rgba($warning-yellow, 0.45);
+
+  .generators-head {
+    display: flex;
+    align-items: flex-start;
+    gap: $spacing-md;
+    padding-bottom: $spacing-md;
+    border-bottom: 1px solid var(--border-primary);
+
+    > i {
+      font-size: 1.25rem;
+      color: $warning-yellow;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    strong { display: block; margin-bottom: $spacing-xs; }
+
+    p {
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+      margin: 0;
+      max-width: 82ch;
+    }
+
+    em { font-style: normal; font-weight: 600; color: var(--text-primary); }
+  }
+}
+
+.generator-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  padding: $spacing-sm 0;
+  border-bottom: 1px solid var(--border-primary);
+  flex-wrap: wrap;
+
+  &:last-child { border-bottom: none; padding-bottom: 0; }
+  &.is-held { opacity: 0.68; }
+}
+
+.generator-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.generator-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  text-decoration: none;
+
+  &:hover { color: $primary-blue; }
+}
+
+.generator-meta {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.generator-actions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  flex-shrink: 0;
+}
+
+// ---- Filters -------------------------------------------------------------
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-md;
+}
+
+.chip-row {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  flex-wrap: wrap;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  i { font-size: 0.875rem; }
+
+  &:hover {
+    border-color: var(--border-secondary);
+    color: var(--text-primary);
+  }
+
+  &.is-on {
+    background: rgba($primary-blue, 0.12);
+    border-color: $primary-blue;
+    color: $primary-blue;
+  }
+
+  // A generator chip is visually distinct: these are the ones that matter when
+  // something "keeps sending after I stopped it".
+  &.is-generator:not(.is-on) {
+    border-style: dashed;
+    border-color: rgba($warning-yellow, 0.6);
+  }
+
+  &--state { font-size: 0.75rem; padding: 4px 10px; }
+}
+
+.chip-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+
+.chip-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border-primary);
+  margin: 0 $spacing-xs;
+}
+
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  flex-wrap: wrap;
+}
+
+.search-box {
+  position: relative;
+  flex: 1;
+  min-width: 220px;
+  max-width: 420px;
+
+  i {
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-tertiary);
+    font-size: 0.875rem;
+    pointer-events: none;
+  }
+
+  input {
+    width: 100%;
+    padding: 8px 12px 8px 32px;
+    border-radius: $border-radius-md;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+
+    &:focus {
+      outline: none;
+      border-color: $primary-blue;
+    }
+  }
+}
+
+.native-select {
+  padding: 8px 12px;
+  border-radius: $border-radius-md;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  max-width: 240px;
+
+  &:focus { outline: none; border-color: $primary-blue; }
+}
+
+// ---- Bulk bars -----------------------------------------------------------
+
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  margin-bottom: $spacing-sm;
+  border-radius: $border-radius-md;
+  border: 1px solid $primary-blue;
+  background: rgba($primary-blue, 0.08);
+  flex-wrap: wrap;
+
+  &.is-warning {
+    border-color: rgba($warning-yellow, 0.8);
+    background: rgba($warning-yellow, 0.1);
+  }
+}
+
+.bulk-count {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  font-size: 0.875rem;
+  flex-wrap: wrap;
+}
+
+.bulk-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+
+  i { color: $warning-yellow; }
+}
+
+.bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  flex-wrap: wrap;
+}
+
+.scope-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  padding: 0 2px $spacing-xs;
+  flex-wrap: wrap;
+}
+
+.scope-label {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.scope-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+// ---- Table cells ---------------------------------------------------------
+
+.due-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+
+  .due-relative {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .due-absolute {
+    font-size: 0.7rem;
+    color: var(--text-tertiary);
+  }
+
+  &.is-overdue .due-relative { color: $warning-yellow; }
+}
+
+.kind-cell {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+
+  i { margin-top: 2px; flex-shrink: 0; }
+  &.is-generator i { color: $warning-yellow; }
+}
+
+.kind-generator {
+  display: block;
+  font-style: normal;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: $warning-yellow;
+}
+
+.title-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.title-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: inherit;
+  cursor: pointer;
+
+  i { color: var(--text-tertiary); font-size: 0.75rem; margin-top: 4px; flex-shrink: 0; }
+  &:hover { color: $primary-blue; }
+}
+
+.title-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  text-decoration: none;
+
+  &:hover { color: $primary-blue; }
+  &--campaign { background: rgba($primary-blue, 0.12); color: $primary-blue; }
+
+  &--blocked {
+    background: rgba($error-red, 0.12);
+    color: $error-red;
+    cursor: help;
+    &:hover { color: $error-red; }
+  }
+}
+
+.detail-panel {
+  margin-top: $spacing-xs;
+  padding: $spacing-sm;
+  border-radius: $border-radius-sm;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-tertiary);
+}
+
+.detail-blocked {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 0 $spacing-xs;
+  font-size: 0.8125rem;
+  color: $error-red;
+}
+
+.detail-body {
+  margin: 0;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.detail-meta {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-top: $spacing-xs;
+  padding-top: $spacing-xs;
+  border-top: 1px solid var(--border-primary);
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+  flex-wrap: wrap;
+}
+
+.detail-ref {
+  font-family: $font-family-mono;
+  opacity: 0.7;
+  margin-left: auto;
+}
+
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  justify-content: flex-end;
+}
+
+.no-actions {
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+  font-style: italic;
+  cursor: help;
+}
+
+// ---- Confirmation dialog -------------------------------------------------
+
+.confirm-body {
+  p {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    margin: 0 0 $spacing-sm;
+    max-width: 68ch;
+
+    &:last-child { margin-bottom: 0; }
+  }
+}
+
+.confirm-danger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: $error-red !important;
+  font-weight: 600;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-sm;
+  margin-top: $spacing-lg;
+}
+
+@include responsive($breakpoint-md) {
+  .scope-bar,
+  .bulk-bar { flex-direction: column; align-items: flex-start; }
+  .detail-ref { margin-left: 0; }
+
+  // Action rows are the whole point of this page; on a phone they get full
+  // width rather than three buttons fighting over 340px.
+  .bulk-actions,
+  .scope-actions,
+  .generator-actions {
+    width: 100%;
+
+    app-button { flex: 1 1 auto; }
+  }
+
+  .generator-row { align-items: flex-start; }
+
+  .filter-row { flex-direction: column; align-items: stretch; }
+  .search-box { max-width: none; }
+  .native-select { max-width: none; width: 100%; }
+}
+
+// Filter chips were 24–28px tall — readable, but under a finger they are a
+// coin toss between two adjacent filters. Only on coarse pointers, so the
+// dense desktop layout is untouched.
+@media (pointer: coarse) {
+  .chip {
+    min-height: 40px;
+    padding: 8px 14px;
+
+    &--state { min-height: 40px; padding: 8px 14px; font-size: 0.8125rem; }
+  }
+
+  .title-main { padding: 6px 0; }
+
+  .row-actions {
+    gap: 6px;
+  }
+}

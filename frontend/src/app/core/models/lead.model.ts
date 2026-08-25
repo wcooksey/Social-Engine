@@ -53,6 +53,21 @@ export interface LeadGroup {
   enrichment?: GroupEnrichment;
 }
 
+/**
+ * The groups list plus the leads that belong to none of them.
+ *
+ * Deleting a group unlinks its leads rather than destroying them, so the
+ * orphan count has to travel with the list — otherwise those leads are absent
+ * from every group view while still sitting in every total.
+ */
+export interface LeadGroupList {
+  groups: LeadGroup[];
+  ungroupedLeads: number;
+}
+
+/** Sentinel groupId for "belongs to no group" — understood by the leads API. */
+export const UNGROUPED_ID = 'none';
+
 export interface EnrichmentStats {
   totalLeads: number;
   averageScore: number;

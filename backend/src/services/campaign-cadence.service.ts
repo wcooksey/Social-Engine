@@ -6,6 +6,11 @@ import { prisma } from '../config/database';
  * Batching (~15 leads per job) keeps LLM cost roughly an order of magnitude
  * lower than one run per lead. Replies, opt-outs, and max-touches all stop
  * the drip automatically.
+ *
+ * This sweep is a GENERATOR: it writes new agent jobs, which write new messages.
+ * Deleting what it produced never stops it — only `CampaignLead.pausedAt` (an
+ * operator hold, set from the Scheduled page) or taking the campaign out of
+ * ACTIVE does.
  */
 
 const BATCH_SIZE = 15;
@@ -34,6 +39,9 @@ async function reviveDormantLeads(campaign: {
       dormantSince: { lte: cutoff },
       cycle: { lt: campaign.maxCycles },
       lead: { doNotContact: false, contactReviewReason: null },
+      // A held lead stays held across the ninety-day gap. Reviving it would
+      // spend one of its cycles on a pass that cannot send.
+      pausedAt: null,
     },
     select: { id: true },
     take: MAX_DUE_PER_CAMPAIGN_PER_SWEEP,
@@ -141,6 +149,10 @@ export async function runCadenceSweep(): Promise<number> {
         touchCount: { lt: campaign.maxTouches },
         OR: [{ nextTouchAt: null }, { nextTouchAt: { lte: new Date() } }],
         lead: { doNotContact: false },
+        // Operator hold from the Scheduled page. This is the only field that
+        // actually stops a campaign: cancelling the messages it has already
+        // written just frees the lead to be batched again on the next pass.
+        pausedAt: null,
       },
       orderBy: [{ nextTouchAt: 'asc' }, { createdAt: 'asc' }],
       take: MAX_DUE_PER_CAMPAIGN_PER_SWEEP,

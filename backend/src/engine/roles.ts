@@ -32,6 +32,11 @@ const SHARED = [
   'read_conversation',
   // Durable working notes: survive context trimming and carry into a retry.
   'remember',
+  // Seeing and stopping scheduled work belongs to every role. Without these a
+  // "stop messaging them" instruction had no tool behind it, so the agent could
+  // only report success it had not achieved while the sweeps carried on sending.
+  'list_scheduled_work',
+  'cancel_scheduled_work',
 ];
 
 export const ROLES: Record<AgentRole, RoleDefinition> = {

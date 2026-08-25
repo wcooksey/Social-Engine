@@ -1,6 +1,7 @@
 import { Prisma, EnrichmentTier } from '@prisma/client';
 import { prisma } from '../config/database';
 import { decisionMakerRegex, resolveIcpForLead } from './icp.service';
+import { groupIdFilter } from '../utils/lead-filters';
 
 /**
  * Lead enrichment scoring & triage.
@@ -425,7 +426,7 @@ export async function getEnrichmentStats(
 ): Promise<EnrichmentStats> {
   const where: Prisma.LeadWhereInput = {
     organizationId,
-    ...(options.groupId ? { groupId: options.groupId } : {}),
+    ...(options.groupId ? { groupId: groupIdFilter(options.groupId) } : {}),
     ...(options.status ? { status: options.status as never } : {}),
   };
 

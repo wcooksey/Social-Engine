@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
-import { LeadGroup } from '../models/lead.model';
+import { LeadGroup, LeadGroupList } from '../models/lead.model';
 
 export interface LeadGroupInput {
   name: string;
@@ -12,8 +12,8 @@ export interface LeadGroupInput {
 export class LeadGroupsService {
   private api = inject(ApiService);
 
-  list(): Observable<LeadGroup[]> {
-    return this.api.get<LeadGroup[]>('/api/lead-groups');
+  list(): Observable<LeadGroupList> {
+    return this.api.get<LeadGroupList>('/api/lead-groups');
   }
 
   create(input: LeadGroupInput): Observable<LeadGroup> {
@@ -24,7 +24,15 @@ export class LeadGroupsService {
     return this.api.patch<LeadGroup>(`/api/lead-groups/${id}`, input);
   }
 
-  delete(id: string): Observable<void> {
-    return this.api.delete<void>(`/api/lead-groups/${id}`);
+  /**
+   * Delete a group. `withLeads` decides the leads' fate: false unlinks them
+   * (they survive, ungrouped), true destroys them with the list. Returns how
+   * many leads went and how large the orphan pool now is.
+   */
+  delete(id: string, withLeads = false): Observable<{ deletedLeads: number; ungroupedLeads: number }> {
+    const query = withLeads ? '?withLeads=true' : '';
+    return this.api.delete<{ deletedLeads: number; ungroupedLeads: number }>(
+      `/api/lead-groups/${id}${query}`
+    );
   }
 }

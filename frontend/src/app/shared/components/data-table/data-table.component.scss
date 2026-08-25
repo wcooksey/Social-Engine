@@ -103,6 +103,22 @@
     width: 15px;
     height: 15px;
   }
+
+  // On a touch screen a 15px checkbox is smaller than the finger aiming at it,
+  // so selection either misses or hits the row instead. Widen the column and
+  // let the checkbox fill a real target.
+  @media (pointer: coarse) {
+    width: 56px;
+    // Padding does the work the checkbox can't: the cell itself becomes the
+    // ~44px target, with the control centred inside it.
+    padding: 10px 8px;
+
+    input[type='checkbox'] {
+      width: 24px;
+      height: 24px;
+      margin: 8px;
+    }
+  }
 }
 
 // Loading / empty states

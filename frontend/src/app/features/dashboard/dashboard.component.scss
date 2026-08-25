@@ -49,7 +49,13 @@
   }
 }
 
-::ng-deep .stat-card {
+// :host-scoped on purpose. Unscoped, `::ng-deep .stat-card` compiles to a plain
+// global `.stat-card .card { display:flex; align-items:center }` that outlives
+// this page — and since the dashboard is the landing route it always loads, so
+// it was reaching into the Admin page's stat cards and laying their label and
+// value out in a ROW. Anchoring it to :host keeps the reach inside this
+// component, which is all it ever needed.
+:host ::ng-deep .stat-card {
   cursor: pointer;
 
   .card {

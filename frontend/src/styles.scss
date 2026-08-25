@@ -242,3 +242,45 @@ h6, .h6 {
   border-top: 2px solid var(--border-primary);
   white-space: nowrap;
 }
+
+/* ============================================================
+   Touch targets
+   A finger is about 9mm across; a 13px checkbox is not a target,
+   it is a dare. These floors apply only where the primary input
+   is coarse (phones, tablets), so nothing changes on a mouse.
+   ============================================================ */
+@media (pointer: coarse) {
+  /* Native checkboxes and radios render at ~13px. Grow the control itself —
+     pseudo-elements are unreliable on replaced elements, so the box has to do
+     the work. Margin adds a little breathing room without shifting layout. */
+  input[type='checkbox'],
+  input[type='radio'] {
+    width: 24px;
+    height: 24px;
+    margin: 8px;
+  }
+
+  /* Any bare <button> a page rolls itself — chips, tabs, pills, icon buttons.
+     app-button already sets its own 34/40/48px heights, so it is excluded
+     rather than stretched. min-width only bites on controls narrower than
+     40px, so text buttons are untouched while icon-only ones stop being
+     24px slivers. */
+  button:not([class*='button--']):not(.data-table__pager-btn) {
+    min-height: 40px;
+    min-width: 40px;
+  }
+
+  /* Inline links used as tags/filters inside dense rows. They are secondary
+     navigation, so they get room rather than a full button's footprint. */
+  a[href]:not([class*='button--']) {
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* Pagination arrows sit in a tight footer; give them a square target. */
+  .data-table__pager-btn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}

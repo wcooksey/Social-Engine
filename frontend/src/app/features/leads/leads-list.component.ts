@@ -13,6 +13,7 @@ import {
   EnrichmentTier,
   Lead,
   LeadGroup,
+  UNGROUPED_ID,
   LeadsQuery,
   formatLeadAddress
 } from '../../core/models/lead.model';
@@ -49,6 +50,8 @@ export class LeadsListComponent implements OnInit {
   total = signal(0);
   loading = signal(false);
   groups = signal<LeadGroup[]>([]);
+  /** Leads left behind by a deleted group — reachable via the Ungrouped filter. */
+  ungroupedLeads = signal(0);
   stats = signal<EnrichmentStats | null>(null);
   recomputing = signal(false);
 
@@ -114,7 +117,25 @@ export class LeadsListComponent implements OnInit {
     { label: 'No phone', value: 'no_phone' }
   ];
 
+  /**
+   * Groups, plus the orphan pool when there is one.
+   *
+   * Deleting a group unlinks its leads instead of destroying them, so without
+   * this entry those leads are unreachable from here — present in every total,
+   * absent from every filter. That gap is what makes a total look "stuck"
+   * after a group is deleted.
+   */
   get groupOptions(): SelectOption[] {
+    const options: SelectOption[] = this.groups().map(g => ({ label: g.name, value: g.id }));
+    const orphans = this.ungroupedLeads();
+    if (orphans > 0) {
+      options.push({ label: `Ungrouped (${orphans})`, value: UNGROUPED_ID });
+    }
+    return options;
+  }
+
+  /** Group options for ASSIGNING a lead — the orphan pool is not a destination. */
+  get assignableGroupOptions(): SelectOption[] {
     return this.groups().map(g => ({ label: g.name, value: g.id }));
   }
 
@@ -146,7 +167,10 @@ export class LeadsListComponent implements OnInit {
     this.quality = (params.get('quality') as QualityFilter) || '';
     this.page = Number(params.get('page')) || 1;
 
-    this.leadGroupsService.list().subscribe(groups => this.groups.set(groups));
+    this.leadGroupsService.list().subscribe(res => {
+      this.groups.set(res.groups);
+      this.ungroupedLeads.set(res.ungroupedLeads);
+    });
     this.load();
     this.loadStats();
   }
