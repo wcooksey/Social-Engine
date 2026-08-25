@@ -25,6 +25,7 @@ import { getOrgConfig } from '../services/settings.service';
 import { markBooked } from '../services/booking.service';
 import { suppressionReason } from '../services/suppression.service';
 import { placeholderBlockReason } from '../services/placeholder-guard';
+import { getOutreachPulse } from '../services/outreach-pulse.service';
 import { resolveIcp } from '../services/icp.service';
 import {
   applyToFilter,
@@ -1103,6 +1104,15 @@ export const engineTools: Anthropic.Tool[] = [
         },
       },
       required: ['goalId'],
+    },
+  },
+  {
+    name: 'get_outreach_activity',
+    description:
+      "What the platform has ACTUALLY SENT recently, organization-wide: touches by channel over the last hour / 24 hours / 7 days, replies received, what is in flight right now, per-mailbox sends against warm-up allowance, and per-campaign progress. CALL THIS before making ANY statement about whether outreach is or is not happening — no other tool answers that question. get_setup_status reports CONFIGURATION, list_scheduled_work reports what will fire NEXT, and get_sending_capacity reports remaining HEADROOM; none of them report what already went out. In particular, a mailbox in warm-up that has spent its daily allowance shows zero remaining capacity and an empty due-queue at exactly the moment it has just sent the most mail — reading that as \"no outreach\" is backwards. The 'verdict' field states the correct reading in plain language; trust it over your own inference.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
     },
   },
   {
@@ -3330,7 +3340,7 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
       note: onLegacyForThisPurpose
         ? `No ${purpose === 'TRANSACTIONAL' ? 'transactional' : 'cold-outreach'} domains are registered — this org sends from the single Mailgun domain in Settings, with no per-mailbox warm-up or caps, so there is no daily limit to plan around beyond the org send cap.`
         : remainingToday === 0
-          ? 'No capacity left today. Cold email sent now will be queued for when a mailbox frees up, not delivered immediately — plan research or calls instead.'
+          ? 'No cold-email capacity left today — this is remaining HEADROOM, not a report on activity. Mail may well have gone out already today; warm-up allowance rises daily and resets tomorrow. Anything sent now is queued and delivers itself when a mailbox frees up. Call get_outreach_activity before telling anyone whether outreach is running.'
           : `About ${remainingToday} cold email(s) can go out today across ${sendable.length} mailbox(es).`,
     };
   },
@@ -3831,6 +3841,10 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
       targetMetric: updated.targetMetric,
     };
   },
+  get_outreach_activity: async (_input, ctx) => {
+    return getOutreachPulse(ctx.organizationId);
+  },
+
   list_scheduled_work: async (input, ctx) => {
     const limit = Math.min(Math.max(Number(input.limit) || 40, 1), 200);
     const page = await listScheduled(
