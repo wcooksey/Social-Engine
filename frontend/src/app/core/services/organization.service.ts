@@ -8,6 +8,8 @@ export interface OrganizationSettings {
   slug: string;
   dailySendCap: number;
   quietHoursStart: number;
+  /** Physical mailing address for the commercial-email footer (CAN-SPAM). */
+  postalAddress?: string | null;
   quietHoursEnd: number;
   paused: boolean;
   socialAutonomy: boolean;
@@ -22,7 +24,7 @@ export class OrganizationService {
     return this.api.get<OrganizationSettings>('/api/organizations/mine');
   }
 
-  updateMine(patch: Partial<Pick<OrganizationSettings, 'name' | 'dailySendCap' | 'quietHoursStart' | 'quietHoursEnd' | 'paused' | 'socialAutonomy'>>): Observable<OrganizationSettings> {
+  updateMine(patch: Partial<Pick<OrganizationSettings, 'name' | 'dailySendCap' | 'quietHoursStart' | 'quietHoursEnd' | 'postalAddress' | 'paused' | 'socialAutonomy'>>): Observable<OrganizationSettings> {
     return this.api.patch<OrganizationSettings>('/api/organizations/mine', patch);
   }
 }

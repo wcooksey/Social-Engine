@@ -220,7 +220,7 @@
             label="Reply-to email"
             type="email"
             placeholder="dana@yourdomain.com"
-            helperText="Must be on your Mailgun sending domain — otherwise the org address is used"
+            helperText="Must be an address you can actually send as — a mailbox under Settings → Sending, or on your Mailgun domain. Anything else is ignored and a pool address is used instead."
             [(ngModel)]="form.identityEmail"
             [ngModelOptions]="{ standalone: true }">
           </app-input>
@@ -232,7 +232,24 @@
               [(ngModel)]="form.identitySignature"
               [ngModelOptions]="{ standalone: true }"
               placeholder="Dana Reeves&#10;Service Manager, Northwind HVAC&#10;(555) 010-0100"></textarea>
-            <p class="field-hint">Appended to outbound email sent under this playbook.</p>
+            <p class="field-hint">
+              Appended to outbound email sent under this playbook. Don't include a placeholder like
+              [Your Name] — the sender's real name is stamped on the message automatically.
+            </p>
+          </div>
+
+          <div class="textarea-field">
+            <label>Mailing address override</label>
+            <textarea
+              rows="2"
+              [(ngModel)]="form.identityPostalAddress"
+              [ngModelOptions]="{ standalone: true }"
+              placeholder="100 Main St, Suite 200, Tampa FL 33602"></textarea>
+            <p class="field-hint">
+              Only needed when this playbook fronts a different business from your own. Otherwise set
+              it once for the whole organization in Settings — commercial email legally requires one,
+              and spam filters treat a missing address as a signal.
+            </p>
           </div>
         </div>
       }

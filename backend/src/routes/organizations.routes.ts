@@ -32,6 +32,7 @@ router.get(
         dailyAiSpendCapUsd: true,
         quietHoursStart: true,
         quietHoursEnd: true,
+        postalAddress: true,
         paused: true,
         socialAutonomy: true,
         createdAt: true,
@@ -46,7 +47,7 @@ router.patch(
   '/mine',
   roleMiddleware('OWNER', 'ADMIN'),
   asyncHandler(async (req, res) => {
-    const allowed = ['name', 'engineModel', 'coachModel', 'dailySendCap', 'quietHoursStart', 'quietHoursEnd', 'paused', 'socialAutonomy'] as const;
+    const allowed = ['name', 'engineModel', 'coachModel', 'dailySendCap', 'quietHoursStart', 'quietHoursEnd', 'postalAddress', 'paused', 'socialAutonomy'] as const;
     const data: Record<string, unknown> = {};
     for (const key of allowed) {
       if (key in req.body) data[key] = req.body[key];

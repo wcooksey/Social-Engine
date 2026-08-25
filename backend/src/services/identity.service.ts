@@ -127,11 +127,14 @@ function hasIdentity(p: {
  */
 function postalAddressFor(
   winner: { identityPostalAddress: string | null } | null,
-  all: { identityPostalAddress: string | null }[]
+  all: { identityPostalAddress: string | null }[],
+  orgPostalAddress?: string | null
 ): string | undefined {
   const own = winner?.identityPostalAddress?.trim();
   if (own) return own;
-  return all.map((p) => p.identityPostalAddress?.trim()).find(Boolean) || undefined;
+  const fromAnyPlaybook = all.map((p) => p.identityPostalAddress?.trim()).find(Boolean);
+  if (fromAnyPlaybook) return fromAnyPlaybook;
+  return orgPostalAddress?.trim() || undefined;
 }
 
 /**
@@ -159,7 +162,7 @@ export async function resolveSenderIdentity(
 ): Promise<SenderIdentity> {
   const org = await prisma.organization.findUnique({
     where: { id: organizationId },
-    select: { name: true },
+    select: { name: true, postalAddress: true },
   });
   const fallback: SenderIdentity = { orgName: org?.name || 'our company' };
 
@@ -170,7 +173,7 @@ export async function resolveSenderIdentity(
   const withIdentity = playbooks.filter(hasIdentity);
   if (withIdentity.length === 0) {
     // No persona anywhere, but the footer is still owed.
-    return { ...fallback, postalAddress: postalAddressFor(null, playbooks) };
+    return { ...fallback, postalAddress: postalAddressFor(null, playbooks, org?.postalAddress) };
   }
 
   // Campaign-scoped playbooks need to know what this lead is enrolled in.
@@ -192,7 +195,7 @@ export async function resolveSenderIdentity(
     if (p.scope === 'LEAD_STATUS') return !!p.leadStatus && p.leadStatus === opts.lead.status;
     return false;
   });
-  if (matches.length === 0) return { ...fallback, postalAddress: postalAddressFor(null, playbooks) };
+  if (matches.length === 0) return { ...fallback, postalAddress: postalAddressFor(null, playbooks, org?.postalAddress) };
 
   // Specific beats global; the findMany order already handles priority/age.
   const winner = matches.find((p) => p.scope !== 'GLOBAL') ?? matches[0];
@@ -209,7 +212,7 @@ export async function resolveSenderIdentity(
     title: winner.identityTitle?.trim() || undefined,
     email: usableEmail,
     signature: winner.identitySignature?.trim() || undefined,
-    postalAddress: postalAddressFor(winner, playbooks),
+    postalAddress: postalAddressFor(winner, playbooks, org?.postalAddress),
     playbookId: winner.id,
     playbookName: winner.name,
   };

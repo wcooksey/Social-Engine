@@ -144,6 +144,7 @@ export class SettingsComponent implements OnInit {
   currentUser = computed(() => this.authService.currentUser());
 
   dailySendCap = 200;
+  postalAddress = '';
   quietHoursStart = '20:00';
   quietHoursEnd = '08:00';
   engineActive = true;
@@ -277,6 +278,7 @@ export class SettingsComponent implements OnInit {
       next: org => {
         this.orgName = org.name;
         this.dailySendCap = org.dailySendCap;
+        this.postalAddress = org.postalAddress ?? '';
         this.quietHoursStart = hourToTime(org.quietHoursStart);
         this.quietHoursEnd = hourToTime(org.quietHoursEnd);
         this.engineActive = !org.paused;
@@ -705,7 +707,8 @@ export class SettingsComponent implements OnInit {
       .updateMine({
         dailySendCap: Number(this.dailySendCap) || 0,
         quietHoursStart: timeToHour(this.quietHoursStart),
-        quietHoursEnd: timeToHour(this.quietHoursEnd)
+        quietHoursEnd: timeToHour(this.quietHoursEnd),
+        postalAddress: this.postalAddress.trim() || null
       })
       .subscribe({
         next: () => {

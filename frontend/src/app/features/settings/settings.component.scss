@@ -1062,3 +1062,48 @@
   display: flex;
   justify-content: flex-end;
 }
+
+/* Mailing address — a compliance field, so its empty state is a warning rather
+   than a neutral hint. Commercial email legally requires one and filters read a
+   missing address as a signal, but nothing in the product asked for it before. */
+.postal-field {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+
+  label {
+    font-size: $font-size-sm;
+    font-weight: $font-weight-medium;
+    color: var(--text-primary);
+  }
+
+  textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: $border-radius-md;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: $font-size-base;
+    resize: vertical;
+
+    &:focus { outline: none; border-color: $primary-blue; }
+  }
+
+  .field-hint {
+    font-size: $font-size-sm;
+    color: var(--text-secondary);
+    margin: 0;
+    max-width: 70ch;
+
+    &.is-warning {
+      color: $warning-yellow;
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+
+      i { margin-top: 2px; flex-shrink: 0; }
+    }
+  }
+}
