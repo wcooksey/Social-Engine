@@ -43,6 +43,30 @@ export function identityFromName(identity: SenderIdentity): string {
   return identity.personName || identity.orgName;
 }
 
+/**
+ * The From name for a send, given the mailbox actually chosen to carry it.
+ *
+ * A mailbox's display name wins over the playbook's person, because the mailbox
+ * is the thing the recipient can check: mail leaving mike@ must say Mike. The
+ * playbook picks a preferred address but the resolver treats that as a
+ * preference — when Mike's mailbox is out of warm-up allowance the send falls
+ * through to another address in the pool, and taking the name from the playbook
+ * there produces `"Mike — Dealegent" <will@...>`, a name that does not match the
+ * address it came from. That is what phishing looks like to a filter and to a
+ * person.
+ *
+ * The playbook still supplies the brand and remains the whole answer for a
+ * mailbox with no display name set, which is every mailbox today.
+ */
+export function fromNameFor(
+  identity: SenderIdentity,
+  mailboxDisplayName?: string | null
+): string {
+  const person = mailboxDisplayName?.trim() || identity.personName;
+  if (person && person !== identity.orgName) return `${person} — ${identity.orgName}`;
+  return person || identity.orgName;
+}
+
 /** How the sender introduces themselves in prose: "Dana, Service Manager at X". */
 export function identityIntro(identity: SenderIdentity): string {
   const who = identity.personName;
@@ -66,22 +90,48 @@ export function withSignature(body: string, identity: SenderIdentity): string {
   return out;
 }
 
+/**
+ * Whether a playbook has an identity it can PRESENT as.
+ *
+ * Deliberately excludes identityPostalAddress. A postal address is a compliance
+ * footer, not a persona: counting it here made a playbook that carries only a
+ * regional address a candidate that could out-rank the named one on scope, win,
+ * and blank the salesperson's name off the From header — while the body still
+ * signed as them. The address is still applied, via `postalAddressFor` below,
+ * which is what it was actually for.
+ */
 function hasIdentity(p: {
   identityName: string | null;
   identityOrgName: string | null;
   identityTitle: string | null;
   identityEmail: string | null;
   identitySignature: string | null;
-  identityPostalAddress: string | null;
 }): boolean {
   return !!(
     p.identityName ||
     p.identityOrgName ||
     p.identityTitle ||
     p.identityEmail ||
-    p.identitySignature ||
-    p.identityPostalAddress
+    p.identitySignature
   );
+}
+
+/**
+ * The postal address to put in the footer.
+ *
+ * Taken from the winning identity when it has one, otherwise from any active
+ * playbook that does — the address is a property of the business, not of the
+ * persona, so a second playbook carrying it should still satisfy CAN-SPAM
+ * rather than being ignored because it lost a persona contest it was never
+ * entered in.
+ */
+function postalAddressFor(
+  winner: { identityPostalAddress: string | null } | null,
+  all: { identityPostalAddress: string | null }[]
+): string | undefined {
+  const own = winner?.identityPostalAddress?.trim();
+  if (own) return own;
+  return all.map((p) => p.identityPostalAddress?.trim()).find(Boolean) || undefined;
 }
 
 /**
@@ -118,7 +168,10 @@ export async function resolveSenderIdentity(
     orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
   });
   const withIdentity = playbooks.filter(hasIdentity);
-  if (withIdentity.length === 0) return fallback;
+  if (withIdentity.length === 0) {
+    // No persona anywhere, but the footer is still owed.
+    return { ...fallback, postalAddress: postalAddressFor(null, playbooks) };
+  }
 
   // Campaign-scoped playbooks need to know what this lead is enrolled in.
   const campaignIds = opts.lead
@@ -139,7 +192,7 @@ export async function resolveSenderIdentity(
     if (p.scope === 'LEAD_STATUS') return !!p.leadStatus && p.leadStatus === opts.lead.status;
     return false;
   });
-  if (matches.length === 0) return fallback;
+  if (matches.length === 0) return { ...fallback, postalAddress: postalAddressFor(null, playbooks) };
 
   // Specific beats global; the findMany order already handles priority/age.
   const winner = matches.find((p) => p.scope !== 'GLOBAL') ?? matches[0];
@@ -156,7 +209,7 @@ export async function resolveSenderIdentity(
     title: winner.identityTitle?.trim() || undefined,
     email: usableEmail,
     signature: winner.identitySignature?.trim() || undefined,
-    postalAddress: winner.identityPostalAddress?.trim() || undefined,
+    postalAddress: postalAddressFor(winner, playbooks),
     playbookId: winner.id,
     playbookName: winner.name,
   };

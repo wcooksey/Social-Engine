@@ -63,6 +63,32 @@ function identityLabel(p: {
 }
 
 /**
+ * The precedence rule `resolveSenderIdentity` actually applies, stated for the
+ * model.
+ *
+ * The prompt lists EVERY active playbook with no scope or channel filter,
+ * because one run works many leads. The resolver filters by both and applies a
+ * specific-beats-global tie-break. Left unsaid, the model would compose toward
+ * whichever "Send as" line it read first and the platform would stamp a
+ * different one — an email From "Mike" signed "Sarah", which is precisely the
+ * shape of a phishing message. Stating the rule is what keeps the two in step.
+ */
+function identityPrecedenceNote(): string {
+  return (
+    '\nIMPORTANT — which identity applies to a given lead is decided by the platform, not by you, ' +
+    'and it uses this exact rule: among playbooks that carry a "Send as" line, only those whose ' +
+    'scope matches THAT lead (its group, its campaign, or its status) and whose channel matches ' +
+    'the one you are sending on are eligible; a scoped playbook beats a GLOBAL one; then the lowest ' +
+    'priority number wins. Every playbook below is listed regardless of scope, so more "Send as" ' +
+    'lines are visible to you than can apply to any one lead.\n' +
+    'Because of that, and because the sending mailbox is only chosen after you finish writing, ' +
+    'NEVER type a sender name or a sign-off into a message body. Write the body only. The platform ' +
+    'appends the correct signature and sets the From header to match the address that actually ' +
+    'carries the send.\n'
+  );
+}
+
+/**
  * The playbook a conversation is filed under, if it still exists and is active.
  * Used to tell a run which line of business it is working — the difference
  * between a tag on a chat list and a chat that actually behaves differently.
@@ -92,7 +118,7 @@ export function formatPlaybooksForPrompt(playbooks: PlaybookForPrompt[]): string
     .join('\n\n');
   const anyIdentity = playbooks.some((p) => p.identityLabel);
   const identityNote = anyIdentity
-    ? `\nSome playbooks carry a "Send as" identity — the person and business that outreach under them comes from. When a playbook matching your lead has one, write in that identity's voice and sign as them, never as another playbook's identity. The platform sets the real sender name on the message to match, so do not contradict it.\n`
+    ? `\nSome playbooks carry a "Send as" identity — the person and business that outreach under them comes from. When a playbook matching your lead has one, write in that identity's voice, never another playbook's.\n${identityPrecedenceNote()}`
     : '';
   return `\n\n## Playbooks (protocols set by your team — FOLLOW THESE)\nWhen working a lead, apply every playbook whose scope matches it (group, campaign, or status). Channel-tagged playbooks apply only to that channel; VOICE playbooks define how phone calls should be conducted.\n${identityNote}\n${blocks}`;
 }

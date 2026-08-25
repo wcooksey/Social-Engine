@@ -21,6 +21,39 @@ export const config = {
     return u;
   })(),
 
+  /**
+   * True when APP_PUBLIC_URL points somewhere no recipient can reach.
+   *
+   * This value is baked into unsubscribe links, booking links and calendar
+   * invites — things a PROSPECT clicks. Left at the dev fallback in production
+   * it ships `http://localhost:3000/api/public/unsubscribe?...` in live cold
+   * email: a dead opt-out on every message, and a compliance failure that is
+   * invisible from inside the app.
+   *
+   * Tests the resolved VALUE rather than merely whether the variable was set,
+   * because a .env carried from development sets it explicitly to localhost —
+   * which is exactly the case a "did you set it?" check waves through.
+   */
+  appPublicUrlIsUnreachable: (() => {
+    const raw = (process.env.APP_PUBLIC_URL || 'http://localhost:3000').trim();
+    if (!raw) return true;
+    let host: string;
+    try {
+      host = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.toLowerCase();
+    } catch {
+      return true; // unparseable is not reachable either
+    }
+    return (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '::1' ||
+      host === '[::1]' ||
+      host.endsWith('.local') ||
+      host.endsWith('.localhost') ||
+      host === '0.0.0.0'
+    );
+  })(),
+
   // Extra allowed CORS origins in production (comma-separated). The backend
   // serves the frontend itself, so this stays empty unless the UI is hosted
   // on a different origin.

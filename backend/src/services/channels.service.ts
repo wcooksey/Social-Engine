@@ -127,11 +127,9 @@ export async function sendEmail(opts: SendEmailOptions, creds: EmailCreds): Prom
   form.append('text', opts.body);
   if (opts.html) form.append('html', opts.html);
   if (opts.unsubscribeUrl) {
-    // Header value differs for mailto vs http; add one-click for http targets.
-    const value = opts.unsubscribeUrl.startsWith('mailto:')
-      ? `<${opts.unsubscribeUrl}>`
-      : `<${opts.unsubscribeUrl}>`;
-    form.append('h:List-Unsubscribe', value);
+    form.append('h:List-Unsubscribe', `<${opts.unsubscribeUrl}>`);
+    // One-click only applies to an http(s) target; a mailto: unsubscribe is a
+    // reply, not a POST endpoint.
     if (!opts.unsubscribeUrl.startsWith('mailto:')) {
       form.append('h:List-Unsubscribe-Post', 'List-Unsubscribe=One-Click');
     }

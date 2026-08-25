@@ -1,6 +1,4 @@
 import { prisma } from '../config/database';
-import { config } from '../config/environment';
-import { signToken } from '../utils/signing';
 import * as channels from './channels.service';
 import {
   identityFromName,
@@ -12,8 +10,10 @@ import {
   deferCampaignTouch,
   outboundBlockReason,
   recordCampaignTouch,
+  unsubscribeUrlFor,
 } from './outbound.service';
 import { suppressionReason } from './suppression.service';
+import { findUnresolvedPlaceholders } from './placeholder-guard';
 import { recordSend } from './experiment.service';
 import {
   markMailboxSent,
@@ -161,6 +161,22 @@ async function deliver(messageId: string, now: Date): Promise<Outcome> {
     await close(message.id, 'cancelled', organizationId, lead.id, `Queued email cancelled — ${lead.companyName} is on hold: ${lead.contactReviewReason}`);
     return 'cancelled';
   }
+  // A queued message was composed by an agent that is long gone, so nothing has
+  // looked at this text since. Cancel rather than reschedule: a template token
+  // will not resolve itself on the next sweep, and retrying forever would just
+  // delay the same broken send by fifteen minutes at a time.
+  const unfilled = findUnresolvedPlaceholders(`${message.subject ?? ''}\n${message.body}`);
+  if (unfilled.length) {
+    await close(
+      message.id,
+      'cancelled',
+      organizationId,
+      lead.id,
+      `Queued email cancelled — it still contained unfilled placeholders (${unfilled.join(', ')}). ` +
+        'Ask the Engine to rewrite it.'
+    );
+    return 'cancelled';
+  }
 
   // The campaign can change its mind while a message waits. Switching to
   // approval-required after composing means a human now wants to see this before
@@ -235,12 +251,14 @@ async function deliver(messageId: string, now: Date): Promise<Outcome> {
       subject: message.subject || conversation.subject || 'Following up',
       // The stored body already carries the signature and postal footer.
       body: message.body,
-      // The stored name wins: the body's sign-off was written to match it, and
-      // re-deriving could name someone else above the same signature.
-      fromName: message.senderName || identityFromName(identity),
+      // The mailbox that actually carries this wins, because the recipient can
+      // check it: mail leaving mike@ must say Mike. The name frozen at compose
+      // time is the fallback — it was written before this mailbox was chosen,
+      // and warm-up allowance may well have moved the send to a different one.
+      fromName: sender.displayName?.trim() || message.senderName || identityFromName(identity),
       fromEmail: sender.fromEmail,
       replyTo: sender.replyTo && sender.replyTo !== sender.fromEmail ? sender.replyTo : undefined,
-      unsubscribeUrl: `${config.appPublicUrl}/api/public/unsubscribe?c=${signToken(contact.id)}`,
+      unsubscribeUrl: unsubscribeUrlFor(contact.id),
     },
     sender.creds
   );

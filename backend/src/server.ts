@@ -16,6 +16,24 @@ async function main(): Promise<void> {
     console.log(`Social Engine API listening on :${config.port} (${config.nodeEnv})`);
   });
 
+  // Loud, because the consequence is silent: unset, every unsubscribe link,
+  // booking link and calendar invite sent to a prospect points at localhost.
+  // In production outbound is refused outright (see outboundBlockReason); the
+  // warning fires everywhere so it is noticed before the deploy, not after.
+  if (config.appPublicUrlIsUnreachable) {
+    const message =
+      `APP_PUBLIC_URL is ${config.appPublicUrl}, which no recipient can reach —\n` +
+      'unsubscribe links, booking links and calendar invites would all be dead on arrival.';
+    if (config.isProduction) {
+      console.error(
+        `\n*** APP_PUBLIC_URL IS NOT PUBLICLY REACHABLE ***\n${message}\n` +
+          'Outbound email is BLOCKED until this is set to the public URL of this deployment.\n'
+      );
+    } else {
+      console.warn(`\nHeads up: ${message}\n(Fine for local dev; set it before deploying.)\n`);
+    }
+  }
+
   // Database connection is best-effort at boot: if it fails we keep serving so
   // the error is visible in logs and /api/health stays green, rather than a
   // blind 502 crash loop.

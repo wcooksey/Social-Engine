@@ -24,6 +24,7 @@ import {
 import { getOrgConfig } from '../services/settings.service';
 import { markBooked } from '../services/booking.service';
 import { suppressionReason } from '../services/suppression.service';
+import { placeholderBlockReason } from '../services/placeholder-guard';
 import { resolveIcp } from '../services/icp.service';
 import {
   applyToFilter,
@@ -35,6 +36,7 @@ import {
   type ScheduledState,
 } from '../services/scheduled.service';
 import {
+  fromNameFor,
   identityFromName,
   identityIntro,
   resolveSenderIdentity,
@@ -67,12 +69,12 @@ import { llmService } from './llm/llm.service';
 import { GUIDE_TOPICS, PLATFORM_GUIDE } from './platform-guide';
 import { recordBrowserAction, recordBrowserFrame } from './live-view.registry';
 import { notify } from '../services/notification.service';
-import { signToken } from '../utils/signing';
 import {
   contactableRefusal,
   deferCampaignTouch,
   outboundBlockReason,
   recordCampaignTouch,
+  unsubscribeUrlFor,
 } from '../services/outbound.service';
 import { runBrowserAgent } from './browser/browser-agent.service';
 import { AgentRole, defaultRoleForJobType } from './roles';
@@ -1968,6 +1970,14 @@ const executors: Record<string, ToolExecutor> = {
     const emailSuppressed = await suppressionRefusal(ctx.organizationId, { email: contact.email });
     if (emailSuppressed) return { sent: false, reason: emailSuppressed };
 
+    // Template tokens the model failed to substitute. Checked before anything
+    // is written or queued, so a refusal costs nothing and the agent can retry.
+    const unfilled = placeholderBlockReason(
+      `${input.subject ?? ''}\n${input.body ?? ''}`,
+      'email'
+    );
+    if (unfilled) return { sent: false, reason: unfilled };
+
     const orgConfig = await getOrgConfig(ctx.organizationId);
     // Whose name this goes out under — decided by playbook scope, not by the
     // model, so the header and the body can't disagree.
@@ -2119,12 +2129,12 @@ const executors: Record<string, ToolExecutor> = {
         to: contact.email,
         subject: input.subject,
         body,
-        fromName: identityFromName(identity),
+        fromName: fromNameFor(identity, sender.displayName),
         fromEmail: sender.fromEmail,
         // Only worth a header when it actually differs from the From address.
         replyTo: sender.replyTo && sender.replyTo !== sender.fromEmail ? sender.replyTo : undefined,
         // One-click unsubscribe (List-Unsubscribe header) — deliverability + CAN-SPAM.
-        unsubscribeUrl: `${config.appPublicUrl}/api/public/unsubscribe?c=${signToken(contact.id)}`,
+        unsubscribeUrl: unsubscribeUrlFor(contact.id),
       },
       sender.creds
     );
@@ -2181,6 +2191,9 @@ const executors: Record<string, ToolExecutor> = {
     if (contact.optedOut) return { sent: false, reason: 'Contact has opted out — do not message them.' };
     const smsSuppressed = await suppressionRefusal(ctx.organizationId, { phone: contact.phone });
     if (smsSuppressed) return { sent: false, reason: smsSuppressed };
+
+    const unfilledSms = placeholderBlockReason(input.body ?? '', 'SMS');
+    if (unfilledSms) return { sent: false, reason: unfilledSms };
 
     const orgConfig = await getOrgConfig(ctx.organizationId);
     const blocked = await outboundBlockReason(ctx.organizationId, lead);
@@ -2427,6 +2440,9 @@ const executors: Record<string, ToolExecutor> = {
     assertContactable(lead);
     assertNotUnderReview(lead);
 
+    const unfilledForm = placeholderBlockReason(input.message ?? '', 'form');
+    if (unfilledForm) return { submitted: false, note: unfilledForm };
+
     const startUrl = String(input.formUrl || lead.website || '').trim();
     if (!startUrl) {
       return {
@@ -2646,6 +2662,9 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
     const lead = await requireLead(input.leadId, ctx.organizationId);
     assertContactable(lead);
     assertNotUnderReview(lead);
+
+    const unfilledDm = placeholderBlockReason(input.message ?? '', 'DM');
+    if (unfilledDm) return { sent: false, reason: unfilledDm };
 
     // Business page first: it's the company's own inbox, so there is no
     // identity guesswork and no wrong-person risk. Default to it whenever one
