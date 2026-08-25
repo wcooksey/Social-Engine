@@ -61,6 +61,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/campaigns/campaign-detail.component').then(m => m.CampaignDetailComponent)
       },
       {
+        path: 'scheduled',
+        loadComponent: () => import('./features/scheduled/scheduled.component').then(m => m.ScheduledComponent)
+      },
+      {
         path: 'sending',
         loadComponent: () => import('./features/sending/sending.component').then(m => m.SendingComponent)
       },

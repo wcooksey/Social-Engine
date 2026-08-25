@@ -1,0 +1,445 @@
+<div class="scheduled-page">
+  <div class="page-header">
+    <div>
+      <h1>Scheduled</h1>
+      <p class="subtitle">
+        Everything the platform will send or do on its own — and the brake on each of it
+      </p>
+    </div>
+    <app-button variant="secondary" icon="bi-arrow-clockwise" [loading]="loading()" (clicked)="load(); loadSummary()">
+      Refresh
+    </app-button>
+  </div>
+
+  <!-- ── Org kill switch ─────────────────────────────────────────────────── -->
+  @if (summary()?.orgPaused) {
+    <app-card variant="outlined" class="notice stop">
+      <div class="notice-body">
+        <i class="bi bi-shield-slash"></i>
+        <div>
+          <strong>The organization kill switch is on</strong>
+          <p>
+            Nothing below can leave the building while this is set. Queued messages are held and
+            re-checked, not lost. The switch lives on Settings → Organization guardrails.
+          </p>
+        </div>
+      </div>
+    </app-card>
+  }
+
+  <!-- ── Headline counts ─────────────────────────────────────────────────── -->
+  <div class="tiles">
+    <app-card variant="outlined">
+      <div class="tile tile--primary">
+        <span class="tile-value">{{ summary()?.automatic ?? '—' }}</span>
+        <span class="tile-label">will fire on its own</span>
+        <span class="tile-note">no human involved at any point</span>
+      </div>
+    </app-card>
+    <app-card variant="outlined">
+      <div class="tile">
+        <span class="tile-value">{{ summary()?.dueWithin24h ?? '—' }}</span>
+        <span class="tile-label">in the next 24 hours</span>
+        <span class="tile-note">what lands today</span>
+      </div>
+    </app-card>
+    <app-card variant="outlined">
+      <div class="tile">
+        <span class="tile-value">{{ summary()?.paused ?? '—' }}</span>
+        <span class="tile-label">held by you</span>
+        <span class="tile-note">kept intact, resumable</span>
+      </div>
+    </app-card>
+    <app-card variant="outlined">
+      <div class="tile">
+        <span class="tile-value">{{ summary()?.awaitingYou ?? '—' }}</span>
+        <span class="tile-label">waiting on approval</span>
+        <span class="tile-note">will never send by itself</span>
+      </div>
+    </app-card>
+  </div>
+
+  <!-- ── The answer to "why did it send after I cancelled it?" ───────────── -->
+  @if (liveGenerators().length || (summary()?.generators?.activeGoals?.length ?? 0) > 0) {
+    <app-card variant="outlined" class="generators">
+      <div class="generators-head">
+        <i class="bi bi-arrow-repeat"></i>
+        <div>
+          <strong>These keep making new work</strong>
+          <p>
+            A campaign cadence and an Autopilot goal don't hold a message — they
+            <em>write a new one</em> every few minutes. Cancelling what they already produced stops
+            that copy and nothing else, which is why outreach can keep arriving after you cancelled
+            it. Hold the generator itself to actually stop it.
+          </p>
+        </div>
+      </div>
+
+      @for (c of liveGenerators(); track c.id) {
+        <div class="generator-row" [class.is-held]="c.liveLeads === 0 && c.pausedLeads > 0">
+          <div class="generator-main">
+            <a class="generator-name" [routerLink]="['/campaigns', c.id]">{{ c.name }}</a>
+            <span class="generator-meta">
+              @if (c.status !== 'ACTIVE') {
+                <app-badge variant="neutral" size="xs">{{ c.status | titlecase }}</app-badge>
+              }
+              <strong>{{ c.liveLeads }}</strong> live lead{{ c.liveLeads === 1 ? '' : 's' }} on a
+              {{ c.followUpCadenceDays }}-day cadence, up to {{ c.maxTouches }} touches
+              @if (c.pausedLeads > 0) { · <strong>{{ c.pausedLeads }}</strong> held }
+              @if (c.dormantLeads > 0 && c.reEngageAfterDays) {
+                · {{ c.dormantLeads }} resting, back after {{ c.reEngageAfterDays }} days
+              }
+            </span>
+          </div>
+          <div class="generator-actions">
+            <app-button variant="text" size="sm" (clicked)="filterToCampaign(c.id)">Show</app-button>
+            @if (c.liveLeads > 0) {
+              <app-button
+                variant="secondary"
+                size="sm"
+                icon="bi-pause-fill"
+                [loading]="busy() === 'campaign:' + c.id"
+                (clicked)="holdCampaign(c.id)">
+                Hold all
+              </app-button>
+            } @else {
+              <app-button
+                variant="secondary"
+                size="sm"
+                icon="bi-play-fill"
+                [loading]="busy() === 'campaign:' + c.id"
+                (clicked)="resumeCampaign(c.id)">
+                Resume
+              </app-button>
+            }
+          </div>
+        </div>
+      }
+
+      @for (g of summary()?.generators?.activeGoals ?? []; track g.id) {
+        <div class="generator-row">
+          <div class="generator-main">
+            <span class="generator-name">{{ g.name }}</span>
+            <span class="generator-meta">
+              Autopilot goal · re-queues work every {{ g.cadenceHours }}h · next
+              {{ relativeTime(g.nextRunAt) }}
+            </span>
+          </div>
+          <div class="generator-actions">
+            <app-button variant="text" size="sm" (clicked)="toggleKind('GOAL')">Show goals</app-button>
+          </div>
+        </div>
+      }
+    </app-card>
+  }
+
+  <!-- ── Filters ─────────────────────────────────────────────────────────── -->
+  <div class="filters">
+    <div class="chip-row">
+      @for (kind of allKinds; track kind) {
+        <button
+          type="button"
+          class="chip"
+          [class.is-on]="kindFilter().has(kind)"
+          [class.is-generator]="kindMeta[kind].generator"
+          [title]="kindMeta[kind].blurb"
+          (click)="toggleKind(kind)">
+          <i class="bi" [ngClass]="kindMeta[kind].icon"></i>
+          {{ kindMeta[kind].short }}
+          <span class="chip-count">{{ kindCount(kind) }}</span>
+        </button>
+      }
+    </div>
+
+    <div class="chip-row">
+      @for (state of allStates; track state) {
+        <button
+          type="button"
+          class="chip chip--state"
+          [class.is-on]="stateFilter().has(state)"
+          (click)="toggleState(state)">
+          {{ stateMeta[state].label }}
+        </button>
+      }
+      <span class="chip-sep"></span>
+      <button type="button" class="chip chip--state" [class.is-on]="horizonFilter() === 24" (click)="setHorizon(24)">
+        Next 24h
+      </button>
+      <button type="button" class="chip chip--state" [class.is-on]="horizonFilter() === 168" (click)="setHorizon(168)">
+        Next 7 days
+      </button>
+    </div>
+
+    <div class="filter-row">
+      <div class="search-box">
+        <i class="bi bi-search"></i>
+        <input
+          type="search"
+          placeholder="Search a company, subject or objective…"
+          [ngModel]="search()"
+          (ngModelChange)="onSearch($event)" />
+      </div>
+
+      <select class="native-select" [ngModel]="campaignFilter()" (ngModelChange)="onCampaignFilter($event)">
+        <option value="">All campaigns</option>
+        @for (c of campaigns(); track c.id) {
+          <option [value]="c.id">{{ c.name }}</option>
+        }
+      </select>
+
+      @if (hasFilters()) {
+        <app-button variant="text" size="sm" icon="bi-x-lg" (clicked)="clearFilters()">Clear</app-button>
+      }
+    </div>
+  </div>
+
+  <!-- ── Result notes from the last action ───────────────────────────────── -->
+  @if (lastResult(); as result) {
+    <app-card variant="outlined" class="notice result">
+      <div class="notice-body">
+        <i class="bi bi-info-circle"></i>
+        <div>
+          <strong>{{ result.applied }} item(s) {{ result.action }}d</strong>
+          @for (note of result.notes; track note) { <p>{{ note }}</p> }
+          @for (skip of result.skipped; track skip.ref) { <p class="muted">{{ skip.reason }}</p> }
+        </div>
+        <app-button variant="text" size="sm" icon="bi-x-lg" [iconOnly]="true" (clicked)="dismissResult()" />
+      </div>
+    </app-card>
+  }
+
+  @if (truncatedKinds().length) {
+    <app-card variant="outlined" class="notice warn">
+      <div class="notice-body">
+        <i class="bi bi-exclamation-triangle"></i>
+        <div>
+          <strong>This list is capped</strong>
+          <p>
+            There is more scheduled than shown for:
+            {{ truncatedKinds().join(', ').toLowerCase() }}. The counts above are exact — the table
+            is not. Narrow the filters, or use “{{ 'Apply to all matching' }}” so an action reaches
+            everything, not just what fits on screen.
+          </p>
+        </div>
+      </div>
+    </app-card>
+  }
+
+  <!-- ── Bulk bar ────────────────────────────────────────────────────────── -->
+  @if (selectedIds().size > 0) {
+    <div class="bulk-bar" [class.is-warning]="selectionLeavesGeneratorRunning()">
+      <div class="bulk-count">
+        <strong>{{ selectedIds().size }}</strong> selected
+        @if (selectionLeavesGeneratorRunning()) {
+          <span class="bulk-warning">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            Some of these come from a campaign that is still running — stopping them alone won't hold.
+          </span>
+        }
+      </div>
+      <div class="bulk-actions">
+        <app-button
+          variant="secondary"
+          size="sm"
+          icon="bi-pause-fill"
+          [disabled]="eligible('pause').length === 0"
+          [loading]="busy() === 'bulk:pause'"
+          (clicked)="bulk('pause')">
+          Hold {{ eligible('pause').length }}
+        </app-button>
+        <app-button
+          variant="secondary"
+          size="sm"
+          icon="bi-play-fill"
+          [disabled]="eligible('resume').length === 0"
+          [loading]="busy() === 'bulk:resume'"
+          (clicked)="bulk('resume')">
+          Resume {{ eligible('resume').length }}
+        </app-button>
+        <app-button
+          variant="danger"
+          size="sm"
+          icon="bi-x-octagon"
+          [disabled]="eligible('cancel').length === 0"
+          (clicked)="bulk('cancel')">
+          Cancel {{ eligible('cancel').length }}
+        </app-button>
+      </div>
+    </div>
+  }
+
+  <!-- ── Act on everything matching, not just this page ──────────────────── -->
+  <div class="scope-bar">
+    <span class="scope-label">
+      {{ total() }} row{{ total() === 1 ? '' : 's' }} match
+      {{ hasFilters() ? 'these filters' : 'right now' }}
+    </span>
+    <div class="scope-actions">
+      <app-button variant="text" size="sm" icon="bi-pause-circle" (clicked)="bulkScope('pause')">
+        Hold all matching
+      </app-button>
+      <app-button variant="text" size="sm" icon="bi-play-circle" (clicked)="bulkScope('resume')">
+        Resume all matching
+      </app-button>
+      <app-button variant="text" size="sm" icon="bi-x-circle" (clicked)="bulkScope('cancel')">
+        Cancel all matching
+      </app-button>
+    </div>
+  </div>
+
+  <!-- ── The feed ────────────────────────────────────────────────────────── -->
+  <app-card variant="outlined" padding="sm">
+    <app-data-table
+      [columns]="columns"
+      [rows]="items()"
+      [loading]="loading()"
+      [selectable]="true"
+      [showBulkBar]="false"
+      [selectedIds]="selectedIds()"
+      (selectedIdsChange)="onSelectionChange($event)"
+      [rowKey]="rowKey"
+      [total]="total()"
+      [page]="page()"
+      [pageSize]="pageSize"
+      (pageChange)="onPageChange($event)"
+      [minWidth]="'900px'"
+      emptyText="Nothing is scheduled that matches. Nothing will send on its own.">
+
+      <ng-template appDataCell="dueAt" let-row="row">
+        <div class="due-cell" [class.is-overdue]="row.state === 'DUE'">
+          <span class="due-relative">{{ relativeTime(row.dueAt) }}</span>
+          <span class="due-absolute">{{ absoluteTime(row.dueAt) }}</span>
+        </div>
+      </ng-template>
+
+      <ng-template appDataCell="kind" let-row="row">
+        <span class="kind-cell" [class.is-generator]="kindInfo(row.kind).generator">
+          <i class="bi" [ngClass]="kindInfo(row.kind).icon"></i>
+          <span>
+            {{ kindInfo(row.kind).label }}
+            @if (kindInfo(row.kind).generator) {
+              <em class="kind-generator" title="This creates new messages on a schedule">repeats</em>
+            }
+          </span>
+        </span>
+      </ng-template>
+
+      <ng-template appDataCell="title" let-row="row">
+        <div class="title-cell">
+          <button type="button" class="title-main" (click)="toggleExpanded(row.ref)">
+            <i class="bi" [ngClass]="isExpanded(row.ref) ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+            <span>{{ row.title }}</span>
+          </button>
+          <div class="title-tags">
+            @if (row.lead) {
+              <a class="tag" [routerLink]="['/leads', row.lead.id]">{{ row.lead.companyName }}</a>
+            }
+            @if (row.campaign) {
+              <a class="tag tag--campaign" [routerLink]="['/campaigns', row.campaign.id]">
+                {{ row.campaign.name }}
+              </a>
+            }
+            @if (row.blockedReason) {
+              <span class="tag tag--blocked" [title]="row.blockedReason">
+                <i class="bi bi-slash-circle"></i> Won't send
+              </span>
+            }
+            @if (row.meta?.expired) {
+              <span class="tag tag--blocked" title="Older than the queue's 3-day limit">
+                <i class="bi bi-hourglass-bottom"></i> Expired
+              </span>
+            }
+          </div>
+          @if (isExpanded(row.ref)) {
+            <div class="detail-panel">
+              @if (row.blockedReason) {
+                <p class="detail-blocked"><i class="bi bi-slash-circle"></i> {{ row.blockedReason }}</p>
+              }
+              <pre class="detail-body">{{ row.detail }}</pre>
+              <div class="detail-meta">
+                @if (row.expiresAt) { <span>Expires {{ absoluteTime(row.expiresAt) }}</span> }
+                @if (row.channel) { <span>Channel: {{ row.channel }}</span> }
+                <span class="detail-ref">{{ row.ref }}</span>
+              </div>
+            </div>
+          }
+        </div>
+      </ng-template>
+
+      <ng-template appDataCell="state" let-row="row">
+        <app-badge [variant]="badgeVariant(row.state)" size="sm">
+          {{ stateInfo(row.state).label }}
+        </app-badge>
+      </ng-template>
+
+      <ng-template appDataCell="actions" let-row="row">
+        <div class="row-actions">
+          @if (row.actions.pause) {
+            <app-button
+              variant="ghost"
+              size="sm"
+              icon="bi-pause-fill"
+              [iconOnly]="true"
+              title="Hold — reversible"
+              [loading]="busy() === row.ref + ':pause'"
+              (clicked)="rowAction(row, 'pause')" />
+          }
+          @if (row.actions.resume) {
+            <app-button
+              variant="ghost"
+              size="sm"
+              icon="bi-play-fill"
+              [iconOnly]="true"
+              title="Resume"
+              [loading]="busy() === row.ref + ':resume'"
+              (clicked)="rowAction(row, 'resume')" />
+          }
+          @if (row.actions.cancel) {
+            <app-button
+              variant="ghost"
+              size="sm"
+              icon="bi-x-lg"
+              [iconOnly]="true"
+              title="Cancel — permanent"
+              (clicked)="rowAction(row, 'cancel')" />
+          }
+          @if (!row.actions.pause && !row.actions.resume && !row.actions.cancel) {
+            <span class="no-actions" title="Already in flight — stop the agent from the Live page">
+              in flight
+            </span>
+          }
+        </div>
+      </ng-template>
+    </app-data-table>
+  </app-card>
+</div>
+
+<!-- ── Confirmation ──────────────────────────────────────────────────────── -->
+<app-dialog
+  [show]="!!confirm()"
+  [title]="confirm()?.title || ''"
+  size="md"
+  (close)="cancelConfirm()">
+  @if (confirm(); as pending) {
+    <div class="confirm-body">
+      @for (para of pending.body.split('\n\n'); track para) {
+        <p>{{ para }}</p>
+      }
+      @if (pending.mode === 'scope' && pending.confirmAll) {
+        <p class="confirm-danger">
+          <i class="bi bi-exclamation-octagon-fill"></i>
+          This is organization-wide.
+        </p>
+      }
+    </div>
+    <div class="confirm-actions">
+      <app-button variant="secondary" (clicked)="cancelConfirm()">Back</app-button>
+      <app-button
+        [variant]="pending.action === 'cancel' ? 'danger' : 'primary'"
+        [loading]="busy() === 'confirm' || busy() === 'scope'"
+        (clicked)="confirmAction()">
+        {{ pending.action === 'cancel' ? 'Cancel them' : pending.action === 'pause' ? 'Hold them' : 'Resume them' }}
+      </app-button>
+    </div>
+  }
+</app-dialog>

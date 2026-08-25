@@ -26,6 +26,15 @@ import { markBooked } from '../services/booking.service';
 import { suppressionReason } from '../services/suppression.service';
 import { resolveIcp } from '../services/icp.service';
 import {
+  applyToFilter,
+  applyToRefs,
+  listScheduled,
+  scheduledSummary,
+  type ScheduledAction,
+  type ScheduledKind,
+  type ScheduledState,
+} from '../services/scheduled.service';
+import {
   identityFromName,
   identityIntro,
   resolveSenderIdentity,
@@ -1063,6 +1072,53 @@ export const engineTools: Anthropic.Tool[] = [
         },
       },
       required: ['goalId'],
+    },
+  },
+  {
+    name: 'list_scheduled_work',
+    description:
+      "Everything that will fire on its own for this organization, across ALL FIVE mechanisms that can send without a human: queued messages already written and waiting on sender pacing (MESSAGE), scheduled agent jobs (JOB), campaign leads whose next touch is due (CADENCE), Autopilot goals that re-queue work on a cadence (GOAL), and meeting reminders emailed to the lead (REMINDER). ALWAYS call this before telling anyone what is or is not scheduled, and before cancelling anything — CADENCE and GOAL are GENERATORS: they write new jobs and new messages on every sweep, so cancelling the messages or jobs they produced does NOT stop them, and the work reappears within minutes. Use cancel_scheduled_work to act on what this returns.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        kind: {
+          type: 'string',
+          enum: ['MESSAGE', 'JOB', 'CADENCE', 'GOAL', 'REMINDER'],
+          description: 'Only this mechanism. Omit to see all five, which is usually what you want.',
+        },
+        state: {
+          type: 'string',
+          enum: ['DUE', 'SCHEDULED', 'PAUSED', 'RUNNING', 'NEEDS_APPROVAL'],
+        },
+        leadId: { type: 'string' },
+        campaignId: { type: 'string' },
+        withinHours: { type: 'number', description: 'Only what fires inside this many hours' },
+        limit: { type: 'number', description: 'Rows to return (default 40, max 200)' },
+      },
+    },
+  },
+  {
+    name: 'cancel_scheduled_work',
+    description:
+      "Pause, resume or cancel scheduled work — the ONLY way to actually stop the platform sending. Pass refs from list_scheduled_work to act on specific rows, or a scope (leadId / campaignId / kind) to act on everything matching at once. PAUSE is reversible and is the right default when someone says stop; CANCEL is permanent. CRITICAL: if someone asks you to stop follow-ups for a lead or campaign, you MUST include kind CADENCE and GOAL in what you stop, not just MESSAGE and JOB — otherwise the campaign sweep composes replacements on its next pass and the person sees messages going out after you told them it was stopped. When in doubt, scope by leadId or campaignId with no kind, which covers every mechanism at once.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        action: { type: 'string', enum: ['pause', 'resume', 'cancel'] },
+        refs: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Exact rows to act on, as returned by list_scheduled_work (e.g. "MESSAGE:abc", "CADENCE:def")',
+        },
+        leadId: { type: 'string', description: 'Scope: everything scheduled for this lead, on every mechanism' },
+        campaignId: { type: 'string', description: 'Scope: everything scheduled for this campaign' },
+        kind: {
+          type: 'string',
+          enum: ['MESSAGE', 'JOB', 'CADENCE', 'GOAL', 'REMINDER'],
+          description: 'Narrow a scope to one mechanism. Omit to cover all five — usually correct.',
+        },
+      },
+      required: ['action'],
     },
   },
 ];
@@ -3664,6 +3720,115 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
       status: updated.status,
       cadenceHours: updated.cadenceHours,
       targetMetric: updated.targetMetric,
+    };
+  },
+  list_scheduled_work: async (input, ctx) => {
+    const limit = Math.min(Math.max(Number(input.limit) || 40, 1), 200);
+    const page = await listScheduled(
+      {
+        organizationId: ctx.organizationId,
+        kinds: input.kind ? [input.kind as ScheduledKind] : undefined,
+        states: input.state ? [input.state as ScheduledState] : undefined,
+        leadId: input.leadId,
+        campaignId: input.campaignId,
+        withinHours: input.withinHours,
+      },
+      1,
+      limit
+    );
+    const summary = await scheduledSummary(ctx.organizationId);
+
+    return {
+      total: page.total,
+      showing: page.items.length,
+      items: page.items.map((i) => ({
+        ref: i.ref,
+        kind: i.kind,
+        state: i.state,
+        dueAt: i.dueAt,
+        title: i.title,
+        lead: i.lead?.companyName,
+        campaign: i.campaign?.name,
+        blockedReason: i.blockedReason,
+        // The flag that decides whether cancelling this achieves anything.
+        regenerates: i.meta.generator === true,
+      })),
+      generators: {
+        campaigns: summary.generators.campaigns
+          .filter((c) => c.liveLeads > 0)
+          .map((c) => `"${c.name}" (${c.status}): ${c.liveLeads} live lead(s) on a ${c.followUpCadenceDays}-day cadence, ${c.pausedLeads} held`),
+        goals: summary.generators.activeGoals.map((g) => `"${g.name}" every ${g.cadenceHours}h`),
+      },
+      orgPaused: summary.orgPaused,
+      truncatedKinds: page.truncatedKinds,
+      note:
+        'CADENCE and GOAL rows regenerate. Cancelling a MESSAGE or JOB that came from one of them buys ' +
+        'minutes, not a stop — the next sweep writes a replacement. To genuinely stop sending to a lead ' +
+        'or campaign, call cancel_scheduled_work scoped by leadId/campaignId with NO kind, so every ' +
+        'mechanism is covered at once.',
+    };
+  },
+
+  cancel_scheduled_work: async (input, ctx) => {
+    const action = String(input.action || '').toLowerCase() as ScheduledAction;
+    if (!['pause', 'resume', 'cancel'].includes(action)) {
+      throw new Error('action must be pause, resume or cancel');
+    }
+
+    const refs = Array.isArray(input.refs) ? (input.refs as unknown[]).map(String).filter(Boolean) : [];
+    if (refs.length > 0) {
+      const result = await applyToRefs(ctx.organizationId, action, refs);
+      return {
+        ...result,
+        note:
+          result.applied === 0
+            ? 'Nothing changed — those rows had already fired, or were already in that state.'
+            : `${action}d ${result.applied} row(s). If any were MESSAGE or JOB rows created by a campaign ` +
+              'or an Autopilot goal, stop the CADENCE/GOAL row too or the next sweep recreates them.',
+      };
+    }
+
+    if (!input.leadId && !input.campaignId) {
+      throw new Error(
+        'Give refs from list_scheduled_work, or a leadId/campaignId scope. Refusing to act on the whole ' +
+          'organization from a single tool call — a human does that from the Scheduled page.'
+      );
+    }
+
+    const result = await applyToFilter(ctx.organizationId, action, {
+      organizationId: ctx.organizationId,
+      kinds: input.kind ? [input.kind as ScheduledKind] : undefined,
+      leadId: input.leadId,
+      campaignId: input.campaignId,
+    });
+
+    if (input.leadId) {
+      await leadService
+        .logActivity({
+          organizationId: ctx.organizationId,
+          leadId: input.leadId,
+          type: 'STATUS_CHANGE',
+          summary:
+            `Scheduled work ${action}d for this lead (${result.applied} item(s) across ` +
+            `${Object.keys(result.byKind).join(', ') || 'no'} mechanism(s)).`,
+          payload: { action, byKind: result.byKind, source: 'engine' },
+          agentRunId: ctx.runId,
+        })
+        .catch(() => undefined);
+    }
+
+    return {
+      ...result,
+      note:
+        result.applied === 0
+          ? 'Nothing matched — there was no live scheduled work in that scope. Say exactly that; do not claim to have stopped something.'
+          : `${action}d ${result.applied} item(s): ` +
+            Object.entries(result.byKind)
+              .map(([kind, n]) => `${n} ${kind}`)
+              .join(', ') +
+            (input.kind
+              ? '. You narrowed this to one mechanism — the others are still live and may still send.'
+              : '. Every mechanism in that scope is covered, including the campaign cadence and any Autopilot goal, so nothing will regenerate.'),
     };
   },
 };

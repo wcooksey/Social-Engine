@@ -413,6 +413,11 @@ model CampaignLead {
   cycle       Int                @default(0)
   /// When this lead ran out of touches and went quiet. Drives re-engagement.
   dormantSince DateTime?
+  /// Held by an operator from the Scheduled page. The cadence sweep skips these
+  /// rows entirely, which is the only thing that actually stops a campaign
+  /// composing fresh touches — cancelling the messages it already wrote just
+  /// makes room for the next sweep to write more.
+  pausedAt   DateTime?
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
 
@@ -676,6 +681,9 @@ model AgentStep {
 enum AgentJobStatus {
   PENDING
   RUNNING
+  /// Held by an operator. Invisible to the worker's claim query, so it will
+  /// never fire, but it keeps its objective and runAt and can be put back.
+  PAUSED
   COMPLETED
   FAILED
   CANCELLED

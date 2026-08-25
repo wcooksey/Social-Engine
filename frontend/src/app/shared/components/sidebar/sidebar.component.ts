@@ -19,6 +19,7 @@ const BASE_NAV_ITEMS: NavItem[] = [
   { icon: 'bi-building', label: 'Leads', route: '/leads' },
   { icon: 'bi-collection', label: 'Groups', route: '/groups' },
   { icon: 'bi-megaphone', label: 'Campaigns', route: '/campaigns' },
+  { icon: 'bi-clock-history', label: 'Scheduled', route: '/scheduled' },
   { icon: 'bi-journal-text', label: 'Playbooks', route: '/playbooks' },
   { icon: 'bi-send', label: 'Sending', route: '/sending' },
   { icon: 'bi-bar-chart', label: 'Experiments', route: '/experiments' },

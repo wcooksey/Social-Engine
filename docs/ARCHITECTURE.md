@@ -358,6 +358,52 @@ max-touches marks it `COMPLETED`, opt-outs are excluded, and a requeue guard
 prevents duplicate jobs. Voicemail: AI calls detect machines and leave a
 configurable message instead of hanging up.
 
+This sweep is a **generator** — it writes new jobs and new messages rather than
+holding them — so the only things that stop it are `CampaignLead.pausedAt` (an
+operator hold) and taking the campaign out of `ACTIVE`. See "Scheduled work: one
+view, and a brake".
+
+### Scheduled work: one view, and a brake
+
+Five independent mechanisms can put a message in front of a prospect with no
+human and no agent present — a queued `Message` waiting on sender pacing, a
+pending `AgentJob`, a `CampaignLead` whose next touch is due, an
+`AutopilotGoal` re-queueing itself, and the 24h/1h meeting reminders on a
+`CalendarEvent`. Each was steered from a different page, or from none.
+
+Two of the five are **generators**, and that distinction is the whole point of
+the feature. Campaign cadence and Autopilot goals do not hold a message — they
+*write* new jobs and new messages on every sweep. Cancelling their output stops
+one copy and nothing else; minutes later the sweep composes a replacement. An
+operator who cancelled queued mail and pending jobs and then watched outreach
+keep arriving was not looking at a bug so much as at four invisible layers.
+
+The **Scheduled** page reports all five in one feed, keyed by a composite
+`KIND:uuid` ref so a single selection can span them, and leads with which
+generators are currently running before it shows a row. Every layer gained a
+reversible **hold** distinct from a permanent **cancel**:
+
+| Kind | Hold | Cancel |
+| --- | --- | --- |
+| `MESSAGE` | `status` → `paused` (invisible to the queue drain) | `status` → `cancelled`, logged to the timeline |
+| `JOB` | `AgentJobStatus.PAUSED` (invisible to the worker's claim) | `CANCELLED` |
+| `CADENCE` | `CampaignLead.pausedAt` — the only field that stops a campaign | `REMOVED` from the sequence |
+| `GOAL` | `AutopilotGoalStatus.PAUSED` | `CANCELLED` |
+| `REMINDER` | — (pinned to the meeting time) | remaining rule keys marked sent |
+
+Holds survive the sweeps, including the ninety-day dormant re-engagement pass.
+Actions come in two shapes: an explicit selection of refs, and a **scope** — a
+filter applied server-side with no id list, so "hold this entire campaign"
+works when it has four thousand due touches. An unbounded scope requires an
+explicit `confirmAll`. A held message keeps ageing, so resuming one past the
+queue's three-day expiry reports that it will be dropped as stale rather than
+sent.
+
+Agents reach the same machinery through `list_scheduled_work` and
+`cancel_scheduled_work`. Before these existed the Engine had a tool to *create*
+scheduled work and none to see or stop it, so "cancel my follow-ups" had no
+tool behind it at all.
+
 ### Cost tracking
 
 Every LLM call's token usage is captured from the provider response and priced
@@ -475,6 +521,8 @@ pool simultaneously without conflict.
   this is how it "sets its own schedule" and divides labor.
 - Guardrails: per-org daily send caps, quiet hours, channel rate limits, kill switch
   (pause org/campaign), and human-approval mode per campaign (draft-first vs. autonomous).
+- Everything scheduled is visible and reversible from the **Scheduled** page — see
+  "Scheduled work: one view, and a brake".
 
 ## Data model (core entities)
 
@@ -498,6 +546,8 @@ pool simultaneously without conflict.
   login helper, reused by the browser agent for every lead (no per-lead login), and
   auto-refreshed on each use so it stays alive for weeks.
 - **AgentJob** — scheduled unit of work (type, payload, runAt, status) — the scheduler's queue.
+  `PAUSED` is an operator hold: the row keeps its objective and `runAt` but the worker's
+  claim query cannot see it.
 - **CalendarEvent** — shared calendar (meetings/demos/calls with leads); both humans and the
   Engine read and write it. Events booked by the Engine carry the AgentRun id for auditability.
 - **EngineChat / EngineChatMessage** — the user↔Engine console threads.
