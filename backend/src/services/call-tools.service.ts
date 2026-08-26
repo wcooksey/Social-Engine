@@ -6,6 +6,7 @@ import { leadService } from './lead.service';
 import { computeSlots } from './booking.service';
 import { notify } from './notification.service';
 import { buildIcs } from '../utils/ics';
+import { suppressionReason } from './suppression.service';
 
 /** The org's default booking link — what we text and what we check slots against. */
 async function defaultBookingLink(organizationId: string) {
@@ -206,6 +207,21 @@ async function sendTextLink(
   if (!to) return 'I do not have a mobile number for you — I will email it instead.';
 
   const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
+
+  // Hard stops this path used to skip entirely. The org kill switch and the
+  // suppression list are absolute: a paused organization must send nothing, and
+  // a number someone has opted out of is not made textable by them being on the
+  // phone. Both were unreachable here because this is the one send path that
+  // does not go through the Engine's tools. Checked before the link lookups so
+  // a refusal costs nothing.
+  if (org?.paused) {
+    return 'I cannot text that right now, but I will email it over instead.';
+  }
+  const suppressed = await suppressionReason(ctx.organizationId, { phone: to });
+  if (suppressed) {
+    return 'I will email that over instead.';
+  }
+
   let url: string | null = null;
   let label = 'the link';
   if (kind === 'booking') {
@@ -222,13 +238,21 @@ async function sendTextLink(
       : 'I do not have that link to hand — I will email it straight after this call.';
   }
 
+  // Quiet hours and the daily cap are DELIBERATELY not enforced here, which is
+  // the one part of the old behaviour worth keeping. The prospect is on the
+  // phone right now and just asked for this link: they are demonstrably awake,
+  // and refusing a message they requested mid-conversation would make the call
+  // fall apart. The touch is still recorded below, so the cap stays honest even
+  // though it does not block.
   const body = `${org?.name || 'Hi'} — here's ${label} as promised: ${url}`;
   const result = await channels.sendSms({ to, body }, cfg.twilio);
 
   await leadService.logActivity({
     organizationId: ctx.organizationId,
     leadId: lead.id,
-    type: 'SMS_SENT',
+    // Only a delivered text is a touch. Logging SMS_SENT on failure spent the
+    // org's daily cap on a message the prospect never received.
+    type: result.sent ? 'SMS_SENT' : 'NOTE',
     summary: `${result.sent ? 'Texted' : 'Failed to text'} ${label} to ${to} during the call`,
     payload: { midCall: true, link: kind, url, to, status: result.sent ? 'sent' : 'failed' },
   });

@@ -6,6 +6,7 @@ import { leadService } from '../services/lead.service';
 import { getOrgConfig } from '../services/settings.service';
 import { classifyCall, shouldPauseCalling } from '../services/call-outcome.service';
 import { executeCallTool } from '../services/call-tools.service';
+import { flagSiblingLocations, suppress } from '../services/suppression.service';
 import { recomputeLeadEnrichment } from '../services/lead-enrichment.service';
 
 const router = Router();
@@ -161,6 +162,48 @@ router.post(
         where: { id: leadId },
         data: { doNotContact: true, status: 'NOT_INTERESTED' },
       });
+      // Someone saying "do not call me" out loud is the strongest opt-out the
+      // platform can receive, and it was the only one that left no permanent
+      // record — it lived as a flag on the lead row, which cascades away with
+      // the lead. Re-source that business next month and we would dial the same
+      // person again.
+      //
+      // Suppress the number ACTUALLY DIALLED, not lead.phone. place_call picks
+      // `contact?.phone || lead.phone` (engine/tools.ts), so a lead with a named
+      // contact is reached on that contact's direct line — keying the opt-out to
+      // lead.phone would ban a switchboard nobody objected to while leaving the
+      // line the person answered on fully dialable, and a lead whose number
+      // lives only on the contact would get no record at all. This mirrors the
+      // reply path, which suppresses the address the opt-out arrived from
+      // (services/inbound.service.ts) rather than everything on the lead.
+      //
+      // Written BEFORE the retirement branch below, which clears lead.phone.
+      const dialled =
+        message.call?.customer?.number || (metadata.toNumber as string | undefined) || lead.phone;
+      if (dialled) {
+        await suppress({
+          organizationId,
+          kind: 'PHONE',
+          value: dialled,
+          reason: 'Asked not to be called during an AI phone call',
+          source: 'voice_optout',
+          originLeadId: leadId,
+        });
+      } else {
+        // Never let a verbal opt-out pass silently: without a number there is
+        // nothing durable to write, and that is worth knowing about.
+        console.warn(
+          `Voice opt-out for lead ${leadId} could not be suppressed — no dialled number on the ` +
+            'call report, metadata or lead. Only the do-not-contact flag was set.'
+        );
+      }
+      // Multi-location businesses share a switchboard; the same hold the other
+      // opt-out paths place on sibling rooftops applies here.
+      await flagSiblingLocations(
+        organizationId,
+        leadId,
+        'a sibling location asked not to be called'
+      ).catch(() => undefined);
     }
     if (classified.retireNumber && lead.phone) {
       // Never dial a dead number again; enrichment will look for a replacement.

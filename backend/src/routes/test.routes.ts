@@ -6,6 +6,7 @@ import { config } from '../config/environment';
 import { getOrgConfig } from '../services/settings.service';
 import * as channels from '../services/channels.service';
 import { checkInboundEmail } from '../services/inbound-health.service';
+import { suppressionReason } from '../services/suppression.service';
 import { buildCallSystemPrompt } from '../engine/prompts';
 import { runBrowserAgent } from '../engine/browser/browser-agent.service';
 import { loadStorageState, PlatformKey, saveStorageState } from '../services/social-account.service';
@@ -86,6 +87,13 @@ router.post(
     if (!/^\+?[0-9().\-\s]{7,}$/.test(to)) throw new AppError('A valid phone number is required (e.g. +15551234567)');
     const cfg = await getOrgConfig(req.user!.organizationId);
     if (!channels.isSmsConfigured(cfg.twilio)) throw new AppError('SMS (Twilio) is not configured in Settings', 400);
+
+    // An opt-out is absolute — it does not have an exception for "we were only
+    // testing". The kill switch and quiet hours deliberately do NOT apply here:
+    // this is a human verifying their own wiring, usually to their own phone,
+    // and being unable to test while paused is exactly when you need to.
+    const suppressed = await suppressionReason(req.user!.organizationId, { phone: to });
+    if (suppressed) throw new AppError(`Cannot text ${to} — ${suppressed}`, 400);
 
     const result = await channels.sendSms(
       {

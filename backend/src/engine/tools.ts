@@ -25,6 +25,7 @@ import { getOrgConfig } from '../services/settings.service';
 import { markBooked } from '../services/booking.service';
 import { suppressionReason } from '../services/suppression.service';
 import { placeholderBlockReason } from '../services/placeholder-guard';
+import { getOutreachPulse } from '../services/outreach-pulse.service';
 import { resolveIcp } from '../services/icp.service';
 import {
   applyToFilter,
@@ -1106,6 +1107,15 @@ export const engineTools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'get_outreach_activity',
+    description:
+      "What the platform has ACTUALLY SENT recently, organization-wide: touches by channel over the last hour / 24 hours / 7 days, replies received, what is in flight right now, per-mailbox sends against warm-up allowance, and per-campaign progress. CALL THIS before making ANY statement about whether outreach is or is not happening — no other tool answers that question. get_setup_status reports CONFIGURATION, list_scheduled_work reports what will fire NEXT, and get_sending_capacity reports remaining HEADROOM; none of them report what already went out. In particular, a mailbox in warm-up that has spent its daily allowance shows zero remaining capacity and an empty due-queue at exactly the moment it has just sent the most mail — reading that as \"no outreach\" is backwards. The 'verdict' field states the correct reading in plain language; trust it over your own inference.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
     name: 'list_scheduled_work',
     description:
       "Everything that will fire on its own for this organization, across ALL FIVE mechanisms that can send without a human: queued messages already written and waiting on sender pacing (MESSAGE), scheduled agent jobs (JOB), campaign leads whose next touch is due (CADENCE), Autopilot goals that re-queue work on a cadence (GOAL), and meeting reminders emailed to the lead (REMINDER). ALWAYS call this before telling anyone what is or is not scheduled, and before cancelling anything — CADENCE and GOAL are GENERATORS: they write new jobs and new messages on every sweep, so cancelling the messages or jobs they produced does NOT stop them, and the work reappears within minutes. Use cancel_scheduled_work to act on what this returns.",
@@ -1280,8 +1290,10 @@ async function recordOutbound(opts: {
   body: string;
   campaignId?: string;
   status: string;
-  /** EMAIL_SENT/SMS_SENT count toward the org daily cap — see outboundBlockReason.
-   *  A message that has not gone out yet must use a non-counting type. */
+  /** The type to log WHEN THE MESSAGE ACTUALLY SENT. Anything not sent is
+   *  downgraded to a non-counting type automatically — EMAIL_SENT/SMS_SENT
+   *  count toward the org daily cap (see outboundBlockReason), the funnel and
+   *  the activity pulse, and a draft belongs in none of them. */
   activityType: 'EMAIL_SENT' | 'SMS_SENT' | 'FOLLOW_UP_SCHEDULED';
   activitySummary: string;
   experimentVariantId?: string;
@@ -1357,10 +1369,21 @@ async function recordOutbound(opts: {
       opts.ctx.runId
     );
   }
+  // EMAIL_SENT / SMS_SENT are counted as real touches by the org daily cap, the
+  // dashboard funnel, the daily digest and get_outreach_activity. A draft or a
+  // blocked message reached nobody, so it must not wear one of those types —
+  // otherwise a text that could never be sent (no Twilio) silently spends the
+  // same budget the cold email needs, and the operator sees the cap fall with
+  // no mail leaving. Derived here rather than trusted from the caller, because
+  // two call sites already passed the wrong one despite the contract being
+  // documented on the parameter directly above.
+  const countsAsTouch = opts.status === 'sent';
+  const activityType = countsAsTouch ? opts.activityType : 'FOLLOW_UP_SCHEDULED';
+
   await leadService.logActivity({
     organizationId: opts.ctx.organizationId,
     leadId: opts.leadId,
-    type: opts.activityType,
+    type: activityType,
     summary: opts.activitySummary,
     payload: { subject: opts.subject, body: opts.body, status: opts.status, messageId: message.id },
     campaignId: opts.campaignId,
@@ -2299,7 +2322,9 @@ const executors: Record<string, ToolExecutor> = {
       await leadService.logActivity({
         organizationId: ctx.organizationId,
         leadId: lead.id,
-        type: 'CALL_PLACED',
+        // NOT CALL_PLACED: no call was placed. That type is counted against the
+        // daily send cap and shown as a touch on the funnel.
+        type: 'NOTE',
         summary: `AI call intent recorded (voice channel not configured): ${input.objective}`,
         payload: { objective: input.objective, status: 'pending_channel_setup' },
         campaignId: input.campaignId,
@@ -3330,7 +3355,7 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
       note: onLegacyForThisPurpose
         ? `No ${purpose === 'TRANSACTIONAL' ? 'transactional' : 'cold-outreach'} domains are registered — this org sends from the single Mailgun domain in Settings, with no per-mailbox warm-up or caps, so there is no daily limit to plan around beyond the org send cap.`
         : remainingToday === 0
-          ? 'No capacity left today. Cold email sent now will be queued for when a mailbox frees up, not delivered immediately — plan research or calls instead.'
+          ? 'No cold-email capacity left today — this is remaining HEADROOM, not a report on activity. Mail may well have gone out already today; warm-up allowance rises daily and resets tomorrow. Anything sent now is queued and delivers itself when a mailbox frees up. Call get_outreach_activity before telling anyone whether outreach is running.'
           : `About ${remainingToday} cold email(s) can go out today across ${sendable.length} mailbox(es).`,
     };
   },
@@ -3831,6 +3856,10 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
       targetMetric: updated.targetMetric,
     };
   },
+  get_outreach_activity: async (_input, ctx) => {
+    return getOutreachPulse(ctx.organizationId);
+  },
+
   list_scheduled_work: async (input, ctx) => {
     const limit = Math.min(Math.max(Number(input.limit) || 40, 1), 200);
     const page = await listScheduled(

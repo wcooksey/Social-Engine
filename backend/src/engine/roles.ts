@@ -28,6 +28,10 @@ const SHARED = [
   // Every role benefits from knowing what the platform can actually send today
   // before it plans work that depends on it.
   'get_sending_capacity',
+  // What has ACTUALLY been sent, org-wide. Without it an agent asked whether
+  // outreach is running can only infer from configuration and headroom, and
+  // during warm-up both of those point the wrong way.
+  'get_outreach_activity',
   // Replying well means reading what was actually said, not a summary of it.
   'read_conversation',
   // Durable working notes: survive context trimming and carry into a retry.

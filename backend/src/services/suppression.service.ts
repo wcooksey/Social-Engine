@@ -19,6 +19,7 @@ export type SuppressionSource =
   | 'unsubscribe_link'
   | 'sms_stop'
   | 'spam_complaint'
+  | 'hard_bounce'
   | 'voice_optout'
   | 'reply_optout'
   | 'manual';
