@@ -1290,8 +1290,10 @@ async function recordOutbound(opts: {
   body: string;
   campaignId?: string;
   status: string;
-  /** EMAIL_SENT/SMS_SENT count toward the org daily cap — see outboundBlockReason.
-   *  A message that has not gone out yet must use a non-counting type. */
+  /** The type to log WHEN THE MESSAGE ACTUALLY SENT. Anything not sent is
+   *  downgraded to a non-counting type automatically — EMAIL_SENT/SMS_SENT
+   *  count toward the org daily cap (see outboundBlockReason), the funnel and
+   *  the activity pulse, and a draft belongs in none of them. */
   activityType: 'EMAIL_SENT' | 'SMS_SENT' | 'FOLLOW_UP_SCHEDULED';
   activitySummary: string;
   experimentVariantId?: string;
@@ -1367,10 +1369,21 @@ async function recordOutbound(opts: {
       opts.ctx.runId
     );
   }
+  // EMAIL_SENT / SMS_SENT are counted as real touches by the org daily cap, the
+  // dashboard funnel, the daily digest and get_outreach_activity. A draft or a
+  // blocked message reached nobody, so it must not wear one of those types —
+  // otherwise a text that could never be sent (no Twilio) silently spends the
+  // same budget the cold email needs, and the operator sees the cap fall with
+  // no mail leaving. Derived here rather than trusted from the caller, because
+  // two call sites already passed the wrong one despite the contract being
+  // documented on the parameter directly above.
+  const countsAsTouch = opts.status === 'sent';
+  const activityType = countsAsTouch ? opts.activityType : 'FOLLOW_UP_SCHEDULED';
+
   await leadService.logActivity({
     organizationId: opts.ctx.organizationId,
     leadId: opts.leadId,
-    type: opts.activityType,
+    type: activityType,
     summary: opts.activitySummary,
     payload: { subject: opts.subject, body: opts.body, status: opts.status, messageId: message.id },
     campaignId: opts.campaignId,
@@ -2309,7 +2322,9 @@ const executors: Record<string, ToolExecutor> = {
       await leadService.logActivity({
         organizationId: ctx.organizationId,
         leadId: lead.id,
-        type: 'CALL_PLACED',
+        // NOT CALL_PLACED: no call was placed. That type is counted against the
+        // daily send cap and shown as a touch on the funnel.
+        type: 'NOTE',
         summary: `AI call intent recorded (voice channel not configured): ${input.objective}`,
         payload: { objective: input.objective, status: 'pending_channel_setup' },
         campaignId: input.campaignId,

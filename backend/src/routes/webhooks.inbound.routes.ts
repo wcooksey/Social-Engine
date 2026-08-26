@@ -289,11 +289,24 @@ router.post(
 
     // Charge it to the mailbox that sent it. Suppressing the recipient protects
     // the next send; this is what makes a domain going bad visible at all.
+    //
+    // The message also carries the only reliable answer to WHOSE send this was:
+    // `recipient` is the prospect's address, and two organizations can each
+    // legitimately hold the same prospect. This endpoint authenticates on the
+    // deployment-wide secret alone, so without it there is no tenant context.
+    let ownerOrgId: string | null = null;
     if (messageId) {
       const message = await prisma.message.findFirst({
         where: { externalId: messageId, direction: 'OUTBOUND' },
-        select: { id: true, mailboxId: true, status: true, sentAt: true },
+        select: {
+          id: true,
+          mailboxId: true,
+          status: true,
+          sentAt: true,
+          conversation: { select: { organizationId: true } },
+        },
       });
+      ownerOrgId = message?.conversation.organizationId ?? null;
       // Same forward-only ladder as the engagement events. Mailgun redelivers on
       // any non-2xx, and counting one bounce twice is enough to push a mailbox
       // over the threshold and pause a sender that was never actually failing.
@@ -315,7 +328,22 @@ router.post(
       }
     }
 
-    const contacts = await prisma.contact.findMany({ where: { email: recipient } });
+    // Scoped to the organization whose message actually bounced. Unscoped, a
+    // bounce for an address two tenants both hold marked BOTH of their contacts
+    // — and on a complaint, opted out a lead belonging to someone who never
+    // sent the mail. When the owner cannot be identified (no message-id on the
+    // event, or the message has since been deleted) fall back to the previous
+    // org-wide behaviour rather than dropping the suppression: mailing a known
+    // bad address again is the worse failure.
+    const contacts = await prisma.contact.findMany({
+      where: { email: recipient, ...(ownerOrgId ? { organizationId: ownerOrgId } : {}) },
+    });
+    if (!ownerOrgId) {
+      console.warn(
+        `Mailgun ${event} for ${recipient} carried no resolvable message — suppressing across ` +
+          `${contacts.length} matching contact(s) without tenant scoping.`
+      );
+    }
     for (const contact of contacts) {
       await prisma.contact.update({
         where: { id: contact.id },
@@ -324,15 +352,20 @@ router.post(
       // A spam complaint is a hard opt-out signal across all channels.
       if (isComplaint) {
         await prisma.lead.update({ where: { id: contact.leadId }, data: { doNotContact: true } });
-        await suppress({
-          organizationId: contact.organizationId,
-          kind: 'EMAIL',
-          value: recipient,
-          reason: 'Marked our mail as spam',
-          source: 'spam_complaint',
-          originLeadId: contact.leadId,
-        });
       }
+      // Both outcomes earn a permanent record, not just complaints. A hard
+      // bounce previously survived only as a field on the contact, which
+      // cascades away with its lead — so deleting a bounced lead and
+      // re-sourcing the business meant mailing the dead address all over again
+      // and earning the bounce a second time.
+      await suppress({
+        organizationId: contact.organizationId,
+        kind: 'EMAIL',
+        value: recipient,
+        reason: isComplaint ? 'Marked our mail as spam' : `Email ${status}`,
+        source: isComplaint ? 'spam_complaint' : 'hard_bounce',
+        originLeadId: contact.leadId,
+      });
       // A dead/complained address stops counting as a usable email — the lead's
       // enrichment tier must reflect that it just got harder to reach.
       await recomputeLeadEnrichment(contact.leadId);
