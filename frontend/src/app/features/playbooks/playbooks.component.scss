@@ -318,3 +318,13 @@
 .footer-spacer {
   flex: 1;
 }
+
+.transport-section {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+
+  .field-hint.warn {
+    color: var(--warning, #d97706);
+  }
+}

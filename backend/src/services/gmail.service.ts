@@ -423,9 +423,23 @@ export async function callGmail<T>(
 // MIME
 // ---------------------------------------------------------------------------
 
+/**
+ * Strip anything that could end a header line early.
+ *
+ * Every value below is interpolated straight into a raw RFC 5322 message, so a
+ * CR or LF inside one does not corrupt a header — it ADDS one. The `To` comes
+ * from researched contact data and the threading ids are copied out of mail
+ * somebody else wrote, so neither is ours to trust: `<id>\r\nBcc: …` in either
+ * would be a header this code never meant to send. Applied to every value,
+ * including the ones we build ourselves, so a future caller inherits it.
+ */
+function headerValue(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim();
+}
+
 /** RFC 2047 encoding, applied only when a header actually needs it. */
 function encodeHeader(value: string): string {
-  const clean = value.replace(/[\r\n]+/g, ' ').trim();
+  const clean = headerValue(value);
   // eslint-disable-next-line no-control-regex
   if (/^[\x20-\x7E]*$/.test(clean)) return clean;
   return `=?UTF-8?B?${Buffer.from(clean, 'utf8').toString('base64')}?=`;
@@ -472,17 +486,20 @@ function base64Lines(input: Buffer | string): string {
  */
 export function buildGmailMime(opts: GmailMimeOptions): string {
   const headers: string[] = [
-    `From: ${opts.from}`,
-    `To: ${opts.to}`,
+    `From: ${headerValue(opts.from)}`,
+    `To: ${headerValue(opts.to)}`,
     `Subject: ${encodeHeader(opts.subject)}`,
     'MIME-Version: 1.0',
   ];
-  if (opts.replyTo) headers.push(`Reply-To: ${opts.replyTo}`);
-  if (opts.inReplyTo) headers.push(`In-Reply-To: ${opts.inReplyTo}`);
-  if (opts.references?.length) headers.push(`References: ${opts.references.join(' ')}`);
-  if (opts.unsubscribeUrl) {
-    headers.push(`List-Unsubscribe: <${opts.unsubscribeUrl}>`);
-    if (!opts.unsubscribeUrl.startsWith('mailto:')) {
+  if (opts.replyTo) headers.push(`Reply-To: ${headerValue(opts.replyTo)}`);
+  if (opts.inReplyTo) headers.push(`In-Reply-To: ${headerValue(opts.inReplyTo)}`);
+  if (opts.references?.length) {
+    headers.push(`References: ${opts.references.map(headerValue).join(' ')}`);
+  }
+  const unsubscribe = opts.unsubscribeUrl ? headerValue(opts.unsubscribeUrl) : '';
+  if (unsubscribe) {
+    headers.push(`List-Unsubscribe: <${unsubscribe}>`);
+    if (!unsubscribe.startsWith('mailto:')) {
       headers.push('List-Unsubscribe-Post: List-Unsubscribe=One-Click');
     }
   }
@@ -519,6 +536,7 @@ export function buildGmailMime(opts: GmailMimeOptions): string {
 
   if (opts.ics) {
     const mixed = boundary();
+    const filename = headerValue(opts.ics.filename).replace(/["\\]/g, '');
     const inner = opts.html
       ? [`Content-Type: ${contentType}`, '', content].join('\r\n')
       : textPart;
@@ -526,9 +544,9 @@ export function buildGmailMime(opts: GmailMimeOptions): string {
       `--${mixed}`,
       inner,
       `--${mixed}`,
-      `Content-Type: text/calendar; charset="UTF-8"; method=REQUEST; name="${opts.ics.filename}"`,
+      `Content-Type: text/calendar; charset="UTF-8"; method=REQUEST; name="${filename}"`,
       'Content-Transfer-Encoding: base64',
-      `Content-Disposition: attachment; filename="${opts.ics.filename}"`,
+      `Content-Disposition: attachment; filename="${filename}"`,
       '',
       base64Lines(opts.ics.content),
       `--${mixed}--`,

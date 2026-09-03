@@ -313,3 +313,65 @@
     span { flex: 1; font-size: $font-size-sm; }
   }
 }
+
+// --- Gmail inboxes ---------------------------------------------------------
+
+.inbox-card {
+  margin-top: $spacing-lg;
+}
+
+.inbox {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: $spacing-md;
+  padding: $spacing-md 0;
+  border-top: 1px solid var(--border-primary);
+
+  &:first-of-type { border-top: none; }
+}
+
+.inbox-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.inbox-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+
+  strong { word-break: break-all; }
+}
+
+.inbox-note {
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+  margin: $spacing-xs 0 0;
+}
+
+.inbox-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+}
+
+.cap-field {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  font-size: $font-size-sm;
+  color: var(--text-secondary);
+
+  input {
+    width: 4.5rem;
+    padding: $spacing-xs $spacing-sm;
+    border: 1px solid var(--border-primary);
+    border-radius: $border-radius-sm;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: $font-size-sm;
+  }
+}
