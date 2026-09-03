@@ -3,7 +3,8 @@ import { prisma } from '../config/database';
 import { engineTools } from '../engine/tools';
 import { buildEngineSystemPrompt } from '../engine/prompts';
 import { formatPlaybooksForPrompt, getActivePlaybooks } from './playbook.service';
-import { isEmailConfigured, isSmsConfigured, isVoiceConfigured } from './channels.service';
+import { isSmsConfigured, isVoiceConfigured } from './channels.service';
+import { hasAnyEmailTransport } from './sender.service';
 import { getOrgConfig, resolveOrg } from './settings.service';
 
 /**
@@ -128,7 +129,7 @@ async function buildVoicePrompt(organizationId: string, organizationName: string
       trigger: 'USER_CHAT',
       playbooksText: formatPlaybooksForPrompt(playbooks),
       channels: {
-        email: isEmailConfigured(orgConfig.mailgun),
+        email: await hasAnyEmailTransport(organizationId, orgConfig.mailgun),
         sms: isSmsConfigured(orgConfig.twilio),
         voice: isVoiceConfigured(orgConfig.vapi),
       },

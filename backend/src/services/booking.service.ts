@@ -1,6 +1,6 @@
 import { prisma } from '../config/database';
 import { config } from '../config/environment';
-import * as channels from './channels.service';
+import { deliverEmail, markEmailSent } from './email-delivery.service';
 import { notify } from './notification.service';
 import { recomputeLeadEnrichment } from './lead-enrichment.service';
 import { buildIcs } from '../utils/ics';
@@ -274,19 +274,18 @@ export async function book(input: BookInput): Promise<{ eventId: string; startIs
       attendeeEmail: email,
       attendeeName: name,
     });
-    await channels
-      .sendEmail(
-        {
-          to: email,
-          subject: `Confirmed: ${link.title} with ${org?.name || 'us'}`,
-          body: `Hi ${name.split(/\s+/)[0]},\n\nYour meeting "${link.title}" is confirmed for ${start.toUTCString()}.\n\nThe calendar invite is attached — add it to your calendar to save the time.\n\nSee you then!`,
-          fromName: org?.name,
-          fromEmail: sender.fromEmail,
-          ics: { filename: 'invite.ics', content: ics },
-        },
-        sender.creds
-      )
-      .catch(() => undefined);
+    const confirmation = await deliverEmail(sender, {
+      to: email,
+      subject: `Confirmed: ${link.title} with ${org?.name || 'us'}`,
+      body: `Hi ${name.split(/\s+/)[0]},\n\nYour meeting "${link.title}" is confirmed for ${start.toUTCString()}.\n\nThe calendar invite is attached — add it to your calendar to save the time.\n\nSee you then!`,
+      fromName: org?.name,
+      fromEmail: sender.fromEmail,
+      ics: { filename: 'invite.ics', content: ics },
+    }).catch(() => null);
+    // Counted against the sender's day even though no cap gated it: on the
+    // inbox transport this shares a ceiling with the cold outreach, and Google
+    // does not care which of our two purposes spent it.
+    if (confirmation?.sent) await markEmailSent(sender).catch(() => undefined);
   }
 
   void config; // appPublicUrl reserved for future reschedule links

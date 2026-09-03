@@ -1,5 +1,4 @@
 import { prisma } from '../config/database';
-import * as channels from './channels.service';
 import {
   identityFromName,
   resolveSenderIdentity,
@@ -16,11 +15,14 @@ import { suppressionReason } from './suppression.service';
 import { findUnresolvedPlaceholders } from './placeholder-guard';
 import { recordSend } from './experiment.service';
 import {
-  markMailboxSent,
-  releaseSend,
-  reserveSend,
-  resolveSenderDecision,
-} from './sender.service';
+  anchorThread,
+  deliverEmail,
+  markEmailSent,
+  releaseEmailSend,
+  reserveEmailSend,
+} from './email-delivery.service';
+import type { ResolvedSender } from './sender.service';
+import { resolveSenderDecision } from './sender.service';
 import { getOrgConfig } from './settings.service';
 
 /**
@@ -214,7 +216,7 @@ async function deliver(messageId: string, now: Date): Promise<Outcome> {
 
   const decision = await resolveSenderDecision(organizationId, {
     purpose: 'COLD_OUTREACH',
-    playbookId: identity.playbookId,
+    playbookId: identity.routingPlaybookId,
     conversationId: conversation.id,
     preferAddress: identity.email,
     legacy: orgConfig.mailgun,
@@ -231,42 +233,36 @@ async function deliver(messageId: string, now: Date): Promise<Outcome> {
     )) as Outcome;
   }
 
-  if (sender.mailboxId && sender.allowanceToday !== undefined) {
-    const reserved = await reserveSend(sender.mailboxId, sender.allowanceToday);
-    if (!reserved) {
-      return (await reschedule(
-        message.id,
-        now,
-        'allowance taken by a concurrent send',
-        undefined,
-        message.campaignId,
-        lead.id
-      )) as Outcome;
-    }
+  const reserved = await reserveEmailSend(sender);
+  if (!reserved) {
+    return (await reschedule(
+      message.id,
+      now,
+      'allowance taken by a concurrent send',
+      undefined,
+      message.campaignId,
+      lead.id
+    )) as Outcome;
   }
 
-  const delivery = await channels.sendEmail(
-    {
-      to: contact.email,
-      subject: message.subject || conversation.subject || 'Following up',
-      // The stored body already carries the signature and postal footer.
-      body: message.body,
-      // The mailbox that actually carries this wins, because the recipient can
-      // check it: mail leaving mike@ must say Mike. The name frozen at compose
-      // time is the fallback — it was written before this mailbox was chosen,
-      // and warm-up allowance may well have moved the send to a different one.
-      fromName: sender.displayName?.trim() || message.senderName || identityFromName(identity),
-      fromEmail: sender.fromEmail,
-      replyTo: sender.replyTo && sender.replyTo !== sender.fromEmail ? sender.replyTo : undefined,
-      unsubscribeUrl: unsubscribeUrlFor(contact.id),
-    },
-    sender.creds
-  );
+  const delivery = await deliverEmail(sender, {
+    to: contact.email,
+    subject: message.subject || conversation.subject || 'Following up',
+    // The stored body already carries the signature and postal footer.
+    body: message.body,
+    // The mailbox that actually carries this wins, because the recipient can
+    // check it: mail leaving mike@ must say Mike. The name frozen at compose
+    // time is the fallback — it was written before this mailbox was chosen,
+    // and warm-up allowance may well have moved the send to a different one.
+    fromName: sender.displayName?.trim() || message.senderName || identityFromName(identity),
+    fromEmail: sender.fromEmail,
+    replyTo: sender.replyTo && sender.replyTo !== sender.fromEmail ? sender.replyTo : undefined,
+    unsubscribeUrl: unsubscribeUrlFor(contact.id),
+    conversationId: conversation.id,
+  });
 
   if (!delivery.sent) {
-    if (sender.mailboxId && sender.allowanceToday !== undefined) {
-      await releaseSend(sender.mailboxId);
-    }
+    await releaseEmailSend(sender);
     return (await reschedule(
       message.id,
       now,
@@ -290,6 +286,7 @@ async function deliver(messageId: string, now: Date): Promise<Outcome> {
       mailboxId: sender.mailboxId,
     },
   });
+  await anchorThread(conversation.id, message.id, sender, delivery).catch(() => undefined);
   await recordDelivery(message, conversation, lead, contact.email, sender, organizationId, now).catch(
     (err) => {
       console.error(
@@ -307,12 +304,12 @@ async function recordDelivery(
   conversation: { id: string; subject: string | null },
   lead: { id: string },
   toAddress: string,
-  sender: { mailboxId: string | null; allowanceToday?: number },
+  sender: ResolvedSender,
   organizationId: string,
   now: Date
 ): Promise<void> {
+  await markEmailSent(sender, now);
   if (sender.mailboxId) {
-    await markMailboxSent(sender.mailboxId, now, sender.allowanceToday === undefined);
     // Anchor the thread's sender if this was its first real send.
     await prisma.conversation.updateMany({
       where: { id: conversation.id, mailboxId: null },

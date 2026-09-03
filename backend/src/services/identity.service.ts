@@ -1,4 +1,5 @@
 import { prisma } from '../config/database';
+import { connectedGmailAddresses } from './gmail.service';
 import { knownAddresses } from './sender.service';
 
 /**
@@ -24,6 +25,13 @@ export interface SenderIdentity {
   /** Playbook that supplied it — absent when this is the org default. */
   playbookId?: string;
   playbookName?: string;
+  /**
+   * Playbook that decides where the mail leaves from — its transport and its
+   * sender pool. Usually the same playbook as the identity, but not always: a
+   * protocol can route sends without also claiming to be a person. Pass THIS to
+   * the sender resolver.
+   */
+  routingPlaybookId?: string;
 }
 
 export type IdentityChannel = 'EMAIL' | 'SMS' | 'VOICE';
@@ -170,11 +178,6 @@ export async function resolveSenderIdentity(
     where: { organizationId, isActive: true },
     orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
   });
-  const withIdentity = playbooks.filter(hasIdentity);
-  if (withIdentity.length === 0) {
-    // No persona anywhere, but the footer is still owed.
-    return { ...fallback, postalAddress: postalAddressFor(null, playbooks, org?.postalAddress) };
-  }
 
   // Campaign-scoped playbooks need to know what this lead is enrolled in.
   const campaignIds = opts.lead
@@ -186,19 +189,39 @@ export async function resolveSenderIdentity(
       ).map((cl) => cl.campaignId)
     : [];
 
-  const matches = withIdentity.filter((p) => {
+  const applies = (p: (typeof playbooks)[number]): boolean => {
     if (opts.channel && p.channel !== 'ALL' && p.channel !== opts.channel) return false;
     if (p.scope === 'GLOBAL') return true;
-    if (!opts.lead) return false; // no lead in hand — only a global identity applies
+    if (!opts.lead) return false; // no lead in hand — only a global playbook applies
     if (p.scope === 'GROUP') return !!p.groupId && p.groupId === opts.lead.groupId;
     if (p.scope === 'CAMPAIGN') return !!p.campaignId && campaignIds.includes(p.campaignId);
     if (p.scope === 'LEAD_STATUS') return !!p.leadStatus && p.leadStatus === opts.lead.status;
     return false;
-  });
-  if (matches.length === 0) return { ...fallback, postalAddress: postalAddressFor(null, playbooks, org?.postalAddress) };
+  };
 
   // Specific beats global; the findMany order already handles priority/age.
-  const winner = matches.find((p) => p.scope !== 'GLOBAL') ?? matches[0];
+  const pick = <T extends { scope: string }>(list: T[]): T | undefined =>
+    list.find((p) => p.scope !== 'GLOBAL') ?? list[0];
+
+  // Where the mail LEAVES FROM is a separate contest from whose name is on it.
+  // A playbook can route outreach through an inbox or a sender pool without
+  // carrying a persona at all, and picking the route off the identity winner
+  // meant such a playbook was silently ignored — the send went out on whatever
+  // the org had lying around. Only playbooks that actually state a route are
+  // eligible here, so an org that has never configured one behaves exactly as
+  // it did before: the identity winner's route, or the org default.
+  const routeWinner = pick(playbooks.filter(applies).filter(hasRoute));
+
+  const withIdentity = playbooks.filter(hasIdentity).filter(applies);
+  const winner = pick(withIdentity);
+  if (!winner) {
+    // No persona applies, but the footer is still owed — and so is the route.
+    return {
+      ...fallback,
+      postalAddress: postalAddressFor(null, playbooks, org?.postalAddress),
+      routingPlaybookId: routeWinner?.id,
+    };
+  }
 
   const usableEmail = await usableSenderAddress(
     organizationId,
@@ -206,16 +229,38 @@ export async function resolveSenderIdentity(
     opts.mailgunDomain
   );
 
+  // A playbook that sends through an inbox presents as that inbox, whatever
+  // reply-to it carries: the address is fixed by the connection, and promising
+  // a different one here would put a From header on the message that the send
+  // cannot honour. Read off the playbook that decides the ROUTE, since that is
+  // the one whose transport the send will actually use.
+  const router = routeWinner ?? winner;
+  const gmailAddress =
+    router.emailTransport === 'GMAIL' ? await gmailAddressForPlaybook(router) : undefined;
+
   return {
     orgName: winner.identityOrgName?.trim() || fallback.orgName,
     personName: winner.identityName?.trim() || undefined,
     title: winner.identityTitle?.trim() || undefined,
-    email: usableEmail,
+    email: gmailAddress ?? usableEmail,
     signature: winner.identitySignature?.trim() || undefined,
     postalAddress: postalAddressFor(winner, playbooks, org?.postalAddress),
     playbookId: winner.id,
     playbookName: winner.name,
+    routingPlaybookId: routeWinner?.id ?? winner.id,
   };
+}
+
+/**
+ * Whether a playbook says anything about where its mail leaves from.
+ *
+ * Deliberately narrow: a playbook on the default transport with no pool has
+ * expressed no preference, and letting it win the routing contest would let an
+ * unrelated protocol shadow the one that was actually configured to send from
+ * a particular inbox.
+ */
+function hasRoute(p: { senderPoolId: string | null; emailTransport: string }): boolean {
+  return !!p.senderPoolId || p.emailTransport !== 'MAILGUN';
 }
 
 /**
@@ -238,10 +283,42 @@ async function usableSenderAddress(
   const email = identityEmail?.trim().toLowerCase();
   if (!email) return undefined;
 
+  // A connected inbox is an address this org can genuinely send as, so it
+  // qualifies on any transport — it is exactly as real as a mailbox row.
+  const inboxes = await connectedGmailAddresses(organizationId);
+  if (inboxes.has(email)) return email;
+
   const addresses = await knownAddresses(organizationId);
   if (addresses.has(email)) return email;
   if (addresses.size > 0) return undefined;
 
   const domain = mailgunDomain?.trim().toLowerCase();
   return domain && email.endsWith(`@${domain}`) ? email : undefined;
+}
+
+/**
+ * The inbox address a GMAIL-transport playbook actually sends from.
+ *
+ * Resolved the same way the sender resolver does it — the named account, or the
+ * org's only connected one — so the identity reported here and the address the
+ * send uses can never be two different things.
+ */
+async function gmailAddressForPlaybook(playbook: {
+  organizationId: string;
+  gmailAccountId: string | null;
+}): Promise<string | undefined> {
+  const account = playbook.gmailAccountId
+    ? await prisma.gmailAccount.findFirst({
+        where: { id: playbook.gmailAccountId, organizationId: playbook.organizationId },
+        select: { emailAddress: true },
+      })
+    : await (async () => {
+        const all = await prisma.gmailAccount.findMany({
+          where: { organizationId: playbook.organizationId },
+          select: { emailAddress: true },
+          take: 2,
+        });
+        return all.length === 1 ? all[0] : null;
+      })();
+  return account?.emailAddress;
 }

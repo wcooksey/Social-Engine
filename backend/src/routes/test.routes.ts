@@ -5,6 +5,8 @@ import { prisma } from '../config/database';
 import { config } from '../config/environment';
 import { getOrgConfig } from '../services/settings.service';
 import * as channels from '../services/channels.service';
+import { deliverEmail } from '../services/email-delivery.service';
+import { resolveSenderDecision } from '../services/sender.service';
 import { checkInboundEmail } from '../services/inbound-health.service';
 import { suppressionReason } from '../services/suppression.service';
 import { buildCallSystemPrompt } from '../engine/prompts';
@@ -48,23 +50,40 @@ router.post(
   asyncHandler(async (req, res) => {
     const to = String(req.body?.to || '').trim();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) throw new AppError('A valid email is required');
-    const cfg = await getOrgConfig(req.user!.organizationId);
-    if (!channels.isEmailConfigured(cfg.mailgun)) throw new AppError('Email (Mailgun) is not configured in Settings', 400);
-    const org = await prisma.organization.findUnique({ where: { id: req.user!.organizationId } });
+    const organizationId = req.user!.organizationId;
+    const org = await prisma.organization.findUnique({ where: { id: organizationId } });
 
-    const result = await channels.sendEmail(
-      {
-        to,
-        subject: req.body?.subject?.trim() || `Test email from ${org?.name || 'Social Engine'}`,
-        body:
-          req.body?.body?.trim() ||
-          `This is a test email from your Social Engine workspace. If you're reading this, your Mailgun email channel is working. 🎉`,
-        fromName: org?.name,
-      },
-      cfg.mailgun
-    );
+    // Resolved rather than read straight off the Mailgun settings, so this also
+    // answers the question an operator running out of a connected inbox is
+    // actually asking: does MY sending work? A named inbox is testable directly,
+    // which is how you check one before pointing a playbook at it.
+    const decision = await resolveSenderDecision(organizationId, {
+      purpose: 'TRANSACTIONAL',
+      playbookId: typeof req.body?.playbookId === 'string' ? req.body.playbookId : undefined,
+    });
+    const sender = decision.sender;
+    if (!sender) {
+      throw new AppError(
+        decision.reason || 'No email transport is configured — add Mailgun credentials or connect a Gmail inbox.',
+        400
+      );
+    }
+
+    const via = sender.transport === 'gmail' ? `Gmail inbox ${sender.fromEmail}` : 'Mailgun';
+    const result = await deliverEmail(sender, {
+      to,
+      subject: req.body?.subject?.trim() || `Test email from ${org?.name || 'Social Engine'}`,
+      body:
+        req.body?.body?.trim() ||
+        `This is a test email from your Social Engine workspace. If you're reading this, sending through ${via} is working. 🎉`,
+      fromName: org?.name,
+      fromEmail: sender.fromEmail,
+    });
     if (!result.sent) throw new AppError(`Email failed: ${result.error}`, 502);
-    res.json({ success: true, data: { sent: true, to, externalId: result.externalId } });
+    res.json({
+      success: true,
+      data: { sent: true, to, via, from: sender.fromEmail, externalId: result.externalId },
+    });
   })
 );
 
@@ -76,7 +95,11 @@ router.get(
   '/inbound-email',
   asyncHandler(async (req, res) => {
     const cfg = await getOrgConfig(req.user!.organizationId);
-    res.json({ success: true, data: await checkInboundEmail(cfg.mailgun) });
+    const inboxes = await prisma.gmailAccount.findMany({
+      where: { organizationId: req.user!.organizationId },
+      select: { emailAddress: true, status: true, lastSyncAt: true },
+    });
+    res.json({ success: true, data: await checkInboundEmail(cfg.mailgun, inboxes) });
   })
 );
 
