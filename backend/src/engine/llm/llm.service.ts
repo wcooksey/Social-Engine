@@ -211,9 +211,10 @@ async function chatAnthropic(request: LlmChatRequest, keys?: ProviderKeys): Prom
  * Prompt tokens the provider served from cache, out of `prompt_tokens`.
  *
  * The OpenAI-compatible surface is not standardised here: DeepSeek reports
- * `prompt_cache_hit_tokens` at the top level, while OpenAI (and providers
- * copying it) nest `prompt_tokens_details.cached_tokens`. Both are read so a
- * provider switch doesn't quietly revert to charging cache hits at full price.
+ * `prompt_cache_hit_tokens` at the top level, while OpenAI and Moonshot (and
+ * other providers copying OpenAI) nest `prompt_tokens_details.cached_tokens`.
+ * Both are read so a provider switch doesn't quietly revert to charging cache
+ * hits at full price.
  */
 function cachedPromptTokens(usage: unknown): number {
   if (!usage || typeof usage !== 'object') return 0;
