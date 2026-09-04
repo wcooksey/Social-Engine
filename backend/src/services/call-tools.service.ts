@@ -1,6 +1,8 @@
 import { prisma } from '../config/database';
 import { config } from '../config/environment';
 import * as channels from './channels.service';
+import { deliverEmail, markEmailSent } from './email-delivery.service';
+import { resolveSender } from './sender.service';
 import { getOrgConfig } from './settings.service';
 import { leadService } from './lead.service';
 import { computeSlots } from './booking.service';
@@ -376,8 +378,11 @@ async function sendInvite(
   const to = contact?.email;
   if (!to) return false;
 
-  const cfg = await getOrgConfig(organizationId);
-  if (!channels.isEmailConfigured(cfg.mailgun)) return false;
+  // Resolved through the sending infrastructure rather than the raw Mailgun
+  // creds: an org running entirely out of a connected inbox has no Mailgun to
+  // read, and the caller's confirmation email went silently unsent.
+  const sender = await resolveSender(organizationId, { purpose: 'TRANSACTIONAL' });
+  if (!sender) return false;
 
   const org = await prisma.organization.findUnique({ where: { id: organizationId } });
   const ics = buildIcs({
@@ -386,22 +391,19 @@ async function sendInvite(
     start,
     end,
     organizerName: org?.name,
-    organizerEmail: channels.senderAddress(cfg.mailgun),
+    organizerEmail: sender.fromEmail,
     attendeeEmail: to,
     attendeeName: contact?.firstName ? `${contact.firstName} ${contact.lastName || ''}`.trim() : undefined,
   });
-  const result = await channels
-    .sendEmail(
-      {
-        to,
-        subject: `Confirmed: ${title}`,
-        body: `Hi${contact?.firstName ? ` ${contact.firstName}` : ''},\n\nGreat speaking with you — confirming ${start.toUTCString()}.\n\nThe calendar invite is attached.\n\nSpeak soon!`,
-        fromName: org?.name,
-        ics: { filename: 'invite.ics', content: ics },
-      },
-      cfg.mailgun
-    )
-    .catch(() => ({ sent: false }));
+  const result = await deliverEmail(sender, {
+    to,
+    subject: `Confirmed: ${title}`,
+    body: `Hi${contact?.firstName ? ` ${contact.firstName}` : ''},\n\nGreat speaking with you — confirming ${start.toUTCString()}.\n\nThe calendar invite is attached.\n\nSpeak soon!`,
+    fromName: org?.name,
+    fromEmail: sender.fromEmail,
+    ics: { filename: 'invite.ics', content: ics },
+  }).catch(() => ({ sent: false }));
+  if (result.sent) await markEmailSent(sender).catch(() => undefined);
   return !!result.sent;
 }
 

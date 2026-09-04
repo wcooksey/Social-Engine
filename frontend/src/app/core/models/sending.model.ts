@@ -67,3 +67,38 @@ export interface SenderPool {
   mailboxes: { mailbox: { id: string; address: string; status: MailboxStatus } }[];
   _count: { playbooks: number };
 }
+
+// --- Gmail inboxes ---------------------------------------------------------
+
+export type GmailAccountStatus = 'CONNECTED' | 'EXPIRED' | 'PAUSED' | 'ERROR';
+
+/**
+ * A Google account connected by OAuth. The other way mail leaves: one real
+ * address, low volume, replies landing where their owner already reads them.
+ * Tokens never reach the browser — only what the page needs to show.
+ */
+export interface GmailAccount {
+  id: string;
+  emailAddress: string;
+  displayName: string | null;
+  status: GmailAccountStatus;
+  dailySendCap: number;
+  sentToday: number;
+  remainingToday: number;
+  minSpacingSeconds: number;
+  nextSendAt: string;
+  lastSendAt: string | null;
+  lastSyncAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  /** Playbooks routed through this inbox. */
+  playbookCount: number;
+}
+
+export interface GmailOverview {
+  accounts: GmailAccount[];
+  /** False until a Google OAuth client is configured in Settings. */
+  oauthConfigured: boolean;
+  /** The exact redirect URI Google must be told about, for copy/paste. */
+  redirectUri: string;
+}

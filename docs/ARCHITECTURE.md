@@ -27,7 +27,7 @@ Built for internal use across our companies first, but designed multi-tenant fro
 2. **Autonomous prospecting** — the Engine researches the open internet (search, website scraping,
    directories, social) to build lead lists with enriched contacts. Dedup and validation are
    built in.
-3. **Multi-channel outreach** — email (Mailgun/SMTP), SMS (Twilio), voice calls (OpenAI Realtime /
+3. **Multi-channel outreach** — email (Mailgun domains or a connected Gmail inbox), SMS (Twilio), voice calls (OpenAI Realtime /
    Grok voice / ElevenLabs / Vapi), and social touches. Unified conversation timeline per lead.
 4. **Autonomous follow-up** — the Engine owns a scheduler. Every touch can spawn a future
    follow-up task; the Engine wakes up, reviews context, and acts.
@@ -110,9 +110,31 @@ title, business, reply-to address, signature — so one account can work several
 several services without separate organizations. `resolveSenderIdentity` picks it deterministically
 at send time (scoped playbook beats GLOBAL, then priority, then age; the winner is used whole), so
 the From header, the signature, and the AI's voice-call introduction cannot drift from each other
-or depend on the model remembering. A reply-to address is honored only when it sits on the org's
-Mailgun sending domain. Inbox replies resolve the same identity, so a thread never changes sender
-mid-conversation.
+or depend on the model remembering. A reply-to address is honored only when the platform can
+actually send as it — a registered mailbox, a connected Gmail inbox, or the org's Mailgun domain.
+Inbox replies resolve the same identity, so a thread never changes sender mid-conversation.
+
+### Email transports
+
+A playbook also decides *where* its email leaves from, which is a separate question from whose
+name is on it — a protocol can route sends without claiming to be a person, so routing is its own
+contest among playbooks that actually state one.
+
+- **Mailgun domains** are volume infrastructure: several purpose-bought domains, many mailboxes,
+  an automatic warm-up ramp, sender pools, and a circuit breaker driven by bounce and complaint
+  webhooks. Replies arrive on a webhook because we own the domain's MX.
+- **A connected Gmail inbox** (`emailTransport = GMAIL`) is the opposite shape: one real address,
+  a flat daily cap well under Google's own, a minimum gap between sends, and no ramp or breaker —
+  Gmail reports neither bounces nor complaints. Replies are polled out of the inbox each worker
+  sweep and threaded onto their lead exactly as a Mailgun reply is; follow-ups are sent inside the
+  existing Gmail thread, with the real `Message-ID` stored so the recipient's client threads them
+  too. OAuth tokens are encrypted at rest with `APP_ENCRYPTION_KEY` and revocable from either side.
+
+`resolveSenderDecision` answers both with one type, and a single dispatcher owns the four steps
+every send path used to repeat inline (claim a slot, deliver, release on failure, record), so no
+caller knows which transport it got. Threads are sticky to the sender that started them on either
+route. An organization can run entirely on either one: with no Mailgun configured, booking
+confirmations, reminders, alerts and contact-form reply addresses all resolve through the inbox.
 
 ### Hardening
 

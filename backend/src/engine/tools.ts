@@ -46,11 +46,17 @@ import {
 import {
   getSendingOverview,
   knownAddresses,
-  markMailboxSent,
-  releaseSend,
-  reserveSend,
+  replyAddressFor,
   resolveSenderDecision,
 } from '../services/sender.service';
+import {
+  anchorThread,
+  deliverEmail,
+  markEmailSent,
+  releaseEmailSend,
+  reserveEmailSend,
+} from '../services/email-delivery.service';
+import { listGmailAccounts } from '../services/gmail.service';
 import { healthByMailbox } from '../services/sender-health.service';
 import { sweepSocialInbox } from './social-inbox.service';
 import { sourceBusinesses } from '../services/places.service';
@@ -810,6 +816,17 @@ export const engineTools: Anthropic.Tool[] = [
           type: 'string',
           description:
             'Physical mailing address for the email footer. Required on commercial mail by CAN-SPAM and read as a spam signal when missing. Only needed when this playbook fronts a different business from the organization — otherwise set it once for the whole org with update_org_guardrails.',
+        },
+        emailTransport: {
+          type: 'string',
+          enum: ['MAILGUN', 'GMAIL'],
+          description:
+            "How email under this playbook leaves. MAILGUN (default) spreads sends across the org's registered sending domains with warm-up pacing — the right choice for volume. GMAIL sends from a connected Gmail inbox as its owner, with replies landing in that inbox — the right choice for low-volume, hand-researched outreach. GMAIL requires an inbox to already be connected under Settings → Sending; check get_setup_status first.",
+        },
+        gmailAccountId: {
+          type: 'string',
+          description:
+            'Which connected inbox, when emailTransport is GMAIL and the org has more than one. Get the addresses from get_setup_status.',
         },
       },
       required: ['name', 'instructions'],
@@ -2048,7 +2065,7 @@ const executors: Record<string, ToolExecutor> = {
     });
     const decision = await resolveSenderDecision(ctx.organizationId, {
       purpose: 'COLD_OUTREACH',
-      playbookId: identity.playbookId,
+      playbookId: identity.routingPlaybookId,
       conversationId: thread?.id,
       preferAddress: identity.email,
       legacy: orgConfig.mailgun,
@@ -2133,11 +2150,11 @@ const executors: Record<string, ToolExecutor> = {
       return { sent: false, drafted: true, ...result, note: draftReason };
     }
 
-    // Claim the slot before sending. The capacity check that chose this mailbox
+    // Claim the slot before sending. The capacity check that chose this sender
     // was a read, so two agents can reach here at the same moment both believing
     // the last send of the day is theirs; only one wins the claim.
-    if (sender.mailboxId && sender.allowanceToday !== undefined) {
-      const reserved = await reserveSend(sender.mailboxId, sender.allowanceToday);
+    {
+      const reserved = await reserveEmailSend(sender);
       if (!reserved) {
         // Someone else took the last slot between choosing this mailbox and
         // sending. The message is written and fine — queue it exactly as the
@@ -2176,25 +2193,22 @@ const executors: Record<string, ToolExecutor> = {
       }
     }
 
-    const delivery = await channels.sendEmail(
-      {
-        to: contact.email,
-        subject: input.subject,
-        body,
-        fromName: fromNameFor(identity, sender.displayName),
-        fromEmail: sender.fromEmail,
-        // Only worth a header when it actually differs from the From address.
-        replyTo: sender.replyTo && sender.replyTo !== sender.fromEmail ? sender.replyTo : undefined,
-        // One-click unsubscribe (List-Unsubscribe header) — deliverability + CAN-SPAM.
-        unsubscribeUrl: unsubscribeUrlFor(contact.id),
-      },
-      sender.creds
-    );
+    const delivery = await deliverEmail(sender, {
+      to: contact.email,
+      subject: input.subject,
+      body,
+      fromName: fromNameFor(identity, sender.displayName),
+      fromEmail: sender.fromEmail,
+      // Only worth a header when it actually differs from the From address.
+      replyTo: sender.replyTo && sender.replyTo !== sender.fromEmail ? sender.replyTo : undefined,
+      // One-click unsubscribe (List-Unsubscribe header) — deliverability + CAN-SPAM.
+      unsubscribeUrl: unsubscribeUrlFor(contact.id),
+      // Keeps a Gmail follow-up inside the thread the prospect already has.
+      conversationId: thread?.id,
+    });
     if (!delivery.sent) {
-      // Hand the claimed slot back — the mailbox should not lose a send it never made.
-      if (sender.mailboxId && sender.allowanceToday !== undefined) {
-        await releaseSend(sender.mailboxId);
-      }
+      // Hand the claimed slot back — the sender should not lose a send it never made.
+      await releaseEmailSend(sender);
       return { sent: false, reason: `Email delivery failed: ${delivery.error}` };
     }
     const result = await recordOutbound({
@@ -2213,14 +2227,18 @@ const executors: Record<string, ToolExecutor> = {
       mailboxId: sender.mailboxId ?? undefined,
     });
     // The reservation already counted this send, so don't count it twice.
-    if (sender.mailboxId) {
-      await markMailboxSent(sender.mailboxId, new Date(), sender.allowanceToday === undefined);
+    await markEmailSent(sender);
+    if (result.conversationId) {
+      await anchorThread(result.conversationId, result.messageId ?? null, sender, delivery).catch(
+        () => undefined
+      );
     }
     return {
       sent: true,
       to: contact.email,
       sentAs: identityFromName(identity),
       sentFrom: sender.fromEmail,
+      ...(sender.transport === 'gmail' ? { sentVia: 'Gmail inbox' } : {}),
       ...(identity.playbookName ? { identityFrom: `playbook "${identity.playbookName}"` } : {}),
       externalId: delivery.externalId,
       ...result,
@@ -2527,15 +2545,15 @@ const executors: Record<string, ToolExecutor> = {
     const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
     const orgConfig = await getOrgConfig(ctx.organizationId);
 
-    // The reply address is the whole point: use the address inbound email
-    // already routes through, so their response threads onto this lead instead
-    // of landing in a human's personal inbox.
-    const replyEmail = orgConfig.mailgun.fromEmail?.trim() ||
-      (orgConfig.mailgun.domain ? `noreply@${orgConfig.mailgun.domain}` : '');
+    // The reply address is the whole point: use an address inbound email already
+    // routes through, so their response threads onto this lead instead of
+    // landing in a human's personal inbox. A connected Gmail inbox qualifies —
+    // its replies are polled onto the lead the same way.
+    const replyEmail = await replyAddressFor(ctx.organizationId, orgConfig.mailgun);
     if (!replyEmail) {
       return {
         submitted: false,
-        note: 'No reply address configured (Settings → Integrations → Mailgun). Without one, any reply to this form would be lost, so the submission is refused.',
+        note: 'No reply address configured — add Mailgun credentials or connect a Gmail inbox under Settings → Sending. Without one, any reply to this form would be lost, so the submission is refused.',
       };
     }
     const senderName = orgConfig.outreachIdentity.name?.trim() || org?.name || 'Sales team';
@@ -3186,6 +3204,36 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
       return trimmed || undefined;
     };
 
+    // Routing through an inbox is only offered when one is actually connected.
+    // A playbook set to GMAIL with nothing behind it drafts every email instead
+    // of sending, which looks from the outside like the agent losing its work.
+    let emailTransport: 'MAILGUN' | 'GMAIL' = 'MAILGUN';
+    let gmailAccountId: string | undefined;
+    if (String(input.emailTransport || '').toUpperCase() === 'GMAIL') {
+      const connected = await prisma.gmailAccount.findMany({
+        where: { organizationId: ctx.organizationId, status: 'CONNECTED' },
+        select: { id: true, emailAddress: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      const named = input.gmailAccountId
+        ? connected.find((a) => a.id === input.gmailAccountId)
+        : connected.length === 1
+          ? connected[0]
+          : undefined;
+      if (named) {
+        emailTransport = 'GMAIL';
+        gmailAccountId = named.id;
+      } else if (connected.length === 0) {
+        notes.push(
+          'no Gmail inbox is connected, so this playbook sends through the normal email setup — connect one under Settings → Sending and switch it over'
+        );
+      } else {
+        notes.push(
+          `${connected.length} Gmail inboxes are connected and none was named, so this playbook sends through the normal email setup`
+        );
+      }
+    }
+
     const playbook = await prisma.playbook.create({
       data: {
         organizationId: ctx.organizationId,
@@ -3201,7 +3249,10 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
         identityTitle: identity(input.identityTitle),
         identityEmail: identity(input.identityEmail),
         identitySignature: identity(input.identitySignature),
+        emailTransport,
+        gmailAccountId,
       },
+      include: { gmailAccount: { select: { emailAddress: true } } },
     });
     const sendsAs = playbook.identityName || playbook.identityOrgName;
     return {
@@ -3210,6 +3261,9 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
       scope: playbook.scope,
       channel: playbook.channel,
       ...(sendsAs ? { sendsAs } : {}),
+      ...(playbook.emailTransport === 'GMAIL'
+        ? { sendsFrom: `Gmail inbox ${playbook.gmailAccount?.emailAddress ?? '(the connected one)'}` }
+        : {}),
       ...(notes.length ? { note: notes.join('; ') } : {}),
     };
   },
@@ -3346,12 +3400,37 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
       where: { status: 'scheduled', conversation: { organizationId: ctx.organizationId } },
     });
 
+    // Connected inboxes carry their own capacity, on their own ceiling. Reported
+    // alongside rather than summed in: they are a different kind of headroom,
+    // reachable only from a playbook that routes through one, and adding them
+    // to the Mailgun total would tell the agent it can send mail it cannot.
+    const inboxes = (await listGmailAccounts(ctx.organizationId)).map((inbox) => ({
+      address: inbox.emailAddress,
+      status: inbox.status,
+      remainingToday: inbox.remainingToday,
+      dailySendCap: inbox.dailySendCap,
+      nextSendAt: inbox.nextSendAt,
+      lastError: inbox.lastError || undefined,
+      playbooksRoutedHere: inbox.playbookCount,
+    }));
+    const inboxRemaining = inboxes
+      .filter((i) => i.status === 'CONNECTED')
+      .reduce((total, i) => total + i.remainingToday, 0);
+
     return {
       purpose,
       usingLegacySettings: onLegacyForThisPurpose,
       remainingToday: onLegacyForThisPurpose ? null : remainingToday,
       queuedForLater: queued,
       mailboxes,
+      ...(inboxes.length
+        ? {
+            gmailInboxes: inboxes,
+            gmailRemainingToday: inboxRemaining,
+            gmailNote:
+              'Separate capacity, usable only by playbooks whose emailTransport is GMAIL. Not part of remainingToday above.',
+          }
+        : {}),
       note: onLegacyForThisPurpose
         ? `No ${purpose === 'TRANSACTIONAL' ? 'transactional' : 'cold-outreach'} domains are registered — this org sends from the single Mailgun domain in Settings, with no per-mailbox warm-up or caps, so there is no daily limit to plan around beyond the org send cap.`
         : remainingToday === 0
@@ -3528,9 +3607,19 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
       ]);
 
     const sending = await getSendingOverview(ctx.organizationId);
+    const inboxes = await listGmailAccounts(ctx.organizationId);
+    const liveInboxes = inboxes.filter((i) => i.status === 'CONNECTED');
     const configured = {
       aiProvider: llmService.isAnyProviderConfigured(orgConfig.providerKeys),
-      email: channels.isEmailConfigured(orgConfig.mailgun),
+      email: channels.isEmailConfigured(orgConfig.mailgun) || liveInboxes.length > 0,
+      mailgun: channels.isEmailConfigured(orgConfig.mailgun),
+      // Inboxes connected by OAuth. A playbook set to the GMAIL transport sends
+      // from one of these instead of a Mailgun domain.
+      gmailInboxes: liveInboxes.map((i) => ({
+        address: i.emailAddress,
+        remainingToday: i.remainingToday,
+        dailySendCap: i.dailySendCap,
+      })),
       sms: channels.isSmsConfigured(orgConfig.twilio),
       voice: channels.isVoiceConfigured(orgConfig.vapi),
       webSearch: !!orgConfig.search.apiKey,
@@ -3540,8 +3629,11 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
     };
     const suggestions: string[] = [];
     if (!configured.aiProvider) suggestions.push('Add at least one AI provider API key (Settings → Integrations) — nothing runs without it.');
-    if (!configured.email) suggestions.push('Configure Mailgun (API key + domain) to enable email outreach, calendar invites, and notifications.');
-    if (configured.email && sending.domains.length === 0) {
+    if (!configured.email) suggestions.push('Configure Mailgun (API key + domain) for volume email outreach, or connect a Gmail inbox (Settings → Sending) to send low-volume, researched outreach as a real person. Either one also carries calendar invites and notifications.');
+    if (inboxes.some((i) => i.status === 'EXPIRED')) {
+      suggestions.push('A connected Gmail inbox needs reconnecting — Google has revoked its access, and every playbook routed through it is drafting instead of sending.');
+    }
+    if (configured.mailgun && sending.domains.length === 0) {
       suggestions.push('Register sending domains (Settings → Sending) to spread cold email across purpose-bought domains with automatic warm-up, and to keep meeting invites off a domain that prospecting will wear out.');
     }
     if (sending.domains.some((d) => d.status === 'PENDING')) {

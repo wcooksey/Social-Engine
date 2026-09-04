@@ -35,7 +35,7 @@ interface SettingGroupView {
 const GROUP_META: Record<OrgSettingGroup, { name: string; icon: string; description: string }> = {
   ai: { name: 'AI providers', icon: 'bi-stars', description: 'API keys for the models that power the Engine. Failover walks whichever providers you configure.' },
   search: { name: 'Web search', icon: 'bi-search', description: 'Powers the Engine\'s web research for prospecting and enrichment.' },
-  email: { name: 'Email (Mailgun)', icon: 'bi-envelope', description: 'Send outbound email touches and receive replies through Mailgun.' },
+  email: { name: 'Email', icon: 'bi-envelope', description: 'Mailgun sends outbound touches at volume and receives replies. The Google OAuth client below is what lets you connect a Gmail inbox under Sending — a second route a playbook can use to send as a real person; it holds no inbox credentials of its own.' },
   sms: { name: 'SMS (Twilio)', icon: 'bi-chat-dots', description: 'Send and receive SMS follow-ups via Twilio.' },
   voice: { name: 'Voice', icon: 'bi-telephone', description: 'Vapi places AI phone calls to leads; ElevenLabs powers the Engine\'s live voice conversation mode.' }
 };

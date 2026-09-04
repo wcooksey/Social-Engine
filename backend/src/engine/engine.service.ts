@@ -1,6 +1,7 @@
 import { prisma } from '../config/database';
 import { config } from '../config/environment';
-import { isEmailConfigured, isSmsConfigured, isVoiceConfigured } from '../services/channels.service';
+import { isSmsConfigured, isVoiceConfigured } from '../services/channels.service';
+import { hasAnyEmailTransport } from '../services/sender.service';
 import {
   formatPlaybooksForPrompt,
   getActivePlaybooks,
@@ -195,7 +196,7 @@ class EngineService {
       playbooksText: formatPlaybooksForPrompt(playbooks),
       focusPlaybookName: focusPlaybookName ?? undefined,
       channels: {
-        email: isEmailConfigured(orgConfig.mailgun),
+        email: await hasAnyEmailTransport(organization.id, orgConfig.mailgun),
         sms: isSmsConfigured(orgConfig.twilio),
         voice: isVoiceConfigured(orgConfig.vapi),
       },

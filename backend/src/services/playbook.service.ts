@@ -7,6 +7,8 @@ export interface PlaybookForPrompt {
   instructions: string;
   /** "Send as" line, when the playbook carries a sender identity. */
   identityLabel?: string;
+  /** "Sends from" line, when this playbook leaves through a connected inbox. */
+  transportLabel?: string;
 }
 
 /**
@@ -20,6 +22,7 @@ export async function getActivePlaybooks(organizationId: string): Promise<Playbo
     include: {
       group: { select: { name: true } },
       campaign: { select: { name: true } },
+      gmailAccount: { select: { emailAddress: true } },
     },
     orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
   });
@@ -37,8 +40,33 @@ export async function getActivePlaybooks(organizationId: string): Promise<Playbo
       channel: p.channel,
       instructions: p.instructions,
       identityLabel: identityLabel(p),
+      transportLabel: transportLabel(p),
     };
   });
+}
+
+/**
+ * The one line about transport the model actually needs.
+ *
+ * Not a configuration dump — what changes is how the email should READ. Mail
+ * leaving a person's own inbox at twenty a day is a note from a colleague and
+ * is judged as one; the same text sent from a warmed prospecting domain is
+ * campaign mail. The model cannot see which it is unless told, and it writes
+ * very differently once it knows.
+ */
+function transportLabel(p: {
+  emailTransport: string;
+  gmailAccount: { emailAddress: string } | null;
+}): string | undefined {
+  if (p.emailTransport !== 'GMAIL') return undefined;
+  const address = p.gmailAccount?.emailAddress;
+  return (
+    `Sends from: a real Gmail inbox${address ? ` (${address})` : ''}, not a bulk sending domain. ` +
+    'Volume here is low and every message is read as a personal note — write one email to one ' +
+    'person, referencing something specific you actually found about their business. No merge-mail ' +
+    'phrasing, no campaign framing, no "I wanted to reach out to businesses like yours". Replies ' +
+    'land in that inbox and thread back onto the lead automatically.'
+  );
 }
 
 /** One-line summary of a playbook's sender identity, or undefined if it has none. */
@@ -113,7 +141,8 @@ export function formatPlaybooksForPrompt(playbooks: PlaybookForPrompt[]): string
     .map((p) => {
       const channelNote = p.channel !== 'ALL' ? ` [${p.channel} channel only]` : '';
       const identity = p.identityLabel ? `\n${p.identityLabel}` : '';
-      return `### ${p.name}${channelNote}\n${p.scopeLabel}${identity}\n${p.instructions}`;
+      const transport = p.transportLabel ? `\n${p.transportLabel}` : '';
+      return `### ${p.name}${channelNote}\n${p.scopeLabel}${identity}${transport}\n${p.instructions}`;
     })
     .join('\n\n');
   const anyIdentity = playbooks.some((p) => p.identityLabel);

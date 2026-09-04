@@ -13,7 +13,7 @@ import { isEmailConfigured, mailgunGet } from './channels.service';
  */
 
 export interface InboundCheck {
-  key: 'secret' | 'publicUrl' | 'mailgun' | 'mx' | 'route';
+  key: 'secret' | 'publicUrl' | 'mailgun' | 'mx' | 'route' | 'gmail';
   label: string;
   /** null when the check couldn't run (a prerequisite failed, or Mailgun errored). */
   ok: boolean | null;
@@ -27,6 +27,13 @@ export interface InboundHealth {
   checks: InboundCheck[];
 }
 
+/** Connected inboxes, as this check needs to see them. */
+export interface InboundGmailAccount {
+  emailAddress: string;
+  status: string;
+  lastSyncAt: Date | null;
+}
+
 /** Pull the URL out of a Mailgun route action like `forward("https://…")`. */
 function forwardTargets(actions: unknown): string[] {
   if (!Array.isArray(actions)) return [];
@@ -35,7 +42,16 @@ function forwardTargets(actions: unknown): string[] {
     .filter((u): u is string => !!u && /^https?:\/\//i.test(u));
 }
 
-export async function checkInboundEmail(creds: EmailCreds): Promise<InboundHealth> {
+export async function checkInboundEmail(
+  creds: EmailCreds,
+  /**
+   * Connected Gmail inboxes. Replies to these are polled rather than forwarded,
+   * so none of the webhook chain below applies to them — reporting a missing
+   * Mailgun route as the reason replies aren't arriving would send someone to
+   * fix DNS for a transport that has no DNS.
+   */
+  gmailAccounts: InboundGmailAccount[] = []
+): Promise<InboundHealth> {
   const secret = config.inbound.webhookSecret;
   const expectedPath = '/api/webhooks/inbound/email';
   const webhookUrl = `${config.appPublicUrl}${expectedPath}?secret=${
@@ -43,6 +59,33 @@ export async function checkInboundEmail(creds: EmailCreds): Promise<InboundHealt
   }`;
 
   const checks: InboundCheck[] = [];
+
+  const liveInboxes = gmailAccounts.filter((a) => a.status === 'CONNECTED');
+  if (gmailAccounts.length > 0) {
+    checks.push({
+      key: 'gmail',
+      label: 'Connected Gmail inboxes',
+      ok: liveInboxes.length > 0,
+      detail: liveInboxes.length
+        ? `Replies to ${liveInboxes
+            .map((a) => a.emailAddress)
+            .join(', ')} are read directly from the inbox every few minutes — no MX records, route or webhook secret involved.${
+            liveInboxes.every((a) => !a.lastSyncAt)
+              ? ' No sweep has run yet; the first one happens within a few minutes.'
+              : ''
+          }`
+        : `Every connected inbox is ${gmailAccounts
+            .map((a) => a.status.toLowerCase())
+            .join('/')} — reconnect it under Settings → Sending, or replies stop arriving.`,
+    });
+  }
+
+  // With no Mailgun at all and a healthy inbox, the chain below is not merely
+  // passing — it is irrelevant, and every "not configured" line in it would be
+  // an answer to a question nobody asked.
+  if (!isEmailConfigured(creds) && liveInboxes.length > 0) {
+    return { ok: true, webhookUrl, checks };
+  }
 
   checks.push({
     key: 'secret',

@@ -68,6 +68,13 @@
               @if (identitySummary(playbook); as identity) {
                 <app-badge variant="purple" size="sm"><i class="bi bi-person-badge"></i> Sends as {{ identity }}</app-badge>
               }
+              @if (transportSummary(playbook); as sendsFrom) {
+                <app-badge
+                  [variant]="playbook.gmailAccount?.status === 'CONNECTED' || !playbook.gmailAccount ? 'info' : 'error'"
+                  size="sm">
+                  <i class="bi bi-envelope-at"></i> {{ sendsFrom }}
+                </app-badge>
+              }
             </div>
 
             <p class="playbook-instructions">{{ playbook.instructions }}</p>
@@ -153,6 +160,48 @@
       [ngModelOptions]="{ standalone: true }"
       helperText="Voice playbooks are used as the AI's call script">
     </app-select>
+
+    <div class="transport-section">
+      <app-select
+        label="Send email through"
+        [showPlaceholderOption]="false"
+        [options]="transportOptions"
+        [(ngModel)]="form.emailTransport"
+        (ngModelChange)="onTransportChange()"
+        [ngModelOptions]="{ standalone: true }"
+        helperText="Sending domains are built for volume, with warm-up and rotation. A Gmail inbox sends as one real person at a handful a day, and replies land in that inbox.">
+      </app-select>
+
+      @if (form.emailTransport === 'GMAIL') {
+        @if (inboxes().length) {
+          @if (inboxes().length > 1) {
+            <app-select
+              label="Which inbox"
+              placeholder="Choose an inbox..."
+              [options]="inboxOptions()"
+              [(ngModel)]="form.gmailAccountId"
+              [ngModelOptions]="{ standalone: true }">
+            </app-select>
+          } @else {
+            <p class="field-hint">
+              Sends from <strong>{{ inboxes()[0].emailAddress }}</strong> —
+              up to {{ inboxes()[0].dailySendCap }} a day.
+            </p>
+          }
+          <p class="field-hint">
+            Warm-up ramps, sender pools and the bounce circuit breaker don't apply on this
+            route — Gmail doesn't report those events. What applies is the inbox's own daily
+            cap and the gap between sends, both set under Sending.
+          </p>
+        } @else {
+          <p class="field-hint warn">
+            No Gmail inbox is connected yet. Connect one under
+            <a routerLink="/sending">Settings → Sending</a> first — saving this playbook on the
+            Gmail route without one will be refused.
+          </p>
+        }
+      }
+    </div>
 
     <div class="textarea-field">
       <label>Instructions</label>

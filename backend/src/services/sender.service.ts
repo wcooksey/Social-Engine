@@ -1,8 +1,14 @@
-import { Prisma, type EmailDomain, type Mailbox } from '@prisma/client';
+import { Prisma, type EmailDomain, type GmailAccount, type Mailbox } from '@prisma/client';
 import { prisma } from '../config/database';
 import { decrypt } from '../utils/encryption';
 import type { EmailCreds } from './channels.service';
 import { mailgunGet, senderAddress } from './channels.service';
+import {
+  accountForPlaybook,
+  anyUsableGmailAccount,
+  gmailNextSendAt,
+  gmailSentToday,
+} from './gmail.service';
 import { getOrgConfig } from './settings.service';
 
 /**
@@ -17,17 +23,30 @@ import { getOrgConfig } from './settings.service';
  *
  * Backwards compatibility: an organization that has not adopted this yet still
  * has its single MAILGUN_DOMAIN setting, and every resolver falls back to it.
+ *
+ * Two transports live here. Mailgun domains carry volume; a connected Gmail
+ * inbox carries the low-volume, hand-researched kind of outreach that is worth
+ * sending as a person. Which one a piece of mail uses is decided by the
+ * playbook it runs under — never by the model, and never by whichever happens
+ * to be configured.
  */
 
 export type SenderPurpose = 'COLD_OUTREACH' | 'TRANSACTIONAL';
 
+/** Which system puts the message on the wire. */
+export type SenderTransport = 'mailgun' | 'gmail';
+
 export interface ResolvedSender {
-  /** Null on the legacy path — the org still runs the single-domain setup. */
+  transport: SenderTransport;
+  /** Null on the legacy path and on the Gmail transport. */
   mailboxId: string | null;
-  /** Today's cap for this mailbox, for the caller to reserve against. */
+  /** The connected inbox, on the Gmail transport. */
+  gmailAccountId?: string;
+  /** Today's remaining-cap basis, for the caller to reserve against. */
   allowanceToday?: number;
-  creds: EmailCreds;
-  /** Address the mail goes out as. Always on `creds.domain`. */
+  /** Mailgun credentials. Absent on the Gmail transport, which uses OAuth. */
+  creds?: EmailCreds;
+  /** Address the mail goes out as. */
   fromEmail: string;
   displayName?: string;
   replyTo?: string;
@@ -281,9 +300,20 @@ function legacySender(legacy: LegacyCreds, preferAddress?: string | null): Resol
   const domain = legacy.domain.trim().toLowerCase();
   const preferred = preferAddress?.trim().toLowerCase();
   if (preferred && preferred.endsWith(`@${domain}`)) {
-    return { mailboxId: null, creds: legacy, fromEmail: preferred, replyTo: preferred };
+    return {
+      transport: 'mailgun',
+      mailboxId: null,
+      creds: legacy,
+      fromEmail: preferred,
+      replyTo: preferred,
+    };
   }
-  return { mailboxId: null, creds: legacy, fromEmail: senderAddress(legacy) };
+  return {
+    transport: 'mailgun',
+    mailboxId: null,
+    creds: legacy,
+    fromEmail: senderAddress(legacy),
+  };
 }
 
 async function senderFromMailbox(
@@ -295,6 +325,7 @@ async function senderFromMailbox(
   const apiKey = await apiKeyForDomain(organizationId, mailbox.emailDomain, legacy);
   if (!apiKey) return null;
   return {
+    transport: 'mailgun',
     mailboxId: mailbox.id,
     allowanceToday,
     creds: { apiKey, domain: mailbox.emailDomain.domain, fromEmail: mailbox.address },
@@ -409,6 +440,91 @@ function earliest(candidates: Candidate[]): Date | undefined {
 }
 
 /**
+ * Resolve the inbox transport for one connected account.
+ *
+ * Deliberately simpler than the Mailgun path, because the thing being modelled
+ * is simpler: one address, no pool to spread across, no warm-up curve to serve.
+ * What remains is the part that still matters at twenty emails a day — a daily
+ * ceiling well under Google's own (hitting theirs locks sending for about a day)
+ * and a minimum gap between sends, because a person does not send eight emails
+ * in eight seconds.
+ *
+ * Transactional mail skips both. A booking confirmation the prospect is waiting
+ * on must not queue behind a prospecting cap, exactly as it does not on Mailgun.
+ */
+async function gmailDecision(
+  account: GmailAccount,
+  purpose: SenderPurpose,
+  now: Date
+): Promise<SenderDecision> {
+  if (account.status !== 'CONNECTED') {
+    return { sender: null, reason: gmailUnavailableReason(account) };
+  }
+
+  const sender: ResolvedSender = {
+    transport: 'gmail',
+    mailboxId: null,
+    gmailAccountId: account.id,
+    fromEmail: account.emailAddress,
+    displayName: account.displayName ?? undefined,
+  };
+  if (purpose === 'TRANSACTIONAL') return { sender };
+
+  const sentToday = gmailSentToday(account, now);
+  if (sentToday >= account.dailySendCap) {
+    return {
+      sender: null,
+      retryAt: nextDayReset(now),
+      reason:
+        `${account.emailAddress} has sent its ${account.dailySendCap} for today. ` +
+        'The touch is still wanted — it goes out when the day rolls over.',
+    };
+  }
+
+  const readyAt = gmailNextSendAt(account, now);
+  if (readyAt > now) {
+    return {
+      sender: null,
+      retryAt: readyAt,
+      reason:
+        `${account.emailAddress} is pacing its sends (one every ` +
+        `${account.minSpacingSeconds}s) — next opening ${readyAt.toISOString()}.`,
+    };
+  }
+
+  return { sender: { ...sender, allowanceToday: account.dailySendCap } };
+}
+
+function gmailUnavailableReason(account: GmailAccount): string {
+  switch (account.status) {
+    case 'EXPIRED':
+      return `${account.emailAddress} needs reconnecting — Google has revoked this connection${
+        account.lastError ? ` (${account.lastError})` : ''
+      }. Message saved as a draft.`;
+    case 'PAUSED':
+      return `${account.emailAddress} is paused by hand — nothing sends from it until it is resumed. Message saved as a draft.`;
+    default:
+      return `${account.emailAddress} is erroring${
+        account.lastError ? ` (${account.lastError})` : ''
+      }. Message saved as a draft.`;
+  }
+}
+
+/** Look up the inbox a playbook routes through, or say why there isn't one. */
+async function gmailForPlaybook(
+  organizationId: string,
+  gmailAccountId: string | null,
+  purpose: SenderPurpose,
+  now: Date
+): Promise<SenderDecision> {
+  const resolved = await accountForPlaybook(organizationId, gmailAccountId);
+  if (!resolved.account) {
+    return { sender: null, reason: `${resolved.reason} Message saved as a draft.` };
+  }
+  return gmailDecision(resolved.account, purpose, now);
+}
+
+/**
  * Pick the mailbox a message should leave from.
  *
  * Order: the thread's existing mailbox, then a specifically requested address,
@@ -427,15 +543,45 @@ export async function resolveSenderDecision(
   const legacy = req.legacy ?? (await legacyCreds(organizationId));
   const now = new Date();
 
+  const playbook = req.playbookId
+    ? await prisma.playbook.findFirst({
+        where: { id: req.playbookId, organizationId },
+        select: { senderPoolId: true, emailTransport: true, gmailAccountId: true },
+      })
+    : null;
+
+  const conversation = req.conversationId
+    ? await prisma.conversation.findFirst({
+        where: { id: req.conversationId, organizationId },
+        select: {
+          gmailAccount: true,
+          mailbox: { include: { emailDomain: true } },
+        },
+      })
+    : null;
+
+  // A thread that left from an inbox stays in that inbox, whatever the playbook
+  // now says. Stickiness outranks the playbook's transport on purpose: from the
+  // prospect's side, a reply arriving from a different address is a stranger
+  // answering their reply, and the Gmail thread it belongs to is unreachable
+  // from any other account.
+  if (conversation?.gmailAccount) {
+    return gmailDecision(conversation.gmailAccount, purpose, now);
+  }
+
+  // Otherwise the playbook decides. A playbook routed through an inbox never
+  // falls back to Mailgun: "send as this person, from their own inbox" is the
+  // whole point, and quietly substituting a cold-outreach domain would put a
+  // stranger's address on mail the recipient was told came from a colleague.
+  if (playbook?.emailTransport === 'GMAIL') {
+    return gmailForPlaybook(organizationId, playbook.gmailAccountId, purpose, now);
+  }
+
   // Sticky: a thread keeps the address it started with. Rotating mid-thread
   // breaks References/In-Reply-To threading and reads as spoofing to the human,
   // so a thread whose mailbox is merely out of capacity waits for it rather
   // than being handed to a different sender.
   if (req.conversationId) {
-    const conversation = await prisma.conversation.findFirst({
-      where: { id: req.conversationId, organizationId },
-      select: { mailbox: { include: { emailDomain: true } } },
-    });
     const sticky = conversation?.mailbox;
     if (sticky && isMailboxAvailable(sticky, now)) {
       const [candidate] = await weigh([sticky], purpose, now);
@@ -478,14 +624,7 @@ export async function resolveSenderDecision(
     }
   }
 
-  const poolId = req.playbookId
-    ? (
-        await prisma.playbook.findFirst({
-          where: { id: req.playbookId, organizationId },
-          select: { senderPoolId: true },
-        })
-      )?.senderPoolId
-    : null;
+  const poolId = playbook?.senderPoolId ?? null;
 
   const mailboxes = await prisma.mailbox.findMany({
     where: {
@@ -524,6 +663,11 @@ export async function resolveSenderDecision(
   if (purpose === 'TRANSACTIONAL' || configuredForPurpose === 0) {
     const fallback = legacySender(legacy, req.preferAddress);
     if (fallback) return { sender: fallback };
+    // Mailgun isn't set up at all. An org running entirely out of a connected
+    // inbox still owes its prospects booking confirmations and reminders, so
+    // those ride the inbox rather than silently not being sent.
+    const inbox = await anyUsableGmailAccount(organizationId);
+    if (inbox) return gmailDecision(inbox, purpose, now);
     return { sender: null, reason: unconfiguredReason() };
   }
 
@@ -562,7 +706,10 @@ function missingKeyReason(): string {
 }
 
 function unconfiguredReason(): string {
-  return 'Email channel (Mailgun) is not configured — message saved as a draft.';
+  return (
+    'No email transport is set up — add Mailgun credentials or connect a Gmail ' +
+    'inbox under Settings → Sending. Message saved as a draft.'
+  );
 }
 
 function pausedReason(configured: number): string {
@@ -891,6 +1038,53 @@ export async function getSendingOverview(organizationId: string) {
       }),
     })),
   };
+}
+
+/**
+ * Whether this organization can send email at all, by any route.
+ *
+ * The Engine's system prompt is told which channels exist, and it takes that
+ * literally — told email is unconfigured, it stops offering to send any. Read
+ * off the Mailgun settings alone, an organization running entirely out of a
+ * connected inbox would be told it has no email channel while sending mail all
+ * day.
+ */
+export async function hasAnyEmailTransport(
+  organizationId: string,
+  legacy?: { apiKey: string; domain: string }
+): Promise<boolean> {
+  const creds = legacy ?? (await legacyCreds(organizationId));
+  if (creds.apiKey && creds.domain) return true;
+
+  const [inboxes, mailboxes] = await Promise.all([
+    prisma.gmailAccount.count({ where: { organizationId, status: 'CONNECTED' } }),
+    prisma.mailbox.count({
+      where: {
+        organizationId,
+        status: { in: ['WARMING', 'ACTIVE'] },
+        emailDomain: { status: { in: ['WARMING', 'ACTIVE'] }, apiKeyEncrypted: { not: null } },
+      },
+    }),
+  ]);
+  return inboxes > 0 || mailboxes > 0;
+}
+
+/**
+ * An address replies to this org are known to reach.
+ *
+ * Used where something must be given out for a human to answer — a contact-form
+ * enquiry, an invite's ORGANIZER line. A connected inbox qualifies: its replies
+ * are polled onto the lead exactly as a Mailgun reply is, so an answer sent
+ * there is not lost.
+ */
+export async function replyAddressFor(
+  organizationId: string,
+  legacy?: { apiKey: string; domain: string; fromEmail: string }
+): Promise<string | null> {
+  const creds = legacy ?? (await legacyCreds(organizationId));
+  if (creds.domain) return senderAddress(creds);
+  const inbox = await anyUsableGmailAccount(organizationId);
+  return inbox?.emailAddress ?? null;
 }
 
 /** Every address this org sends from — used to validate playbook identities. */

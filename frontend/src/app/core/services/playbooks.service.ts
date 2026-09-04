@@ -1,7 +1,12 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
-import { Playbook, PlaybookChannel, PlaybookScope } from '../models/playbook.model';
+import {
+  EmailTransport,
+  Playbook,
+  PlaybookChannel,
+  PlaybookScope
+} from '../models/playbook.model';
 
 export interface PlaybookInput {
   name: string;
@@ -19,6 +24,8 @@ export interface PlaybookInput {
   identityEmail?: string | null;
   identitySignature?: string | null;
   identityPostalAddress?: string | null;
+  emailTransport?: EmailTransport;
+  gmailAccountId?: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
