@@ -66,14 +66,15 @@ Built for internal use across our companies first, but designed multi-tenant fro
 ### Multi-provider model layer
 
 The Engine is provider-agnostic. A model catalog routes any model id to its provider by prefix
-(`claude-*` → Anthropic native SDK; `gpt-*`, `gemini-*`, `grok-*`, `deepseek-*` → the
+(`claude-*` → Anthropic native SDK; `gpt-*`, `gemini-*`, `grok-*`, `deepseek-*`, `kimi-*` → the
 OpenAI-compatible wire format with per-provider base URLs). The organization picks its active
 model (`Organization.engineModel`) and can switch it on the fly from the Engine console or
 Settings. If the active provider errors (outage, rate limit, timeout), the run **fails over
 automatically** to the next configured provider mid-loop — the failover is recorded as an
 AgentStep and the serving model is stored on the AgentRun. Configure any subset of the provider
-keys (Anthropic / OpenAI / Gemini / xAI / DeepSeek) per organization on the Settings page; each
-resolves from the saved in-app value first, then the matching environment variable as a fallback.
+keys (Anthropic / OpenAI / Gemini / xAI / DeepSeek / Moonshot) per organization on the Settings
+page; each resolves from the saved in-app value first, then the matching environment variable as a
+fallback.
 
 ### Settings & secrets
 

@@ -23,6 +23,7 @@ export const ORG_SETTING_DEFS: OrgSettingDef[] = [
   { key: 'GEMINI_API_KEY', label: 'Google Gemini API key', group: 'ai', secret: true },
   { key: 'XAI_API_KEY', label: 'xAI (Grok) API key', group: 'ai', secret: true },
   { key: 'DEEPSEEK_API_KEY', label: 'DeepSeek API key', group: 'ai', secret: true },
+  { key: 'MOONSHOT_API_KEY', label: 'Moonshot (Kimi) API key', group: 'ai', secret: true },
 
   { key: 'SEARCH_API_KEY', label: 'Web search API key', group: 'search', secret: true },
   { key: 'SEARCH_API_PROVIDER', label: 'Search provider', group: 'search', secret: false, placeholder: 'brave' },
@@ -121,6 +122,7 @@ export interface ResolvedOrgConfig {
     google: string;
     xai: string;
     deepseek: string;
+    moonshot: string;
   };
   search: { apiKey: string; provider: string; googlePlacesApiKey: string; apolloApiKey: string };
   mailgun: { apiKey: string; domain: string; fromEmail: string };
@@ -145,7 +147,7 @@ export interface ResolvedOrgConfig {
 export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgConfig> {
   const g = (key: string) => resolveOrg(organizationId, key);
   const [
-    anthropic, openai, gemini, xai, deepseek,
+    anthropic, openai, gemini, xai, deepseek, moonshot,
     searchKey, searchProvider, placesKey, apolloKey,
     mgKey, mgDomain, mgFrom, googleClientId, googleClientSecret,
     senderName, senderPhone, demoUrl,
@@ -154,6 +156,7 @@ export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgC
     elKey, elVoiceId, elLlm,
   ] = await Promise.all([
     g('ANTHROPIC_API_KEY'), g('OPENAI_API_KEY'), g('GEMINI_API_KEY'), g('XAI_API_KEY'), g('DEEPSEEK_API_KEY'),
+    g('MOONSHOT_API_KEY'),
     g('SEARCH_API_KEY'), g('SEARCH_API_PROVIDER'), g('GOOGLE_PLACES_API_KEY'), g('APOLLO_API_KEY'),
     g('MAILGUN_API_KEY'), g('MAILGUN_DOMAIN'), g('MAILGUN_FROM_EMAIL'),
     g('GOOGLE_OAUTH_CLIENT_ID'), g('GOOGLE_OAUTH_CLIENT_SECRET'),
@@ -164,7 +167,7 @@ export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgC
     g('ELEVENLABS_API_KEY'), g('ELEVENLABS_VOICE_ID'), g('ELEVENLABS_LLM'),
   ]);
   return {
-    providerKeys: { anthropic, openai, google: gemini, xai, deepseek },
+    providerKeys: { anthropic, openai, google: gemini, xai, deepseek, moonshot },
     search: { apiKey: searchKey, provider: searchProvider || 'brave', googlePlacesApiKey: placesKey, apolloApiKey: apolloKey },
     mailgun: { apiKey: mgKey, domain: mgDomain, fromEmail: mgFrom },
     googleOAuth: { clientId: googleClientId, clientSecret: googleClientSecret },

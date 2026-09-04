@@ -11,6 +11,7 @@ function providerFromId(id: string): ModelProvider {
   if (s.startsWith('gemini-')) return 'google';
   if (s.startsWith('grok-')) return 'xai';
   if (s.startsWith('deepseek-')) return 'deepseek';
+  if (s.startsWith('kimi-') || s.startsWith('moonshot-')) return 'moonshot';
   return 'anthropic';
 }
 
@@ -20,6 +21,7 @@ const PROVIDER_LABELS: Record<ModelProvider, string> = {
   google: 'Google',
   xai: 'xAI',
   deepseek: 'DeepSeek',
+  moonshot: 'Moonshot (Kimi)',
 };
 
 function providerLabelFromId(id: string): string {

@@ -212,7 +212,7 @@ class EngineService {
     try {
       if (!llmService.isAnyProviderConfigured(providerKeys)) {
         throw new Error(
-          'The Engine is not configured yet: add at least one AI provider API key in Settings → Integrations (Anthropic, OpenAI, Gemini, xAI, or DeepSeek).'
+          'The Engine is not configured yet: add at least one AI provider API key in Settings → Integrations (Anthropic, OpenAI, Gemini, xAI, DeepSeek, or Moonshot).'
         );
       }
 
