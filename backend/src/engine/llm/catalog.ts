@@ -1,6 +1,6 @@
 import { config } from '../../config/environment';
 
-export type Provider = 'anthropic' | 'openai' | 'google' | 'xai' | 'deepseek';
+export type Provider = 'anthropic' | 'openai' | 'google' | 'xai' | 'deepseek' | 'moonshot';
 
 export interface ProviderInfo {
   label: string;
@@ -36,6 +36,11 @@ export const PROVIDERS: Record<Provider, ProviderInfo> = {
     baseURL: 'https://api.deepseek.com',
     apiKey: () => process.env.DEEPSEEK_API_KEY || '',
   },
+  moonshot: {
+    label: 'Moonshot (Kimi)',
+    baseURL: 'https://api.moonshot.ai/v1',
+    apiKey: () => process.env.MOONSHOT_API_KEY || '',
+  },
 };
 
 /** Longest-prefix routing: any model string resolves to a provider. */
@@ -48,6 +53,10 @@ const PREFIX_ROUTES: [string, Provider][] = [
   ['gemini-', 'google'],
   ['grok-', 'xai'],
   ['deepseek-', 'deepseek'],
+  // Moonshot serves its models under the Kimi name; `moonshot-v1-*` is the
+  // older family, still resolvable so a saved id doesn't dead-end.
+  ['kimi-', 'moonshot'],
+  ['moonshot-', 'moonshot'],
 ];
 
 /** Per-org resolved provider keys (from settings). Falls back to env in PROVIDERS. */
@@ -125,6 +134,16 @@ export const MODEL_CATALOG: CatalogModel[] = [
   // loop's bill, at ~1/120th of a miss on Pro and ~1/50th on Flash.
   { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', provider: 'deepseek', pricing: { inputPerMTok: 0.435, cachedInputPerMTok: 0.003625, outputPerMTok: 0.87 } },
   { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', provider: 'deepseek', pricing: { inputPerMTok: 0.14, cachedInputPerMTok: 0.0028, outputPerMTok: 0.28 } },
+  // Moonshot (Kimi). Pricing = cache-miss input / cache-hit input / output per
+  // M tokens at Moonshot's own list rates. Context caching is automatic on the
+  // K2.x and K3 families — no cache_control, no cache id — and the hit rate is
+  // a 90% discount on K3, so it, not the miss rate, is what an agent loop
+  // actually pays for its resent prefix. K3 hits the prefix cache only once a
+  // prompt clears 256 tokens, which every Engine turn does several times over.
+  { id: 'kimi-k3', label: 'Kimi K3', provider: 'moonshot', pricing: { inputPerMTok: 3, cachedInputPerMTok: 0.3, outputPerMTok: 15 } },
+  { id: 'kimi-k2.7-code', label: 'Kimi K2.7 Code', provider: 'moonshot', pricing: { inputPerMTok: 0.95, cachedInputPerMTok: 0.19, outputPerMTok: 4 } },
+  { id: 'kimi-k2.7-code-highspeed', label: 'Kimi K2.7 Code (High-Speed)', provider: 'moonshot', pricing: { inputPerMTok: 1.9, cachedInputPerMTok: 0.38, outputPerMTok: 8 } },
+  { id: 'kimi-k2.6', label: 'Kimi K2.6', provider: 'moonshot', pricing: { inputPerMTok: 0.95, cachedInputPerMTok: 0.16, outputPerMTok: 4 } },
 ];
 
 // Provider-level fallback pricing for models not in the catalog.
@@ -134,6 +153,7 @@ const PROVIDER_DEFAULT_PRICING: Record<Provider, ModelPricing> = {
   google: { inputPerMTok: 2, outputPerMTok: 12 },
   xai: { inputPerMTok: 3, outputPerMTok: 15 },
   deepseek: { inputPerMTok: 0.435, cachedInputPerMTok: 0.003625, outputPerMTok: 0.87 },
+  moonshot: { inputPerMTok: 3, cachedInputPerMTok: 0.3, outputPerMTok: 15 },
 };
 
 export function pricingForModel(model: string): ModelPricing {

@@ -1,5 +1,5 @@
 import { prisma } from '../config/database';
-import * as channels from './channels.service';
+import { deliverEmail, markEmailSent } from './email-delivery.service';
 import { notify, sendDailyDigest } from './notification.service';
 import { resolveSender } from './sender.service';
 
@@ -68,18 +68,14 @@ export async function runReminderSweep(): Promise<number> {
       const sender = await resolveSender(event.organizationId, { purpose: 'TRANSACTIONAL' });
       if (sender) {
         const first = event.contact?.firstName || 'there';
-        await channels
-          .sendEmail(
-            {
-              to: email,
-              subject: `Reminder: ${event.title} ${due.label}`,
-              body: `Hi ${first},\n\nThis is a friendly reminder about "${event.title}" scheduled for ${event.startAt.toUTCString()}.\n\nLooking forward to it!\n\n— ${event.organization?.name || 'The team'}`,
-              fromName: event.organization?.name,
-              fromEmail: sender.fromEmail,
-            },
-            sender.creds
-          )
-          .catch(() => undefined);
+        const reminder = await deliverEmail(sender, {
+          to: email,
+          subject: `Reminder: ${event.title} ${due.label}`,
+          body: `Hi ${first},\n\nThis is a friendly reminder about "${event.title}" scheduled for ${event.startAt.toUTCString()}.\n\nLooking forward to it!\n\n— ${event.organization?.name || 'The team'}`,
+          fromName: event.organization?.name,
+          fromEmail: sender.fromEmail,
+        }).catch(() => null);
+        if (reminder?.sent) await markEmailSent(sender).catch(() => undefined);
       }
     }
 

@@ -1,7 +1,7 @@
 import { NotificationType } from '@prisma/client';
 import { prisma } from '../config/database';
 import { config } from '../config/environment';
-import * as channels from './channels.service';
+import { deliverEmail } from './email-delivery.service';
 import { resolveSender } from './sender.service';
 
 /**
@@ -58,16 +58,13 @@ async function sendAlertEmail(
   const text = `${title}\n\n${body || ''}\n\nOpen Neuralnetics: ${config.appPublicUrl}`.trim();
   await Promise.all(
     recipients.map((r) =>
-      channels.sendEmail(
-        {
-          to: r.email,
-          subject: `🔔 ${title}`,
-          body: text,
-          fromName: `${org?.name || 'Neuralnetics'} Alerts`,
-          fromEmail: sender.fromEmail,
-        },
-        sender.creds
-      )
+      deliverEmail(sender, {
+        to: r.email,
+        subject: `🔔 ${title}`,
+        body: text,
+        fromName: `${org?.name || 'Neuralnetics'} Alerts`,
+        fromEmail: sender.fromEmail,
+      })
     )
   );
   await prisma.notification.update({
@@ -141,16 +138,13 @@ export async function sendDailyDigest(organizationId: string): Promise<boolean> 
 
   await Promise.all(
     recipients.map((r) =>
-      channels.sendEmail(
-        {
-          to: r.email,
-          subject: `📊 Your Neuralnetics daily digest`,
-          body: `Hi ${r.firstName || 'there'},\n\n${lines}`,
-          fromName: `${org?.name || 'Neuralnetics'}`,
-          fromEmail: sender.fromEmail,
-        },
-        sender.creds
-      )
+      deliverEmail(sender, {
+        to: r.email,
+        subject: `📊 Your Neuralnetics daily digest`,
+        body: `Hi ${r.firstName || 'there'},\n\n${lines}`,
+        fromName: `${org?.name || 'Neuralnetics'}`,
+        fromEmail: sender.fromEmail,
+      })
     )
   );
   await notify({

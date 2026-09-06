@@ -10,6 +10,7 @@ const includeRelations = {
   group: { select: { id: true, name: true } },
   campaign: { select: { id: true, name: true } },
   senderPool: { select: { id: true, name: true } },
+  gmailAccount: { select: { id: true, emailAddress: true, status: true } },
   // How many Engine conversations are filed under this playbook — the count
   // that makes each card a doorway into its own thread history.
   _count: { select: { engineChats: true } },
@@ -38,6 +39,63 @@ function identityData(body: Record<string, unknown>): Record<string, string | nu
     data[key] = value || null;
   }
   return data;
+}
+
+/**
+ * Which system carries this playbook's email, and — on the inbox transport —
+ * which inbox.
+ *
+ * The two fields are validated together because half of the pair is a
+ * misconfiguration: a playbook set to GMAIL with no inbox connected sends
+ * nothing, and one left on MAILGUN while naming an inbox is a setting that
+ * looks applied and isn't. Selecting an inbox implies the transport, which is
+ * what an operator means by picking one.
+ */
+async function transportData(
+  body: Record<string, unknown>,
+  organizationId: string
+): Promise<{ emailTransport?: 'MAILGUN' | 'GMAIL'; gmailAccountId?: string | null }> {
+  const wantsTransport = 'emailTransport' in body;
+  const wantsAccount = 'gmailAccountId' in body;
+  if (!wantsTransport && !wantsAccount) return {};
+
+  const accountId = wantsAccount ? String(body.gmailAccountId || '').trim() : '';
+  const transport = wantsTransport
+    ? String(body.emailTransport || '').toUpperCase()
+    : accountId
+      ? 'GMAIL'
+      : undefined;
+
+  if (transport && transport !== 'MAILGUN' && transport !== 'GMAIL') {
+    throw new AppError('emailTransport must be MAILGUN or GMAIL');
+  }
+
+  if (transport === 'GMAIL') {
+    if (accountId) {
+      const account = await prisma.gmailAccount.findFirst({
+        where: { id: accountId, organizationId },
+      });
+      if (!account) throw new AppError('Gmail inbox not found');
+      return { emailTransport: 'GMAIL', gmailAccountId: account.id };
+    }
+    // No inbox named: allowed only while the org has exactly one, since the
+    // resolver refuses to guess between several at send time and the playbook
+    // would silently stop sending.
+    const connected = await prisma.gmailAccount.count({ where: { organizationId } });
+    if (connected === 0) {
+      throw new AppError(
+        'No Gmail inbox is connected — connect one under Settings → Sending before routing a playbook through it.'
+      );
+    }
+    if (connected > 1 && !wantsAccount) {
+      throw new AppError('Pick which connected Gmail inbox this playbook sends from.');
+    }
+    return { emailTransport: 'GMAIL', gmailAccountId: accountId || null };
+  }
+
+  // Back to Mailgun: the inbox is cleared with it, so a later switch back can't
+  // silently reuse an inbox the operator has since forgotten about.
+  return { emailTransport: 'MAILGUN', gmailAccountId: null };
 }
 
 /**
@@ -161,6 +219,7 @@ router.post(
         ...identityData(req.body),
         ...icpData(req.body),
         ...(await senderPoolData(req.body, req.user!.organizationId)),
+        ...(await transportData(req.body, req.user!.organizationId)),
       },
       include: includeRelations,
     });
@@ -181,6 +240,7 @@ router.patch(
       ...identityData(req.body),
       ...icpData(req.body),
       ...(await senderPoolData(req.body, req.user!.organizationId)),
+      ...(await transportData(req.body, req.user!.organizationId)),
     };
     for (const key of ['name', 'instructions', 'channel', 'isActive', 'priority'] as const) {
       if (key in req.body) data[key] = req.body[key];

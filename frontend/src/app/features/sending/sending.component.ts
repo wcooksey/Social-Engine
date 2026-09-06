@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { SendingService } from '../../core/services/sending.service';
 import {
   DomainPurpose,
+  GmailAccount,
   Mailbox,
   SendingDomain,
   SenderPool
@@ -44,6 +45,7 @@ export class SendingComponent implements OnInit {
   readonly purposeOptions = PURPOSE_OPTIONS;
   overview = this.sending.overview;
   pools = this.sending.pools;
+  gmail = this.sending.gmail;
   loading = signal(true);
   busy = signal<string | null>(null);
 
@@ -79,6 +81,14 @@ export class SendingComponent implements OnInit {
   poolName = signal('');
   poolMailboxIds = signal<string[]>([]);
 
+  inboxes = computed<GmailAccount[]>(() => this.gmail()?.accounts ?? []);
+  /** Sends left today across every connected inbox. */
+  inboxCapacityToday = computed(() =>
+    this.inboxes()
+      .filter(account => account.status === 'CONNECTED')
+      .reduce((total, account) => total + account.remainingToday, 0)
+  );
+
   ngOnInit(): void {
     this.refresh();
   }
@@ -87,6 +97,10 @@ export class SendingComponent implements OnInit {
     this.loading.set(true);
     this.sending.load().subscribe({
       next: () => {
+        // Fire-and-forget alongside the pools load: a Gmail read failing must
+        // not take the domains view down with it, since the two are unrelated
+        // halves of the page.
+        this.sending.loadGmail().subscribe({ error: () => undefined });
         this.sending.loadPools().subscribe({
           complete: () => this.loading.set(false),
           // Without its own handler the spinner would run forever on any pools
@@ -330,5 +344,109 @@ export class SendingComponent implements OnInit {
       : `Delete pool "${pool.name}"?`;
     if (!confirm(warning)) return;
     this.run('pool', this.sending.deletePool(pool.id), `Pool "${pool.name}" deleted.`);
+  }
+
+  // --- Gmail inboxes -------------------------------------------------------
+
+  /**
+   * Send the operator to Google.
+   *
+   * A full-page navigation rather than a popup: the consent screen often wants
+   * a fresh login, and popup blockers eat the window that opens after an async
+   * response. Coming back, Google lands on the callback page, which links here.
+   */
+  connectInbox(): void {
+    this.busy.set('gmail-connect');
+    this.sending.gmailAuthUrl().subscribe({
+      next: ({ url }) => {
+        this.busy.set(null);
+        window.location.href = url;
+      },
+      error: err => {
+        this.busy.set(null);
+        this.toast.error(this.reason(err, 'Could not start the Google connection'));
+      }
+    });
+  }
+
+  setInboxPaused(account: GmailAccount, paused: boolean): void {
+    this.run(
+      `gmail-${account.id}`,
+      this.sending.updateGmailAccount(account.id, { paused }),
+      paused
+        ? `${account.emailAddress} paused — nothing sends from it until you resume.`
+        : `${account.emailAddress} is sending again.`
+    );
+  }
+
+  setInboxCap(account: GmailAccount, value: unknown): void {
+    const cap = this.num(value, account.dailySendCap);
+    if (cap === account.dailySendCap) return;
+    this.run(
+      `gmail-${account.id}`,
+      this.sending.updateGmailAccount(account.id, { dailySendCap: cap }),
+      `${account.emailAddress} now sends at most ${cap} a day.`
+    );
+  }
+
+  syncInbox(account: GmailAccount): void {
+    this.busy.set(`gmail-sync-${account.id}`);
+    this.sending.syncGmailAccount(account.id).subscribe({
+      next: ({ examined, matched }) => {
+        this.busy.set(null);
+        this.toast.success(
+          matched
+            ? `${matched} repl${matched === 1 ? 'y' : 'ies'} threaded onto leads.`
+            : `Read ${examined} message(s) — nothing from a known lead.`
+        );
+        this.refresh();
+      },
+      error: err => {
+        this.busy.set(null);
+        this.toast.error(this.reason(err, 'Could not read that inbox'));
+      }
+    });
+  }
+
+  disconnectInbox(account: GmailAccount): void {
+    const warning = account.playbookCount
+      ? `Disconnect ${account.emailAddress}? ${account.playbookCount} playbook(s) send through it — they will draft their email instead of sending until you point them somewhere else.`
+      : `Disconnect ${account.emailAddress}? Replies to it stop being read.`;
+    if (!confirm(warning)) return;
+    this.run(
+      `gmail-${account.id}`,
+      this.sending.disconnectGmailAccount(account.id),
+      `${account.emailAddress} disconnected.`
+    );
+  }
+
+  inboxVariant(account: GmailAccount): BadgeVariant {
+    switch (account.status) {
+      case 'CONNECTED':
+        return 'success';
+      case 'PAUSED':
+        return 'neutral';
+      case 'EXPIRED':
+        return 'error';
+      default:
+        return 'warning';
+    }
+  }
+
+  /** Plain-language state, since "EXPIRED" alone doesn't say what to do. */
+  inboxStatusNote(account: GmailAccount): string | null {
+    if (account.status === 'EXPIRED') {
+      return 'Google has revoked this connection — reconnect it, or every playbook using it will keep drafting instead of sending.';
+    }
+    if (account.status === 'ERROR') {
+      return account.lastError || 'Google is refusing requests for this inbox.';
+    }
+    if (account.status === 'PAUSED') return 'Paused by hand. Nothing sends from it.';
+    return null;
+  }
+
+  inboxUsedPercent(account: GmailAccount): number {
+    if (account.dailySendCap <= 0) return 100;
+    return Math.min(100, Math.round((account.sentToday / account.dailySendCap) * 100));
   }
 }

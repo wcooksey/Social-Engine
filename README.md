@@ -16,7 +16,7 @@ and build phases.
 - **Frontend:** Angular 17, custom SCSS design system (light/dark themes), bootstrap-icons, chart.js
 - **Backend:** Node.js + Express + TypeScript, Prisma ORM, PostgreSQL
 - **AI:** Anthropic / OpenAI tool-calling agent loop with platform-control tools
-- **Channels:** Mailgun (email), Twilio (SMS), Vapi / OpenAI Realtime (voice) — phased in
+- **Channels:** Mailgun or a connected Gmail inbox (email), Twilio (SMS), Vapi / OpenAI Realtime (voice) — phased in
 
 ## Getting started
 
@@ -43,6 +43,23 @@ Integration keys (AI providers, Mailgun, Twilio, Vapi, web search) are
 configured **in-app** on the **Settings → Integrations & API keys** page — each
 organization sets its own, stored encrypted. Any of these also work as
 environment-variable fallbacks (see `.env.example`).
+
+### Two ways to send email
+
+Each playbook picks how its outreach leaves the building:
+
+- **Mailgun sending domains** — several purpose-bought domains and addresses,
+  automatic warm-up, sender pools, and a circuit breaker that pauses a mailbox
+  that starts bouncing. Built for volume.
+- **A connected Gmail inbox** — one real address, sending as the person who owns
+  it, replies landing where they already read mail, follow-ups staying inside
+  the same thread. Built for the handful of hand-researched emails a day that get
+  answered because a person clearly wrote them.
+
+Both are managed on the **Sending** page; the choice is made per playbook. The
+Gmail route is connected over Google's own consent screen (no password is ever
+typed into Neuralnetics) and needs a one-time OAuth client set up in Google
+Cloud — see [docs/GMAIL_SETUP.md](docs/GMAIL_SETUP.md).
 
 Platform-wide controls live on a separate **Admin** page, in the sidebar only
 for the account whose email matches `SUPER_ADMIN_EMAIL`: every organization with

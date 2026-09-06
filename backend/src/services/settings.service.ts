@@ -23,6 +23,7 @@ export const ORG_SETTING_DEFS: OrgSettingDef[] = [
   { key: 'GEMINI_API_KEY', label: 'Google Gemini API key', group: 'ai', secret: true },
   { key: 'XAI_API_KEY', label: 'xAI (Grok) API key', group: 'ai', secret: true },
   { key: 'DEEPSEEK_API_KEY', label: 'DeepSeek API key', group: 'ai', secret: true },
+  { key: 'MOONSHOT_API_KEY', label: 'Moonshot (Kimi) API key', group: 'ai', secret: true },
 
   { key: 'SEARCH_API_KEY', label: 'Web search API key', group: 'search', secret: true },
   { key: 'SEARCH_API_PROVIDER', label: 'Search provider', group: 'search', secret: false, placeholder: 'brave' },
@@ -37,6 +38,13 @@ export const ORG_SETTING_DEFS: OrgSettingDef[] = [
   { key: 'MAILGUN_API_KEY', label: 'Mailgun API key', group: 'email', secret: true },
   { key: 'MAILGUN_DOMAIN', label: 'Mailgun domain', group: 'email', secret: false },
   { key: 'MAILGUN_FROM_EMAIL', label: 'From address', group: 'email', secret: false, placeholder: 'blank = noreply@<domain>' },
+
+  // Google OAuth client, for connecting a Gmail inbox as a sending channel.
+  // These are the app's own credentials, not the inbox owner's: connecting an
+  // inbox never asks anyone for a Google password, and the tokens that come
+  // back live on the GmailAccount row, encrypted.
+  { key: 'GOOGLE_OAUTH_CLIENT_ID', label: 'Google OAuth client ID (Gmail inbox)', group: 'email', secret: false, placeholder: '...apps.googleusercontent.com' },
+  { key: 'GOOGLE_OAUTH_CLIENT_SECRET', label: 'Google OAuth client secret', group: 'email', secret: true },
 
   // Identity used when the browser agent fills out a prospect's "contact us"
   // form. The email deliberately reuses the Mailgun from address so their reply
@@ -114,9 +122,12 @@ export interface ResolvedOrgConfig {
     google: string;
     xai: string;
     deepseek: string;
+    moonshot: string;
   };
   search: { apiKey: string; provider: string; googlePlacesApiKey: string; apolloApiKey: string };
   mailgun: { apiKey: string; domain: string; fromEmail: string };
+  /** OAuth client for connecting Gmail inboxes. Not per-inbox credentials. */
+  googleOAuth: { clientId: string; clientSecret: string };
   /** Who we present as when filling a prospect's contact form. */
   outreachIdentity: { name: string; phone: string };
   /** Demo link the agents can send when a prospect asks to see it. */
@@ -136,16 +147,19 @@ export interface ResolvedOrgConfig {
 export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgConfig> {
   const g = (key: string) => resolveOrg(organizationId, key);
   const [
-    anthropic, openai, gemini, xai, deepseek,
+    anthropic, openai, gemini, xai, deepseek, moonshot,
     searchKey, searchProvider, placesKey, apolloKey,
-    mgKey, mgDomain, mgFrom, senderName, senderPhone, demoUrl,
+    mgKey, mgDomain, mgFrom, googleClientId, googleClientSecret,
+    senderName, senderPhone, demoUrl,
     twSid, twToken, twFrom,
     vpKey, vpPhone, vpSecret, vpModel, vpVoiceProvider, vpVoiceId,
     elKey, elVoiceId, elLlm,
   ] = await Promise.all([
     g('ANTHROPIC_API_KEY'), g('OPENAI_API_KEY'), g('GEMINI_API_KEY'), g('XAI_API_KEY'), g('DEEPSEEK_API_KEY'),
+    g('MOONSHOT_API_KEY'),
     g('SEARCH_API_KEY'), g('SEARCH_API_PROVIDER'), g('GOOGLE_PLACES_API_KEY'), g('APOLLO_API_KEY'),
     g('MAILGUN_API_KEY'), g('MAILGUN_DOMAIN'), g('MAILGUN_FROM_EMAIL'),
+    g('GOOGLE_OAUTH_CLIENT_ID'), g('GOOGLE_OAUTH_CLIENT_SECRET'),
     g('OUTREACH_SENDER_NAME'), g('OUTREACH_SENDER_PHONE'), g('DEMO_VIDEO_URL'),
     g('TWILIO_ACCOUNT_SID'), g('TWILIO_AUTH_TOKEN'), g('TWILIO_FROM_NUMBER'),
     g('VAPI_API_KEY'), g('VAPI_PHONE_NUMBER_ID'), g('VAPI_WEBHOOK_SECRET'),
@@ -153,9 +167,10 @@ export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgC
     g('ELEVENLABS_API_KEY'), g('ELEVENLABS_VOICE_ID'), g('ELEVENLABS_LLM'),
   ]);
   return {
-    providerKeys: { anthropic, openai, google: gemini, xai, deepseek },
+    providerKeys: { anthropic, openai, google: gemini, xai, deepseek, moonshot },
     search: { apiKey: searchKey, provider: searchProvider || 'brave', googlePlacesApiKey: placesKey, apolloApiKey: apolloKey },
     mailgun: { apiKey: mgKey, domain: mgDomain, fromEmail: mgFrom },
+    googleOAuth: { clientId: googleClientId, clientSecret: googleClientSecret },
     outreachIdentity: { name: senderName, phone: senderPhone },
     demoVideoUrl: demoUrl,
     twilio: { accountSid: twSid, authToken: twToken, fromNumber: twFrom },

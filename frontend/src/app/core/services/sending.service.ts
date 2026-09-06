@@ -1,7 +1,14 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { ApiService } from './api.service';
-import { DomainPurpose, SendingDomain, SendingOverview, SenderPool } from '../models/sending.model';
+import {
+  DomainPurpose,
+  GmailAccount,
+  GmailOverview,
+  SendingDomain,
+  SendingOverview,
+  SenderPool
+} from '../models/sending.model';
 
 /**
  * Sending infrastructure: the domains cold email leaves from, the addresses on
@@ -18,6 +25,9 @@ export class SendingService {
 
   private readonly _pools = signal<SenderPool[]>([]);
   readonly pools = this._pools.asReadonly();
+
+  private readonly _gmail = signal<GmailOverview | null>(null);
+  readonly gmail = this._gmail.asReadonly();
 
   load(): Observable<SendingOverview> {
     return this.api
@@ -73,5 +83,32 @@ export class SendingService {
 
   deletePool(id: string): Observable<unknown> {
     return this.api.delete(`/api/sending/pools/${id}`);
+  }
+
+  // --- Gmail inboxes -------------------------------------------------------
+
+  loadGmail(): Observable<GmailOverview> {
+    return this.api.get<GmailOverview>('/api/gmail').pipe(tap(res => this._gmail.set(res)));
+  }
+
+  /**
+   * The Google consent URL. Returned rather than followed by the browser
+   * directly, because the request needs the session's bearer token and a
+   * redirect to accounts.google.com from an XHR would be swallowed by CORS.
+   */
+  gmailAuthUrl(): Observable<{ url: string }> {
+    return this.api.post<{ url: string }>('/api/gmail/auth-url');
+  }
+
+  updateGmailAccount(id: string, body: Record<string, unknown>): Observable<GmailAccount> {
+    return this.api.patch<GmailAccount>(`/api/gmail/${id}`, body);
+  }
+
+  syncGmailAccount(id: string): Observable<{ examined: number; matched: number }> {
+    return this.api.post<{ examined: number; matched: number }>(`/api/gmail/${id}/sync`);
+  }
+
+  disconnectGmailAccount(id: string): Observable<{ disconnected: string; playbooksAffected: number }> {
+    return this.api.delete<{ disconnected: string; playbooksAffected: number }>(`/api/gmail/${id}`);
   }
 }

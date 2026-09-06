@@ -9,6 +9,7 @@ import {
 import { runCadenceSweep } from '../services/campaign-cadence.service';
 import { runSenderHealthSweep } from '../services/sender-health.service';
 import { runOutboundQueueSweep } from '../services/outbound-queue.service';
+import { runGmailSyncSweep } from '../services/gmail-sync.service';
 import { runAutopilotSweep, recordGoalJobOutcome } from '../services/autopilot.service';
 import { releaseStaleResearchingLeads } from '../services/lead.service';
 import { notify } from '../services/notification.service';
@@ -353,6 +354,16 @@ async function runTimeSweeps(): Promise<void> {
     // valuable leak.
     const chased = await runMeetingOutcomeSweep();
     if (chased > 0) console.log(`Flagged ${chased} meeting(s) with no recorded outcome.`);
+    // Replies arriving in a connected inbox. Read BEFORE the cadence sweep, for
+    // the same reason a Mailgun reply webhook fires before the next touch does:
+    // a lead who has answered must not be drip-mailed again in the same pass.
+    const gmail = await runGmailSyncSweep();
+    if (gmail.matched || gmail.errors) {
+      console.log(
+        `Gmail sync: ${gmail.matched} reply(ies) threaded from ${gmail.accounts} inbox(es)` +
+          `${gmail.errors ? `, ${gmail.errors} error(s)` : ''}.`
+      );
+    }
     // Before the cadence queues more sends: a mailbox that has gone bad should
     // stop this minute, not after another batch has gone out on it.
     const health = await runSenderHealthSweep();

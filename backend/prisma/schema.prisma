@@ -77,6 +77,7 @@ model Organization {
   emailDomains EmailDomain[]
   mailboxes    Mailbox[]
   senderPools  SenderPool[]
+  gmailAccounts GmailAccount[]
   suppressions Suppression[]
 }
 
@@ -102,6 +103,7 @@ model User {
   engineChats EngineChat[]
   agentRuns   AgentRun[]
   notifications Notification[]
+  gmailAccounts GmailAccount[]
 
   @@index([organizationId])
 }
@@ -502,11 +504,25 @@ model Conversation {
   mailboxId String?
   mailbox   Mailbox? @relation(fields: [mailboxId], references: [id], onDelete: SetNull)
 
+  /// The provider's own id for this thread, when it has one. Gmail needs it on
+  /// every reply: without a threadId the reply opens a brand-new thread in the
+  /// prospect's inbox AND in the sender's own, which is exactly what makes an
+  /// automated follow-up look automated.
+  externalThreadId String?
+
+  /// Sticky sender for the inbox transport, exactly as `mailboxId` is for
+  /// Mailgun. Retargeting a playbook must not move a live thread to a different
+  /// address mid-conversation — from the prospect's side that is a stranger
+  /// answering their reply.
+  gmailAccountId String?
+  gmailAccount   GmailAccount? @relation(fields: [gmailAccountId], references: [id], onDelete: SetNull)
+
   messages Message[]
 
   @@index([organizationId, lastMessageAt])
   @@index([leadId])
   @@index([mailboxId])
+  @@index([gmailAccountId])
 }
 
 model Message {
@@ -543,6 +559,18 @@ model Message {
   mailboxId String?
   mailbox   Mailbox? @relation(fields: [mailboxId], references: [id], onDelete: SetNull)
 
+  /// RFC 5322 Message-ID of this message. `externalId` holds whatever the
+  /// provider calls its own copy — for Gmail that is an internal id no mail
+  /// client has ever seen — so threading a reply (In-Reply-To / References)
+  /// needs the real header stored separately.
+  headerMessageId String?
+
+  /// Gmail account this left from, when the playbook sends through an inbox
+  /// rather than a Mailgun domain. Mutually exclusive with `mailboxId` in
+  /// practice: a message has exactly one sender.
+  gmailAccountId String?
+  gmailAccount   GmailAccount? @relation(fields: [gmailAccountId], references: [id], onDelete: SetNull)
+
   /// Campaign this send belongs to. A queued message is put on the wire without
   /// an agent present, so it has to carry its own cadence attribution rather
   /// than relying on the caller still being around to supply it.
@@ -552,6 +580,7 @@ model Message {
   @@index([conversationId, createdAt])
   @@index([experimentVariantId])
   @@index([mailboxId])
+  @@index([gmailAccountId])
   @@index([campaignId])
   // Drives the outbound queue drain: due scheduled sends, oldest first.
   @@index([status, scheduledAt])
@@ -1023,6 +1052,95 @@ model SenderPoolMailbox {
 }
 
 // ============================================
+// GMAIL INBOXES (OAuth-connected personal sending)
+// ============================================
+
+enum GmailAccountStatus {
+  CONNECTED
+  /// Google rejected the refresh token — access revoked, password changed, or
+  /// the consent expired. Nothing sends until it is reconnected.
+  EXPIRED
+  /// Paused by hand. The account is fine; it is simply not to be used.
+  PAUSED
+  /// Repeated API failures. Distinguished from EXPIRED because the fix differs.
+  ERROR
+}
+
+/// A Google account connected by OAuth, used to send and read mail as a real
+/// person from their real inbox.
+///
+/// This is the other half of the sending story from EmailDomain/Mailbox. Mailgun
+/// domains are volume infrastructure: bought to be burned, warmed on a ramp,
+/// rotated through a pool. An inbox is the opposite — one address, low volume,
+/// replies landing where their owner already reads mail. Twenty researched
+/// emails a week out of a real inbox is a different product from two thousand
+/// a week out of six throwaway domains, and it needs none of the ramp
+/// machinery, so it does not borrow the tables built for it.
+///
+/// Tokens are AES-256-GCM encrypted at rest and never leave the server. The
+/// refresh token IS the account access, so it is treated exactly like a social
+/// login session: stored encrypted, never returned by the API.
+model GmailAccount {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Globally unique, like EmailDomain.domain and for the same reason: an
+  /// address is one person's inbox, and two organizations claiming it would
+  /// make the mail in it ambiguous.
+  emailAddress String  @unique
+  /// Name on the From header. Blank falls back to the playbook identity.
+  displayName  String?
+
+  status GmailAccountStatus @default(CONNECTED)
+
+  /// OAuth material, encrypted. The refresh token is the durable credential;
+  /// the access token is a cache that any request may replace.
+  refreshTokenEncrypted String
+  accessTokenEncrypted  String?
+  accessTokenExpiresAt  DateTime?
+  /// Scopes Google actually granted — a user can untick one on the consent
+  /// screen, and the failure that causes is otherwise a mystery at send time.
+  grantedScopes         String?
+
+  /// Volume ceiling. Google's own limit is 500/day (2,000 on Workspace) and
+  /// hitting it locks sending for ~24 hours, so the default sits far below it:
+  /// this is a personal inbox doing researched outreach, not a blast list.
+  dailySendCap      Int @default(40)
+  /// Minimum gap between two sends, in seconds. A human does not send eight
+  /// emails in eight seconds, and the burst is what filters look for.
+  minSpacingSeconds Int @default(120)
+
+  /// Sends counted against `sentDate`. Reset by the first send of a new UTC day
+  /// rather than by a job, so a quiet deployment cannot leave a stale count in
+  /// place and lock the account out.
+  sentCount  Int       @default(0)
+  sentDate   DateTime? @db.Date
+  lastSendAt DateTime?
+
+  /// Inbound sync bookkeeping. Gmail has no reply webhook, so replies are
+  /// polled: `lastHistoryId` drives the incremental read and `lastSyncAt` is
+  /// the fallback window when that id is too old for Google to answer on.
+  lastHistoryId String?
+  lastSyncAt    DateTime?
+
+  /// Last thing that went wrong, for the UI to show instead of a silent stop.
+  lastError String?
+
+  connectedByUserId String?
+  connectedBy       User?   @relation(fields: [connectedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  playbooks     Playbook[]
+  messages      Message[]
+  conversations Conversation[]
+
+  @@index([organizationId, status])
+}
+
+// ============================================
 // SOCIAL ACCOUNTS (persistent browser logins)
 // ============================================
 
@@ -1078,6 +1196,12 @@ enum PlaybookChannel {
   EMAIL
   SMS
   VOICE
+}
+
+/// Which system puts a playbook's email on the wire.
+enum EmailTransport {
+  MAILGUN
+  GMAIL
 }
 
 model Playbook {
@@ -1137,6 +1261,23 @@ model Playbook {
   senderPoolId String?
   senderPool   SenderPool? @relation(fields: [senderPoolId], references: [id], onDelete: SetNull)
 
+  // --- How email under this playbook actually leaves the building ----------
+  /// MAILGUN spreads sends across the org's registered domains and mailboxes,
+  /// warm-up ramp and all — the right shape for volume. GMAIL sends from one
+  /// connected inbox, as its owner, with replies landing where they already
+  /// read mail — the right shape for twenty researched emails a week.
+  ///
+  /// This sits on the playbook rather than the organization because it is a
+  /// property of the line of business: the same account can run a high-volume
+  /// campaign off bought domains and a hand-researched one out of a personal
+  /// inbox, and neither should be able to quietly borrow the other's sender.
+  emailTransport EmailTransport @default(MAILGUN)
+  /// Which connected inbox, when the transport is GMAIL. Null means "the org's
+  /// only connected account" — and if there is more than one, nothing sends,
+  /// because guessing whose name goes on the mail is not a guess to make.
+  gmailAccountId String?
+  gmailAccount   GmailAccount? @relation(fields: [gmailAccountId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1145,6 +1286,7 @@ model Playbook {
 
   @@index([organizationId, isActive])
   @@index([senderPoolId])
+  @@index([gmailAccountId])
 }
 
 // ============================================

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../config/database';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { book, computeSlots, getActiveLink } from '../services/booking.service';
+import { completeGmailConnection, decodeState } from '../services/gmail.service';
 import { recomputeLeadEnrichment } from '../services/lead-enrichment.service';
 import { verifyToken } from '../utils/signing';
 import { flagSiblingLocations, suppress } from '../services/suppression.service';
@@ -115,5 +116,76 @@ router.get(
       );
   })
 );
+
+// --- Gmail OAuth callback -------------------------------------------------
+
+/**
+ * Where Google sends the operator's browser after they approve the consent
+ * screen.
+ *
+ * It lives on the public router because it arrives as a top-level browser
+ * navigation carrying no session — the SPA's bearer token is nowhere near it.
+ * What identifies the request instead is the `state` parameter, HMAC-signed by
+ * this deployment when the connect link was built and valid for fifteen
+ * minutes, so an unsigned or stale callback attaches nothing to anybody.
+ *
+ * The response is a page rather than JSON: a person is looking at it. Either
+ * way it hands them back to the Sending settings, which is where they started.
+ */
+router.get(
+  '/gmail/callback',
+  asyncHandler(async (req, res) => {
+    const finish = (ok: boolean, detail: string) => {
+      res
+        .status(ok ? 200 : 400)
+        .set('Content-Type', 'text/html')
+        .send(
+          `<!doctype html><html><head><meta charset="utf-8">` +
+            `<meta name="viewport" content="width=device-width,initial-scale=1">` +
+            `<title>${ok ? 'Inbox connected' : 'Could not connect'}</title>` +
+            `<style>body{font-family:system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1rem;color:#1a1a1a}` +
+            `h1{font-size:1.4rem}a{color:#2563eb}</style></head><body>` +
+            `<h1>${ok ? 'Inbox connected' : 'Could not connect this inbox'}</h1>` +
+            `<p>${escapeHtml(detail)}</p>` +
+            `<p><a href="/sending">Back to Sending settings</a></p></body></html>`
+        );
+    };
+
+    // Google reports a declined consent screen here rather than by not calling.
+    const denied = typeof req.query.error === 'string' ? req.query.error : null;
+    if (denied) {
+      finish(false, `Google reported: ${denied}. Nothing was connected.`);
+      return;
+    }
+
+    const state = decodeState(req.query.state);
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    if (!state || !code) {
+      finish(
+        false,
+        'This connect link is invalid or has expired. Start again from Settings → Sending.'
+      );
+      return;
+    }
+
+    try {
+      const account = await completeGmailConnection(state.organizationId, state.userId, code);
+      finish(
+        true,
+        `${account.emailAddress} is now connected. Outreach on a playbook set to the Gmail transport will send from it, and replies will thread onto their leads automatically.`
+      );
+    } catch (err) {
+      finish(false, err instanceof Error ? err.message : 'Google rejected the connection.');
+    }
+  })
+);
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
 export default router;

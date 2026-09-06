@@ -1,6 +1,13 @@
 export type PlaybookScope = 'GLOBAL' | 'GROUP' | 'CAMPAIGN' | 'LEAD_STATUS';
 export type PlaybookChannel = 'ALL' | 'EMAIL' | 'SMS' | 'VOICE';
 
+/**
+ * Which system carries this playbook's email. MAILGUN spreads sends across the
+ * org's registered domains with warm-up pacing; GMAIL sends from one connected
+ * inbox as its owner, with replies landing there.
+ */
+export type EmailTransport = 'MAILGUN' | 'GMAIL';
+
 export interface Playbook {
   id: string;
   name: string;
@@ -27,6 +34,11 @@ export interface Playbook {
   identitySignature?: string | null;
   /** Overrides the organization's mailing address in the email footer. */
   identityPostalAddress?: string | null;
+
+  // Where this playbook's email actually leaves from.
+  emailTransport: EmailTransport;
+  gmailAccountId?: string | null;
+  gmailAccount?: { id: string; emailAddress: string; status: string } | null;
 }
 
 /** True when a playbook overrides any part of the sender identity. */

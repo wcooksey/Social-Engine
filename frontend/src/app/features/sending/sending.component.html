@@ -241,6 +241,123 @@
       </app-card>
     }
 
+    <app-card class="inbox-card">
+      <div class="mailboxes-header">
+        <div>
+          <h2>Gmail inboxes</h2>
+          <p class="subtitle">
+            The other way mail leaves: one real address, sending as the person who owns it.
+            Right for a handful of researched emails a day — replies land in that inbox and
+            thread onto the lead automatically.
+          </p>
+        </div>
+        @if (gmail()?.oauthConfigured) {
+          <app-button
+            variant="secondary"
+            size="sm"
+            icon="bi-google"
+            [loading]="busy() === 'gmail-connect'"
+            (clicked)="connectInbox()">
+            Connect an inbox
+          </app-button>
+        }
+      </div>
+
+      @if (!gmail()?.oauthConfigured) {
+        <div class="domain-alert pending">
+          <i class="bi bi-key"></i>
+          <div>
+            <strong>Google isn't set up on this deployment yet</strong>
+            <p>
+              Create an OAuth client in the Google Cloud console (type: Web application), enable
+              the Gmail API on the same project, and paste its client ID and secret into
+              <em>Settings → Integrations</em>. Google also needs this exact redirect URI:
+              <code>{{ gmail()?.redirectUri }}</code>
+            </p>
+          </div>
+        </div>
+      } @else if (!inboxes().length) {
+        <p class="muted">
+          No inbox connected. Connecting one never asks for a password — Google shows its own
+          consent screen, and you can revoke it any time from your Google account or from here.
+        </p>
+      } @else {
+        <div class="capacity-strip">
+          <div class="capacity-figure">
+            <span class="value">{{ inboxCapacityToday() }}</span>
+            <span class="label">inbox sends left today</span>
+          </div>
+          <p class="capacity-note">
+            Separate from the domain capacity above — only playbooks set to send through an inbox
+            can use it. Anything over the cap is queued and sends itself tomorrow.
+          </p>
+        </div>
+      }
+
+      @for (account of inboxes(); track account.id) {
+        <div class="inbox">
+          <div class="inbox-main">
+            <div class="inbox-title">
+              <strong>{{ account.emailAddress }}</strong>
+              <app-badge [variant]="inboxVariant(account)" size="sm">{{ account.status | lowercase }}</app-badge>
+              @if (account.playbookCount) {
+                <app-badge variant="purple" size="sm">{{ account.playbookCount }} playbook(s)</app-badge>
+              }
+            </div>
+
+            @if (inboxStatusNote(account); as note) {
+              <p class="inbox-note">{{ note }}</p>
+            }
+
+            <div class="allowance">
+              <div class="bar"><span [style.width.%]="inboxUsedPercent(account)"></span></div>
+              <span class="allowance-text">
+                {{ account.sentToday }} of {{ account.dailySendCap }} sent today ·
+                one every {{ account.minSpacingSeconds }}s
+                @if (account.lastSyncAt) {
+                  · replies last read {{ account.lastSyncAt | date: 'shortTime' }}
+                }
+              </span>
+            </div>
+          </div>
+
+          <div class="inbox-actions">
+            <label class="cap-field">
+              <span>Daily cap</span>
+              <input
+                type="number"
+                min="1"
+                max="400"
+                [value]="account.dailySendCap"
+                (change)="setInboxCap(account, $any($event.target).value)" />
+            </label>
+            <app-button
+              variant="ghost"
+              size="sm"
+              icon="bi-arrow-repeat"
+              [loading]="busy() === 'gmail-sync-' + account.id"
+              (clicked)="syncInbox(account)">
+              Read replies
+            </app-button>
+            @if (account.status === 'PAUSED') {
+              <app-button variant="secondary" size="sm" (clicked)="setInboxPaused(account, false)">Resume</app-button>
+            } @else if (account.status === 'CONNECTED') {
+              <app-button variant="ghost" size="sm" (clicked)="setInboxPaused(account, true)">Pause</app-button>
+            } @else if (account.status === 'EXPIRED') {
+              <app-button
+                variant="secondary"
+                size="sm"
+                [loading]="busy() === 'gmail-connect'"
+                (clicked)="connectInbox()">
+                Reconnect
+              </app-button>
+            }
+            <app-button variant="ghost" size="sm" icon="bi-trash" (clicked)="disconnectInbox(account)"></app-button>
+          </div>
+        </div>
+      }
+    </app-card>
+
     @if (domains().length || pools().length) {
       <app-card class="pools-card">
         <div class="mailboxes-header">

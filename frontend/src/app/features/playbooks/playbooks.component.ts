@@ -3,7 +3,15 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { PlaybooksService, PlaybookInput } from '../../core/services/playbooks.service';
-import { Playbook, PlaybookChannel, PlaybookScope, hasIdentity } from '../../core/models/playbook.model';
+import {
+  EmailTransport,
+  Playbook,
+  PlaybookChannel,
+  PlaybookScope,
+  hasIdentity
+} from '../../core/models/playbook.model';
+import { SendingService } from '../../core/services/sending.service';
+import { GmailAccount } from '../../core/models/sending.model';
 import { LeadGroupsService } from '../../core/services/lead-groups.service';
 import { CampaignsService } from '../../core/services/campaigns.service';
 import { LeadStatus } from '../../core/models/lead.model';
@@ -83,12 +91,26 @@ export class PlaybooksComponent implements OnInit {
 
   leadStatusOptions: SelectOption[] = LEAD_STATUSES.map(status => ({ label: status, value: status }));
 
+  /**
+   * Connected Gmail inboxes, for the "where does this send from" choice. Loaded
+   * on the playbooks page rather than only on Sending, because the decision is
+   * made here and an operator should not have to go and look up whether they
+   * have an inbox before they can answer it.
+   */
+  inboxes = signal<GmailAccount[]>([]);
+
+  transportOptions: SelectOption[] = [
+    { label: 'Sending domains (Mailgun)', value: 'MAILGUN' },
+    { label: 'A Gmail inbox', value: 'GMAIL' }
+  ];
+
   form: PlaybookInput = this.emptyForm();
 
   constructor(
     private playbooksService: PlaybooksService,
     private leadGroupsService: LeadGroupsService,
     private campaignsService: CampaignsService,
+    private sendingService: SendingService,
     private toast: ToastService
   ) {}
 
@@ -96,6 +118,7 @@ export class PlaybooksComponent implements OnInit {
     this.load();
     this.loadGroups();
     this.loadCampaigns();
+    this.loadInboxes();
   }
 
   private emptyForm(): PlaybookInput {
@@ -114,8 +137,44 @@ export class PlaybooksComponent implements OnInit {
       identityTitle: '',
       identityEmail: '',
       identitySignature: '',
-      identityPostalAddress: ''
+      identityPostalAddress: '',
+      emailTransport: 'MAILGUN',
+      gmailAccountId: null
     };
+  }
+
+  loadInboxes(): void {
+    this.sendingService.loadGmail().subscribe({
+      next: res => this.inboxes.set(res.accounts),
+      // Silent: a playbook is still perfectly editable without this, and an
+      // error toast here would fire on every visit for orgs that never intend
+      // to connect an inbox.
+      error: () => this.inboxes.set([])
+    });
+  }
+
+  /** Inboxes offered in the picker, with their state spelled out. */
+  inboxOptions(): SelectOption[] {
+    return this.inboxes().map(account => ({
+      value: account.id,
+      label:
+        account.status === 'CONNECTED'
+          ? account.emailAddress
+          : `${account.emailAddress} (${account.status.toLowerCase()})`
+    }));
+  }
+
+  onTransportChange(): void {
+    if (this.form.emailTransport !== 'GMAIL') {
+      this.form.gmailAccountId = null;
+      return;
+    }
+    // One inbox is not a choice — pick it, so the field can't be left empty in
+    // the only case where empty would still have worked.
+    const only = this.inboxes();
+    if (only.length === 1 && !this.form.gmailAccountId) {
+      this.form.gmailAccountId = only[0].id;
+    }
   }
 
   load(): void {
@@ -173,7 +232,9 @@ export class PlaybooksComponent implements OnInit {
       identityTitle: playbook.identityTitle ?? '',
       identityEmail: playbook.identityEmail ?? '',
       identitySignature: playbook.identitySignature ?? '',
-      identityPostalAddress: playbook.identityPostalAddress ?? ''
+      identityPostalAddress: playbook.identityPostalAddress ?? '',
+      emailTransport: playbook.emailTransport ?? 'MAILGUN',
+      gmailAccountId: playbook.gmailAccountId ?? null
     };
     this.showIdentity.set(hasIdentity(playbook));
     this.showDialog.set(true);
@@ -259,6 +320,16 @@ export class PlaybooksComponent implements OnInit {
     });
   }
 
+  /** "Sends from a Gmail inbox" line for the card, or null on the default. */
+  transportSummary(playbook: Playbook): string | null {
+    if (playbook.emailTransport !== 'GMAIL') return null;
+    const address = playbook.gmailAccount?.emailAddress;
+    if (!address) return 'Sends from your connected Gmail inbox';
+    return playbook.gmailAccount?.status === 'CONNECTED'
+      ? `Sends from ${address}`
+      : `${address} — ${playbook.gmailAccount?.status?.toLowerCase()}`;
+  }
+
   /** Engine conversations filed under this playbook. */
   chatCount(playbook: Playbook): number {
     return playbook._count?.engineChats ?? 0;
@@ -281,6 +352,10 @@ export class PlaybooksComponent implements OnInit {
     if (this.form.scope === 'GROUP' && !this.form.groupId) return;
     if (this.form.scope === 'CAMPAIGN' && !this.form.campaignId) return;
     if (this.form.scope === 'LEAD_STATUS' && !this.form.leadStatus) return;
+    if (this.form.emailTransport === 'GMAIL' && !this.form.gmailAccountId && this.inboxes().length !== 1) {
+      this.toast.error('Pick which Gmail inbox this playbook sends from');
+      return;
+    }
 
     this.saving.set(true);
 
@@ -365,6 +440,10 @@ export class PlaybooksComponent implements OnInit {
       case 'CAMPAIGN': return `Campaign: ${playbook.campaign?.name ?? 'Unknown campaign'}`;
       case 'LEAD_STATUS': return `Status: ${playbook.leadStatus}`;
     }
+  }
+
+  transportLabel(transport: EmailTransport): string {
+    return transport === 'GMAIL' ? 'Gmail inbox' : 'Sending domains';
   }
 
   channelBadgeVariant(channel: PlaybookChannel): BadgeVariant {

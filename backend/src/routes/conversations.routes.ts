@@ -14,7 +14,12 @@ import {
 } from '../services/identity.service';
 import { unsubscribeUrlFor } from '../services/outbound.service';
 import { findKnownPlaceholders } from '../services/placeholder-guard';
-import { markMailboxSent, resolveSenderDecision } from '../services/sender.service';
+import { resolveSenderDecision } from '../services/sender.service';
+import {
+  anchorThread,
+  deliverEmail,
+  markEmailSent,
+} from '../services/email-delivery.service';
 
 const router = Router();
 
@@ -34,7 +39,13 @@ async function deliverOnConversation(
   },
   body: string,
   subject?: string
-): Promise<{ to: string; externalId?: string; mailboxId?: string }> {
+): Promise<{
+  to: string;
+  externalId?: string;
+  headerMessageId?: string;
+  mailboxId?: string;
+  gmailAccountId?: string;
+}> {
   const lead = await prisma.lead.findFirst({
     where: { id: conversation.leadId, organizationId },
   });
@@ -74,7 +85,7 @@ async function deliverOnConversation(
     const decision = await resolveSenderDecision(organizationId, {
       purpose: 'TRANSACTIONAL',
       conversationId: conversation.id,
-      playbookId: identity.playbookId,
+      playbookId: identity.routingPlaybookId,
       preferAddress: identity.email,
       legacy: orgConfig.mailgun,
     });
@@ -97,29 +108,31 @@ async function deliverOnConversation(
       );
     }
 
-    const delivery = await channels.sendEmail(
-      {
-        to: contact.email,
-        subject: subject || conversation.subject || 'Re: our conversation',
-        // Idempotent: an approved draft already carries the sign-off.
-        body: withSignature(body, identity),
-        fromName: fromNameFor(identity, sender.displayName),
-        fromEmail: sender.fromEmail,
-        replyTo: sender.replyTo && sender.replyTo !== sender.fromEmail ? sender.replyTo : undefined,
-        // A human approving a send does not make the recipient's opt-out
-        // optional. This path shipped without the header while the agent and
-        // queue paths carried it, so approval mode — the cautious setting —
-        // was the only one sending mail nobody could unsubscribe from.
-        unsubscribeUrl: unsubscribeUrlFor(contact.id),
-      },
-      sender.creds
-    );
+    const delivery = await deliverEmail(sender, {
+      to: contact.email,
+      subject: subject || conversation.subject || 'Re: our conversation',
+      // Idempotent: an approved draft already carries the sign-off.
+      body: withSignature(body, identity),
+      fromName: fromNameFor(identity, sender.displayName),
+      fromEmail: sender.fromEmail,
+      replyTo: sender.replyTo && sender.replyTo !== sender.fromEmail ? sender.replyTo : undefined,
+      // A human approving a send does not make the recipient's opt-out
+      // optional. This path shipped without the header while the agent and
+      // queue paths carried it, so approval mode — the cautious setting —
+      // was the only one sending mail nobody could unsubscribe from.
+      unsubscribeUrl: unsubscribeUrlFor(contact.id),
+      // Keeps a Gmail reply inside the thread the lead is already reading.
+      conversationId: conversation.id,
+    });
     if (!delivery.sent) throw new AppError(`Email delivery failed: ${delivery.error}`, 502);
-    if (sender.mailboxId) await markMailboxSent(sender.mailboxId);
+    await markEmailSent(sender);
+    await anchorThread(conversation.id, null, sender, delivery).catch(() => undefined);
     return {
       to: contact.email,
       externalId: delivery.externalId,
+      headerMessageId: delivery.headerMessageId,
       mailboxId: sender.mailboxId ?? undefined,
+      gmailAccountId: sender.gmailAccountId,
     };
   }
 
@@ -244,7 +257,9 @@ router.post(
         status: 'sent',
         sentAt: new Date(),
         externalId: delivery.externalId,
+        headerMessageId: delivery.headerMessageId,
         mailboxId: delivery.mailboxId,
+        gmailAccountId: delivery.gmailAccountId,
       },
     });
     await prisma.conversation.update({
@@ -321,7 +336,9 @@ router.post(
         status: 'sent',
         sentAt: new Date(),
         externalId: delivery.externalId,
+        headerMessageId: delivery.headerMessageId,
         mailboxId: delivery.mailboxId,
+        gmailAccountId: delivery.gmailAccountId,
       },
     });
     await prisma.conversation.update({
