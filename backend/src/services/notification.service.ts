@@ -55,14 +55,14 @@ async function sendAlertEmail(
   });
   if (recipients.length === 0) return;
 
-  const text = `${title}\n\n${body || ''}\n\nOpen Social Engine: ${config.appPublicUrl}`.trim();
+  const text = `${title}\n\n${body || ''}\n\nOpen Neuralnetics: ${config.appPublicUrl}`.trim();
   await Promise.all(
     recipients.map((r) =>
       deliverEmail(sender, {
         to: r.email,
         subject: `🔔 ${title}`,
         body: text,
-        fromName: `${org?.name || 'Social Engine'} Alerts`,
+        fromName: `${org?.name || 'Neuralnetics'} Alerts`,
         fromEmail: sender.fromEmail,
       })
     )
@@ -125,7 +125,7 @@ export async function sendDailyDigest(organizationId: string): Promise<boolean> 
   if (recipients.length === 0) return false;
 
   const lines = [
-    `Here's what your Social Engine did in the last 24 hours:`,
+    `Here's what Neuralnetics did for you in the last 24 hours:`,
     ``,
     `• ${meetings} meeting${meetings === 1 ? '' : 's'} booked`,
     `• ${replies} lead repl${replies === 1 ? 'y' : 'ies'} received`,
@@ -133,16 +133,16 @@ export async function sendDailyDigest(organizationId: string): Promise<boolean> 
     `• ${sent} message${sent === 1 ? '' : 's'} sent`,
     `• ${calls} call${calls === 1 ? '' : 's'} placed`,
     ``,
-    `Open Social Engine: ${config.appPublicUrl}`,
+    `Open Neuralnetics: ${config.appPublicUrl}`,
   ].join('\n');
 
   await Promise.all(
     recipients.map((r) =>
       deliverEmail(sender, {
         to: r.email,
-        subject: `📊 Your Social Engine daily digest`,
+        subject: `📊 Your Neuralnetics daily digest`,
         body: `Hi ${r.firstName || 'there'},\n\n${lines}`,
-        fromName: `${org?.name || 'Social Engine'}`,
+        fromName: `${org?.name || 'Neuralnetics'}`,
         fromEmail: sender.fromEmail,
       })
     )

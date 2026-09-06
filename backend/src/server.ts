@@ -13,7 +13,7 @@ async function main(): Promise<void> {
   // (and stops returning 502) even if the database or worker misconfigures.
   // Explicit host 0.0.0.0 so the container is reachable on hosts like Railway.
   const server = app.listen(config.port, '0.0.0.0', () => {
-    console.log(`Social Engine API listening on :${config.port} (${config.nodeEnv})`);
+    console.log(`Neuralnetics API listening on :${config.port} (${config.nodeEnv})`);
   });
 
   // Loud, because the consequence is silent: unset, every unsubscribe link,

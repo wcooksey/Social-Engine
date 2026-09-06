@@ -11,7 +11,7 @@ import { ToastContainerComponent } from './shared/components/toast/toast-contain
   styleUrl: './app.component.scss'
 })
 export class AppComponent {
-  title = 'social-engine-frontend';
+  title = 'Neuralnetics';
 
   // Initialize theme service on app startup
   private themeService = inject(ThemeService);

@@ -1,8 +1,8 @@
-# Social Engine — Architecture & Vision
+# Neuralnetics — Architecture & Vision
 
 ## What this is
 
-Social Engine is an AI-first lead prospecting, outreach, and follow-up platform. The core idea:
+Neuralnetics is an AI-first lead prospecting, outreach, and follow-up platform. The core idea:
 you talk to an AI (the **Engine**) and it does the work of a team of BDRs — autonomously, over
 long periods of time, across multiple channels.
 

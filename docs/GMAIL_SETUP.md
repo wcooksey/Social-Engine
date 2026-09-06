@@ -1,6 +1,6 @@
 # Connecting a Gmail inbox
 
-Social Engine can send a playbook's email one of two ways:
+Neuralnetics can send a playbook's email one of two ways:
 
 - **Mailgun sending domains** — volume infrastructure. Several purpose-bought
   domains, many addresses, an automatic warm-up ramp, sender pools, and a
@@ -36,7 +36,7 @@ cannot do it, because it involves a Google account you own.
   simpler and skips everything about verification below).
 - Fill in the app name, your support email, and the developer contact.
 - **Scopes**: add `https://www.googleapis.com/auth/gmail.modify`. That single
-  scope covers everything Social Engine does — read the inbox for replies, send,
+  scope covers everything Neuralnetics does — read the inbox for replies, send,
   and change labels — while still refusing permanent deletion, so a bug here
   cannot destroy your mail.
 - **Test users**: add every Google account you intend to connect.
@@ -72,7 +72,7 @@ not optional. Plan for it.
 
 - Copy the **client ID** and **client secret**.
 
-## 4. Paste them into Social Engine
+## 4. Paste them into Neuralnetics
 
 **Settings → Integrations & API keys → Email**
 
@@ -89,9 +89,9 @@ without it rather than storing OAuth tokens in plaintext.
 ## 5. Connect the inbox
 
 **Sending → Gmail inboxes → Connect an inbox.** You are sent to Google's own
-consent screen, you approve, and you land back on Social Engine.
+consent screen, you approve, and you land back on Neuralnetics.
 
-No password is ever typed into Social Engine. What is stored is an OAuth refresh
+No password is ever typed into Neuralnetics. What is stored is an OAuth refresh
 token, encrypted at rest with `APP_ENCRYPTION_KEY`. You can revoke it at any time
 from <https://myaccount.google.com/permissions> or by disconnecting the inbox
 here, which revokes it with Google as well.

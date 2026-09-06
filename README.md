@@ -1,4 +1,4 @@
-# Social Engine
+# Neuralnetics
 
 AI-first lead prospecting, outreach, and follow-up platform. Talk to the **Engine** — an AI
 that researches the internet for prospects, builds deduplicated lead lists with enriched
@@ -58,7 +58,7 @@ Each playbook picks how its outreach leaves the building:
 
 Both are managed on the **Sending** page; the choice is made per playbook. The
 Gmail route is connected over Google's own consent screen (no password is ever
-typed into Social Engine) and needs a one-time OAuth client set up in Google
+typed into Neuralnetics) and needs a one-time OAuth client set up in Google
 Cloud — see [docs/GMAIL_SETUP.md](docs/GMAIL_SETUP.md).
 
 Platform-wide controls live on a separate **Admin** page, in the sidebar only

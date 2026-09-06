@@ -1,7 +1,7 @@
 {
-  "name": "social-engine",
+  "name": "neuralnetics",
   "version": "0.1.0",
-  "description": "Social Engine - AI-first lead prospecting, outreach, and follow-up platform",
+  "description": "Neuralnetics - AI-first lead prospecting, outreach, and follow-up platform",
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",

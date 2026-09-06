@@ -902,7 +902,7 @@ export const engineTools: Anthropic.Tool[] = [
   {
     name: 'explain_platform',
     description:
-      "Consult the platform operator's manual to accurately explain how Social Engine works or walk the user through setup — settings, channel/webhook wiring, outreach & cadence mechanics, sourcing & enrichment, booking, monitoring, safety rails. Use whenever the user asks how something works, how to set something up, or what the platform can do; answer from it faithfully rather than guessing.",
+      "Consult the platform operator's manual to accurately explain how Neuralnetics works or walk the user through setup — settings, channel/webhook wiring, outreach & cadence mechanics, sourcing & enrichment, booking, monitoring, safety rails. Use whenever the user asks how something works, how to set something up, or what the platform can do; answer from it faithfully rather than guessing.",
     input_schema: {
       type: 'object' as const,
       properties: {
