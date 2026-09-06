@@ -1,4 +1,4 @@
-# Social Engine
+# Neuralnetics
 
 AI-first lead prospecting, outreach, and follow-up platform. Talk to the **Engine** — an AI
 that researches the internet for prospects, builds deduplicated lead lists with enriched

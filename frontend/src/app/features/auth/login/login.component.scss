@@ -29,8 +29,9 @@
   margin-bottom: 40px;
 
   .brand-icon {
-    font-size: 1.6rem;
-    color: #425DB9;
+    width: 36px;
+    height: 36px;
+    object-fit: contain;
   }
 
   .brand-text {

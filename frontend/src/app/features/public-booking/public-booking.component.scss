@@ -32,8 +32,9 @@
   gap: $spacing-sm;
 
   .brand-icon {
-    font-size: 1.5rem;
-    color: $primary-blue;
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
   }
 
   .brand-text {

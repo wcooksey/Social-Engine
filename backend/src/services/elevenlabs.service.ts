@@ -214,7 +214,7 @@ export async function ensureVoiceAgent(organizationId: string): Promise<{ agentI
     const created = await elFetch<{ agent_id: string }>(apiKey, '/v1/convai/agents/create', {
       method: 'POST',
       body: {
-        name: `Social Engine — ${organization.name}`,
+        name: `Neuralnetics — ${organization.name}`,
         conversation_config: conversationConfig,
       },
     });

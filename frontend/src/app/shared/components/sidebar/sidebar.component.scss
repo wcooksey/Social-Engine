@@ -54,8 +54,10 @@
   }
 
   .logo-icon {
-    font-size: 1.25rem;
-    color: $primary-blue;
+    width: 27px;
+    height: 27px;
+    object-fit: contain;
+    flex: 0 0 auto;
   }
 
   .logo-text {

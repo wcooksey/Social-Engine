@@ -29,7 +29,7 @@ async function fetchRawHtml(url: string): Promise<string | null> {
         redirect: 'manual',
         signal: AbortSignal.timeout(15000),
         headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; SocialEngine/0.1; +https://social-engine.app)',
+          'User-Agent': 'Mozilla/5.0 (compatible; Neuralnetics/0.1)',
           Accept: 'text/html,application/xhtml+xml',
         },
       });

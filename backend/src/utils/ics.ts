@@ -56,7 +56,7 @@ export function buildIcs(ev: IcsEvent): string {
   const lines: string[] = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Social Engine//EN',
+    'PRODID:-//Neuralnetics//EN',
     'CALSCALE:GREGORIAN',
     `METHOD:${method}`,
     'BEGIN:VEVENT',

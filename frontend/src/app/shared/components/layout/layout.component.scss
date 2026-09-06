@@ -169,8 +169,10 @@
     font-size: $font-size-base;
     font-family: 'Poppins', sans-serif;
 
-    i {
-      color: $primary-blue;
+    img {
+      width: 24px;
+      height: 24px;
+      object-fit: contain;
     }
   }
 }

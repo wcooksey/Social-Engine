@@ -85,7 +85,7 @@ export function fromHeader(
     override && override.endsWith(`@${creds.domain.trim().toLowerCase()}`)
       ? override
       : senderAddress(creds);
-  const name = (fromName || 'Social Engine').replace(/[\r\n]/g, ' ').trim();
+  const name = (fromName || 'Neuralnetics').replace(/[\r\n]/g, ' ').trim();
   if (!name) return addr;
   const escaped = name.replace(/(["\\])/g, '\\$1');
   return `"${escaped}" <${addr}>`;

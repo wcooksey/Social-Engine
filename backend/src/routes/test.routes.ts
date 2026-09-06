@@ -55,10 +55,10 @@ router.post(
     const result = await channels.sendEmail(
       {
         to,
-        subject: req.body?.subject?.trim() || `Test email from ${org?.name || 'Social Engine'}`,
+        subject: req.body?.subject?.trim() || `Test email from ${org?.name || 'Neuralnetics'}`,
         body:
           req.body?.body?.trim() ||
-          `This is a test email from your Social Engine workspace. If you're reading this, your Mailgun email channel is working. 🎉`,
+          `This is a test email from your Neuralnetics workspace. If you're reading this, your Mailgun email channel is working. 🎉`,
         fromName: org?.name,
       },
       cfg.mailgun
@@ -100,7 +100,7 @@ router.post(
         to,
         body:
           req.body?.body?.trim() ||
-          `Test SMS from your Social Engine workspace — your Twilio channel works. Reply STOP to test opt-out.`,
+          `Test SMS from your Neuralnetics workspace — your Twilio channel works. Reply STOP to test opt-out.`,
       },
       cfg.twilio
     );
@@ -120,7 +120,7 @@ router.post(
 
     const objective =
       req.body?.objective?.trim() ||
-      'This is a test call to confirm the voice channel works. Greet the person, tell them this is a test of their Social Engine voice setup, ask how their day is going, and end the call politely after a short exchange.';
+      'This is a test call to confirm the voice channel works. Greet the person, tell them this is a test of their Neuralnetics voice setup, ask how their day is going, and end the call politely after a short exchange.';
     const systemPrompt = buildCallSystemPrompt({
       organizationName: org?.name || 'our company',
       objective,
@@ -138,8 +138,8 @@ router.post(
       {
         toNumber: to,
         systemPrompt,
-        firstMessage: `Hi! This is a test call from ${org?.name || 'your Social Engine'}. I'm just confirming the voice setup works — do you have a quick second?`,
-        voicemailMessage: `Hi, this is a test call from ${org?.name || 'your Social Engine'} confirming the voice channel works. No action needed — have a great day!`,
+        firstMessage: `Hi! This is a test call from ${org?.name || 'your Neuralnetics workspace'}. I'm just confirming the voice setup works — do you have a quick second?`,
+        voicemailMessage: `Hi, this is a test call from ${org?.name || 'your Neuralnetics workspace'} confirming the voice channel works. No action needed — have a great day!`,
         metadata: { organizationId: req.user!.organizationId, test: 'true' },
         ...(cfg.vapi.webhookSecret
           ? { server: { url: `${config.appPublicUrl}/api/webhooks/vapi`, secret: cfg.vapi.webhookSecret } }
@@ -170,7 +170,7 @@ router.post(
     const org = await prisma.organization.findUnique({ where: { id: req.user!.organizationId } });
     const message =
       req.body?.message?.trim() ||
-      `Hey! This is a test DM from my Social Engine setup — just confirming the ${platform} channel works. 🤖`;
+      `Hey! This is a test DM from my Neuralnetics setup — just confirming the ${platform} channel works. 🤖`;
 
     // Fire the browser agent in the background; the test bench polls the Live
     // page / returns immediately. Human-initiated, so it bypasses autonomy gate.

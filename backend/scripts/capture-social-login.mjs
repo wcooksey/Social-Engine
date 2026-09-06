@@ -5,7 +5,7 @@
  * Run this ONCE per social account, on your own machine (it opens a real
  * browser window). You log in normally — including 2FA — and it saves the
  * resulting session (cookies + localStorage) to a JSON file. Upload that file
- * in Settings → Social accounts, and Social Engine stays logged in for weeks,
+ * in Settings → Social accounts, and Neuralnetics stays logged in for weeks,
  * auto-refreshing on every use. No per-lead login.
  *
  * Usage:
