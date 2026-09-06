@@ -192,7 +192,7 @@ export class InboxComponent implements OnInit {
     this.conversationsService.approveDraft(convo.id, message.id).subscribe({
       next: () => {
         this.actingMessageId.set(null);
-        this.toast.success('Draft approved and sent');
+        this.toast.success('Draft approved. Email queues through verification and sending limits; check the message status for delivery.');
         this.refreshThread();
       },
       error: (err) => {

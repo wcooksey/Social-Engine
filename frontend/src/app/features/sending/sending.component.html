@@ -58,8 +58,8 @@
           <span class="label">cold emails left today</span>
         </div>
         <p class="capacity-note">
-          Warm-up limits are per mailbox and rise a little each day. Anything over the limit is
-          queued and sends itself when a mailbox frees up — nothing is lost.
+          Warm-up sends real outreach at reduced volume. Limits grow only with elapsed time and observed sending days; this is not proof of reputation. Anything over the limit is
+          queued and rechecked before sending; held or stale messages may be cancelled or expire.
         </p>
       </div>
     }
@@ -199,7 +199,7 @@
                   <p class="mailbox-alert">
                     {{ mailbox.pausedReason }}.
                     @if (mailbox.pausedUntil) {
-                      Returns automatically after {{ mailbox.pausedUntil | date: 'MMM d, HH:mm' }}, warming up from the start.
+                      Review the cause before explicitly resuming. A cooldown alone does not establish recovery.
                     }
                   </p>
                 } @else if (mailbox.rampHalted) {

@@ -4,6 +4,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CampaignsService } from '../../core/services/campaigns.service';
 import {
   Campaign,
+  EmailSequenceStep,
   CampaignActivity,
   CampaignLeadEntry,
   CampaignLeadStatus,
@@ -37,6 +38,22 @@ import { ToastService } from '../../core/services/toast.service';
   styleUrl: './campaign-detail.component.scss'
 })
 export class CampaignDetailComponent implements OnInit {
+  stepForm = { subject: '', body: '', delayDays: 3, approved: false };
+  stepSaving = signal(false);
+  editingStepId: string | null = null;
+  previewLeadId = '';
+  previewResult = signal<{ subject: string | null; body: string | null; sender: string | null; blockers: string[]; nextEligibleAt: string | null } | null>(null);
+  previewLoading = signal(false);
+  editStep(step: EmailSequenceStep): void { this.editingStepId = step.id; this.stepForm = { subject: step.subject, body: step.body, delayDays: step.delayDays, approved: step.approved }; }
+  saveStep(): void {
+    this.stepSaving.set(true);
+    const request = this.editingStepId ? this.campaignsService.updateStep(this.id, this.editingStepId, this.stepForm) : this.campaignsService.appendStep(this.id, this.stepForm);
+    request.subscribe({ next: () => { this.stepSaving.set(false); this.editingStepId = null; this.stepForm = { subject: '', body: '', delayDays: 3, approved: false }; this.load(); this.loadSchedule(); this.toast.success('Sequence saved. Existing progress is preserved.'); }, error: err => { this.stepSaving.set(false); this.toast.error(err.error?.message || err.error?.error || 'Could not save sequence.'); } });
+  }
+  preview(): void {
+    this.previewLoading.set(true); this.previewResult.set(null);
+    this.campaignsService.preview(this.id, this.previewLeadId).subscribe({ next: result => { this.previewResult.set(result); this.previewLoading.set(false); }, error: err => { this.previewLoading.set(false); this.toast.error(err.error?.message || 'Could not preview.'); } });
+  }
   campaign = signal<Campaign | null>(null);
   loading = signal(true);
   updatingStatus = signal(false);

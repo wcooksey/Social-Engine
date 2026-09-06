@@ -149,7 +149,7 @@ export function formatPlaybooksForPrompt(playbooks: PlaybookForPrompt[]): string
   const identityNote = anyIdentity
     ? `\nSome playbooks carry a "Send as" identity — the person and business that outreach under them comes from. When a playbook matching your lead has one, write in that identity's voice, never another playbook's.\n${identityPrecedenceNote()}`
     : '';
-  return `\n\n## Playbooks (protocols set by your team — FOLLOW THESE)\nWhen working a lead, apply every playbook whose scope matches it (group, campaign, or status). Channel-tagged playbooks apply only to that channel; VOICE playbooks define how phone calls should be conducted.\n${identityNote}\n${blocks}`;
+  return `\n\n## Playbooks (protocols set by your team — FOLLOW THESE)\nBefore declaring a playbook ready or planning a launch, call get_playbook_readiness with its ID from list_playbooks. Explain blocked and unknown checks separately. Warm-up is reduced-volume real sending, never proof of reputation. Never bypass verification, an active conversation hold, or an explicit sequence by omitting campaignId or changing channels. When working a lead, apply every playbook whose scope matches it (group, campaign, or status). Channel-tagged playbooks apply only to that channel; VOICE playbooks define how phone calls should be conducted.\n${identityNote}\n${blocks}`;
 }
 
 /** Playbooks that shape a phone call: global voice ones plus matching scopes. */

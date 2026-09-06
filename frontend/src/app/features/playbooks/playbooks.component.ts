@@ -6,6 +6,7 @@ import { PlaybooksService, PlaybookInput } from '../../core/services/playbooks.s
 import {
   EmailTransport,
   Playbook,
+  PlaybookReadiness,
   PlaybookChannel,
   PlaybookScope,
   hasIdentity
@@ -54,6 +55,14 @@ const LEAD_STATUSES: LeadStatus[] = [
   styleUrl: './playbooks.component.scss'
 })
 export class PlaybooksComponent implements OnInit {
+  readiness = signal<PlaybookReadiness | null>(null);
+  readinessOpen = signal(false);
+  readinessLoading = signal(false);
+  readinessError = signal('');
+  inspectReadiness(playbook: Playbook): void {
+    this.readiness.set(null); this.readinessOpen.set(true); this.readinessLoading.set(true); this.readinessError.set('');
+    this.playbooksService.readiness(playbook.id).subscribe({ next: result => { this.readiness.set(result); this.readinessLoading.set(false); }, error: err => { this.readinessError.set(err.error?.error || err.error?.message || 'Could not check readiness. Try again.'); this.readinessLoading.set(false); } });
+  }
   playbooks = signal<Playbook[]>([]);
   loading = signal(true);
 

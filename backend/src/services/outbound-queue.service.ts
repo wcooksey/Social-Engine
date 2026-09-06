@@ -1,3 +1,4 @@
+import { automationSafetyReason, emailSafetyReason } from './send-safety.service';
 import { prisma } from '../config/database';
 import {
   identityFromName,
@@ -188,7 +189,7 @@ async function deliver(messageId: string, now: Date): Promise<Outcome> {
       where: { id: message.campaignId },
       select: { mode: true, status: true },
     });
-    if (campaign?.mode === 'APPROVAL_REQUIRED') {
+    if (campaign?.mode === 'APPROVAL_REQUIRED' && !message.approvedAt) {
       await prisma.message.updateMany({
         where: { id: message.id, status: 'sending' },
         data: { status: 'draft_pending_approval', scheduledAt: null },
@@ -214,6 +215,8 @@ async function deliver(messageId: string, now: Date): Promise<Outcome> {
     mailgunDomain: orgConfig.mailgun.domain,
   });
 
+  if (!identity.postalAddress) return await reschedule(message.id, now, 'Sender postal footer is missing.') as Outcome;
+
   const decision = await resolveSenderDecision(organizationId, {
     purpose: 'COLD_OUTREACH',
     playbookId: identity.routingPlaybookId,
@@ -233,6 +236,11 @@ async function deliver(messageId: string, now: Date): Promise<Outcome> {
     )) as Outcome;
   }
 
+  const safety = await automationSafetyReason(organizationId, lead.id, 'EMAIL', message.campaignId, !message.isConversationReply) || await emailSafetyReason(organizationId, contact.id, contact.email);
+  if (safety || (lead.coldOutreachHeldAt && !message.isConversationReply)) {
+    await close(message.id, 'cancelled', organizationId, lead.id, safety || 'Queued prospecting cancelled: lead replied.');
+    return 'cancelled';
+  }
   const reserved = await reserveEmailSend(sender);
   if (!reserved) {
     return (await reschedule(

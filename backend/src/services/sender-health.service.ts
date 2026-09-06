@@ -35,8 +35,8 @@ const BOUNCE_PAUSE_RATE = 0.05;
 const COMPLAINT_MIN_SENDS = 50;
 const COMPLAINT_PAUSE_RATE = 0.003;
 
-/** How long a health-paused mailbox sits out before it is offered again. */
-const MAILBOX_COOLDOWN_HOURS = 24;
+
+
 
 /**
  * Health-paused mailboxes before the domain itself is pulled — at least this
@@ -170,7 +170,7 @@ export interface SweepResult {
 export async function runSenderHealthSweep(now: Date = new Date()): Promise<SweepResult> {
   const result: SweepResult = { mailboxesPaused: 0, mailboxesResumed: 0, domainsPaused: 0 };
 
-  result.mailboxesResumed = await resumeCooledMailboxes(now);
+  // Health pauses require operator review; elapsed time is not recovery evidence.
 
   // Only mailboxes that are actually in service can breach.
   const live = await prisma.mailbox.findMany({
@@ -195,7 +195,7 @@ export async function runSenderHealthSweep(now: Date = new Date()): Promise<Swee
       data: {
         status: 'PAUSED',
         pausedReason: verdict.breach,
-        pausedUntil: new Date(now.getTime() + MAILBOX_COOLDOWN_HOURS * 3600 * 1000),
+        pausedUntil: null,
       },
     });
     if (claimed.count === 0) continue;
@@ -209,7 +209,7 @@ export async function runSenderHealthSweep(now: Date = new Date()): Promise<Swee
       title: `Sending paused: ${mailbox.address}`,
       body:
         `${mailbox.address} was paused automatically — ${verdict.breach}. ` +
-        `It returns to a fresh warm-up in ${MAILBOX_COOLDOWN_HOURS}h. ` +
+        `Review and explicitly resume it after fixing the cause. ` +
         'Check the list this mailbox has been working before then: a bounce rate ' +
         'this high is usually the addresses, not the domain.',
       emailAlert: true,
@@ -220,54 +220,6 @@ export async function runSenderHealthSweep(now: Date = new Date()): Promise<Swee
   return result;
 }
 
-/**
- * Return mailboxes whose cooldown has elapsed.
- *
- * `pausedUntil` is what marks a pause as this system's to undo — a human who
- * pauses a mailbox leaves it null, and it stays paused until a human says
- * otherwise. Resuming restarts the warm-up from the beginning rather than
- * dropping back in at full volume: a mailbox that has just bounced its way out
- * of service has not earned the allowance it had.
- */
-async function resumeCooledMailboxes(now: Date): Promise<number> {
-  const due = await prisma.mailbox.findMany({
-    where: { status: 'PAUSED', pausedUntil: { lte: now } },
-    select: { id: true, address: true, organizationId: true },
-  });
-
-  let resumed = 0;
-  for (const mailbox of due) {
-    const claimed = await prisma.mailbox.updateMany({
-      where: { id: mailbox.id, status: 'PAUSED', pausedUntil: { lte: now } },
-      data: {
-        status: 'WARMING',
-        pausedUntil: null,
-        pausedReason: null,
-        // Restarts both the ramp and the health window in one move.
-        warmupStartedAt: now,
-      },
-    });
-    if (claimed.count === 0) continue;
-    resumed++;
-    await notify({
-      organizationId: mailbox.organizationId,
-      type: 'SYSTEM',
-      title: `Sending resumed: ${mailbox.address}`,
-      body: `${mailbox.address} finished its cooldown and is warming up again from the start.`,
-    }).catch(() => undefined);
-  }
-  return resumed;
-}
-
-/**
- * Pull a domain when several of its mailboxes have been paused, or when its own
- * aggregate rates breach.
- *
- * Domains are never resumed automatically. Losing a mailbox is routine and a
- * cooldown handles it; losing a domain means the DNS, the reputation or the
- * list is wrong, and putting it back on the wire unattended would spend what is
- * left of it. A human clears this one.
- */
 async function pauseFailingDomains(now: Date): Promise<number> {
   const domains = await prisma.emailDomain.findMany({
     where: { status: { in: ['WARMING', 'ACTIVE'] } },

@@ -76,6 +76,8 @@ const JITTER_MIN = 0.6;
 const JITTER_SPREAD = 0.8;
 
 export interface MailboxLoad {
+  /** Prior UTC days with actual sends since the current warm-up began. */
+  activeSendingDays?: number;
   /** Sends recorded against today's ledger row. */
   sentToday: number;
   /** Outbound messages in the trailing 60 minutes. */
@@ -128,7 +130,7 @@ export function dailyAllowance(
   const elapsedDays = Math.floor(
     (now.getTime() - mailbox.warmupStartedAt.getTime()) / (24 * 3600 * 1000)
   );
-  const days = Math.max(0, Math.min(MAX_RAMP_DAYS, elapsedDays));
+  const days = Math.max(0, Math.min(MAX_RAMP_DAYS, elapsedDays, load.activeSendingDays ?? 0));
   const ramped = Math.round(
     mailbox.dailyCapStart * Math.pow(1 + mailbox.warmupGrowthPct / 100, days)
   );
@@ -183,7 +185,7 @@ export async function loadFor(mailboxIds: string[], now: Date = new Date()): Pro
   if (mailboxIds.length === 0) return loads;
 
   const windowStart = new Date(utcDay(now).getTime() - (RAMP_HEALTH_DAYS - 1) * 24 * 3600 * 1000);
-  const [stats, hourly] = await Promise.all([
+  const [stats, hourly, history, mailboxes] = await Promise.all([
     prisma.mailboxDailyStat.findMany({
       where: { mailboxId: { in: mailboxIds }, date: { gte: windowStart } },
     }),
@@ -197,6 +199,8 @@ export async function loadFor(mailboxIds: string[], now: Date = new Date()): Pro
       _count: { _all: true },
       _min: { sentAt: true },
     }),
+    prisma.mailboxDailyStat.findMany({ where: { mailboxId: { in: mailboxIds }, sent: { gt: 0 }, date: { lt: utcDay(now), gte: new Date(now.getTime() - MAX_RAMP_DAYS * 86400000) } }, select: { mailboxId: true, date: true } }),
+    prisma.mailbox.findMany({ where: { id: { in: mailboxIds } }, select: { id: true, warmupStartedAt: true } }),
   ]);
 
   const hourlyById = new Map(
@@ -215,7 +219,9 @@ export async function loadFor(mailboxIds: string[], now: Date = new Date()): Pro
     const windowSent = rows.reduce((total, row) => total + row.sent, 0);
     const windowBounced = rows.reduce((total, row) => total + row.bounced, 0);
     const hour = hourlyById.get(id);
+    const started = mailboxes.find(m => m.id === id)?.warmupStartedAt;
     loads.set(id, {
+      activeSendingDays: started ? history.filter(row => row.mailboxId === id && row.date >= utcDay(started)).length : 0,
       sentToday,
       sentLastHour: hour?.count ?? 0,
       hourlySlotFreesAt: hour?.oldest ? new Date(hour.oldest.getTime() + 60 * 60 * 1000) : null,
@@ -238,15 +244,13 @@ export async function loadFor(mailboxIds: string[], now: Date = new Date()): Pro
  * verified means the send is rejected at the API anyway, and a rejected send
  * still looks like a failure on the lead's timeline.
  *
- * Warm-up allowances are NOT enforced here yet — the caps live on the model and
- * the ledger is being written, so enforcement can be switched on without a
- * second migration.
+ * This checks identity availability; weigh/reserve apply warm-up and pacing.
  */
 export function isMailboxAvailable(mailbox: MailboxWithDomain, now = new Date()): boolean {
   if (mailbox.status === 'PAUSED' || mailbox.status === 'RETIRED') return false;
   if (mailbox.pausedUntil && mailbox.pausedUntil > now) return false;
   const domain = mailbox.emailDomain;
-  return domain.status === 'WARMING' || domain.status === 'ACTIVE';
+  return domain.spfOk === true && domain.dkimOk === true && (domain.status === 'WARMING' || domain.status === 'ACTIVE');
 }
 
 // ---------------------------------------------------------------------------
@@ -660,7 +664,9 @@ export async function resolveSenderDecision(
     ? await prisma.mailbox.count({ where: { organizationId, emailDomain: { purpose } } })
     : mailboxes.length;
 
-  if (purpose === 'TRANSACTIONAL' || configuredForPurpose === 0) {
+  if (purpose === 'COLD_OUTREACH' && configuredForPurpose === 0) return { sender: null, reason: 'Register and verify a sending mailbox before cold outreach. Legacy settings do not enforce mailbox warm-up.' };
+
+  if (purpose === 'TRANSACTIONAL') {
     const fallback = legacySender(legacy, req.preferAddress);
     if (fallback) return { sender: fallback };
     // Mailgun isn't set up at all. An org running entirely out of a connected
@@ -931,14 +937,13 @@ export async function adoptLegacyDomain(organizationId: string): Promise<EmailDo
   const existing = await prisma.emailDomain.findUnique({ where: { domain: domainName } });
   if (existing) return existing.organizationId === organizationId ? existing : null;
 
-  // Already warm — it has been carrying this org's mail all along, so it starts
-  // ACTIVE rather than serving a warm-up it has effectively finished.
+  // Adopting settings proves neither DNS nor reputation. Verify and warm conservatively.
   const domain = await prisma.emailDomain.create({
     data: {
       organizationId,
       domain: domainName,
       purpose: 'COLD_OUTREACH',
-      status: 'ACTIVE',
+      status: 'WARMING',
     },
   });
 
@@ -961,8 +966,8 @@ export async function adoptLegacyDomain(organizationId: string): Promise<EmailDo
       domainId: domain.id,
       localPart: address.split('@')[0],
       address,
-      status: 'ACTIVE',
-      warmupStartedAt: new Date(),
+      status: 'WARMING',
+      warmupStartedAt: null,
       dailyCapMax: ceiling,
       hourlyCap: Math.max(8, Math.ceil(ceiling / 8)),
     },

@@ -301,12 +301,12 @@ router.patch(
     // explicit status change clears it, so that pausing an already-auto-paused
     // mailbox by hand makes the pause stick instead of being auto-resumed when
     // the machine's cooldown happens to elapse.
-    const wasHealthPaused = existing.pausedUntil !== null;
+    const wasHealthPaused = !!existing.pausedReason || existing.pausedUntil !== null;
 
     const mailbox = await prisma.mailbox.update({
       where: { id: existing.id },
       data: {
-        ...(status ? { status, pausedUntil: null } : {}),
+        ...(status ? { status: wasHealthPaused && status === 'ACTIVE' ? 'WARMING' : status, pausedUntil: null, pausedReason: null } : {}),
         // Coming back from a health pause restarts the warm-up window. Without
         // it the next sweep re-reads the very days that caused the pause and
         // pauses the mailbox again within minutes, forever.

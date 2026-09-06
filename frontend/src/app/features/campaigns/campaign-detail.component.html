@@ -14,7 +14,7 @@
           <app-badge [variant]="statusBadgeVariant(c.status)" size="sm">{{ c.status }}</app-badge>
           <app-badge variant="neutral" size="sm">{{ c.mode.replace('_', ' ') }}</app-badge>
           <span class="meta-text">
-            {{ c.channels.join(' · ') }} · touch every {{ c.followUpCadenceDays }}d · max {{ c.maxTouches }} touches
+            {{ c.channels.join(' · ') }} · {{ c.sequenceEnabled ? c.sequenceSteps.length + ' sequence steps · waits at end' : 'touch every ' + c.followUpCadenceDays + 'd · max ' + c.maxTouches + ' touches' }}
             @if (c.autoEnrollGroup) { · auto-enrolls "{{ c.autoEnrollGroup.name }}" }
           </span>
         </p>
@@ -29,6 +29,36 @@
         }
       </div>
     </div>
+
+    <app-card padding="lg" class="section-card">
+      <h3>Email sequence</h3>
+      <p>{{ c.sequenceEnabled ? 'Approved steps send in order. At the end, leads wait for the next approved step. Replies stop prospecting across channels.' : 'This campaign currently uses AI cadence. A fixed sequence can be started only before this campaign has messages or previous touches, while draft or paused.' }}</p>
+      @for (step of c.sequenceSteps; track step.id; let i = $index) {
+        <div class="sequence-step">
+          <strong>{{ i + 1 }}. {{ step.subject }}</strong>
+          <p>{{ step.approved ? 'Approved · fixed copy' : 'Draft · will not send' }} · {{ i === 0 ? 'First eligible send' : step.delayDays + ' days after the previous send' }}</p>
+          <p class="sequence-copy">{{ step.body }}</p>
+          @if (!step.approved) { <app-button variant="secondary" size="sm" (clicked)="editStep(step)">Edit / approve</app-button> }
+        </div>
+      }
+      <h4>{{ editingStepId ? 'Edit draft step' : 'Append an email' }}</h4>
+      <p>New approved steps apply to existing, unreplied leads at their next position. Nothing already sent is replayed. Approved copy is fixed; replace placeholders before saving.</p>
+      <label>Subject <input class="sequence-field" [(ngModel)]="stepForm.subject" /></label>
+      <label>Message <textarea class="sequence-field" rows="5" [(ngModel)]="stepForm.body"></textarea></label>
+      <label>Days after previous send <input class="sequence-field" type="number" min="1" max="365" [(ngModel)]="stepForm.delayDays" /></label>
+      <label><input type="checkbox" [(ngModel)]="stepForm.approved" /> Approve this exact copy for the sequence</label>
+      <p>In approval-required campaigns, each generated message still needs approval in Inbox. Appending an approved step to an active autonomous campaign makes it eligible to send.</p>
+      <app-button variant="primary" [loading]="stepSaving()" (clicked)="saveStep()">{{ editingStepId ? 'Save step' : 'Append step' }}</app-button>
+      <h4>Preview without sending</h4>
+      <label>Lead <select class="sequence-field" [(ngModel)]="previewLeadId"><option value="">Choose an enrolled lead</option>@for (row of c.campaignLeads || []; track row.id) { <option [value]="row.lead.id">{{ row.lead.companyName }}</option> }</select></label>
+      <app-button variant="secondary" [disabled]="!previewLeadId" [loading]="previewLoading()" (clicked)="preview()">Check next email</app-button>
+      @if (previewResult(); as preview) {
+        <p><strong>Sender:</strong> {{ preview.sender || 'Unavailable' }} · <strong>Next capacity:</strong> {{ preview.nextEligibleAt ? (preview.nextEligibleAt | date:'medium') : 'See checks below' }}</p>
+        @for (reason of preview.blockers; track reason) { <p>{{ reason }}</p> }
+        <strong>{{ preview.subject }}</strong><p class="sequence-copy">{{ preview.body }}</p>
+        <p>No message was created, validated externally, or sent. Delivery, reply and unsubscribe tests remain separate.</p>
+      }
+    </app-card>
 
     @if (c.offer) {
       <app-card padding="lg" class="section-card">
@@ -68,7 +98,8 @@
         </ng-template>
 
         <ng-template appDataCell="touches" let-row="row">
-          <span class="dt-num">{{ row.touchCount }}/{{ c.maxTouches }}</span>
+          @if (c.sequenceEnabled && row.touchCount >= c.sequenceSteps.length && (row.status === 'PENDING' || row.status === 'IN_SEQUENCE')) { <span>Waiting for another approved step · </span> }
+          <span class="dt-num">{{ row.touchCount }}/{{ c.sequenceEnabled ? c.sequenceSteps.length : c.maxTouches }}</span>
         </ng-template>
 
         <ng-template appDataCell="lastTouchAt" let-row="row">
@@ -77,7 +108,7 @@
 
         <ng-template appDataCell="nextTouchAt" let-row="row">
           @if (row.status === 'PENDING' || row.status === 'IN_SEQUENCE') {
-            {{ row.nextTouchAt ? (row.nextTouchAt | date: 'MMM d, h:mm a') : 'next sweep' }}
+            {{ c.sequenceEnabled && (!c.sequenceSteps[row.touchCount] || !c.sequenceSteps[row.touchCount].approved) ? 'Waiting for approved step' : row.nextTouchAt ? (row.nextTouchAt | date: 'MMM d, h:mm a') : 'next eligible sweep' }}
           } @else {
             —
           }
@@ -139,8 +170,8 @@
           <h2>Coming up</h2>
           <p class="subtitle">
             @if (schedule(); as s) {
-              The next {{ s.days }} days. Every {{ s.followUpCadenceDays }} days, up to
-              {{ s.maxTouches }} touches per pass.
+              The next {{ s.days }} days.
+              @if (c.sequenceEnabled) { Delays follow each approved step. Leads wait when the sequence ends. } @else { Every {{ s.followUpCadenceDays }} days, up to {{ s.maxTouches }} touches per pass. }
               @if (s.reEngageAfterDays) {
                 Leads who never reply rest {{ s.reEngageAfterDays }} days, then get another pass —
                 up to {{ s.maxCycles }} in total.

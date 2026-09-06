@@ -225,6 +225,12 @@ router.post(
     }
     const messageId = String(data?.message?.headers?.['message-id'] || '').replace(/^<|>$/g, '');
 
+    // Record only authenticated events correlated to one of our messages.
+    if (messageId && ['delivered', 'opened', 'clicked', 'failed', 'complained'].includes(event)) {
+      const matched = await prisma.message.findFirst({ where: { externalId: messageId, direction: 'OUTBOUND' }, select: { mailboxId: true, conversation: { select: { organizationId: true } } } });
+      if (matched) await prisma.emailEventReceipt.create({ data: { organizationId: matched.conversation.organizationId, mailboxId: matched.mailboxId, event } });
+    }
+
     // Delivery + engagement events: advance the message's state, credit the
     // sending mailbox, and log opens/clicks on the lead timeline as a warmth
     // signal the SDR agents read (get_lead_timeline) to time follow-ups.

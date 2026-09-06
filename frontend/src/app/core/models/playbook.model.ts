@@ -52,3 +52,12 @@ export function hasIdentity(playbook: Playbook): boolean {
     playbook.identityPostalAddress
   );
 }
+
+export interface PlaybookReadiness {
+  mailboxHealth: { address: string; feedbackObserved: boolean; lastEventAt: string | null; health: { sent: number; bounced: number; complained: number; bounceRate: number; complaintRate: number } | null }[];
+  name: string; checkedAt: string; status: string; warmup: string;
+  checks: { key: string; state: string; detail: string; href: string }[];
+  audience: { total: number; assessed: number; verifiedLeads: number };
+  activity: { lastSentAt: string | null; queued: number; drafts: number };
+  domains: { domain: string; status: string; mailboxes: { address: string; status: string; allowanceToday: number; remainingToday: number; warmupStartedAt: string | null }[] }[];
+}
