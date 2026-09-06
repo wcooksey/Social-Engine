@@ -110,7 +110,7 @@ export class LeadsListComponent implements OnInit {
 
   qualityOptions: SelectOption[] = [
     { label: 'Needs enrichment', value: 'needs' },
-    { label: 'Ready for outreach', value: 'ready' },
+    { label: 'Well researched (not send readiness)', value: 'ready' },
     { label: 'No email', value: 'no_email' },
     { label: 'Has an email', value: 'has_email' },
     { label: '2+ emails', value: 'multi_email' },

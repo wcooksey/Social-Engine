@@ -1,3 +1,5 @@
+import { automationSafetyReason, emailSafetyReason } from '../services/send-safety.service';
+import { outboundBlockReason } from '../services/outbound.service';
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
@@ -19,6 +21,8 @@ import {
   anchorThread,
   deliverEmail,
   markEmailSent,
+  reserveEmailSend,
+  releaseEmailSend,
 } from '../services/email-delivery.service';
 
 const router = Router();
@@ -70,6 +74,8 @@ async function deliverOnConversation(
   if (conversation.channel === 'EMAIL') {
     if (!contact?.email) throw new AppError('No contact with an email address on this lead.', 400);
     if (contact.optedOut) throw new AppError('This contact has opted out.', 400);
+    const safety = await emailSafetyReason(organizationId, contact.id, contact.email);
+    if (safety) throw new AppError(safety, 400);
     // Replies go out under the same identity the outreach did, so a thread
     // never changes sender halfway through.
     const identity = await resolveSenderIdentity(organizationId, {
@@ -77,13 +83,12 @@ async function deliverOnConversation(
       channel: 'EMAIL',
       mailgunDomain: orgConfig.mailgun.domain,
     });
-    // Resolved through the sending infrastructure rather than the raw org creds,
-    // so this thread keeps its own mailbox and the send is attributed to it.
-    // TRANSACTIONAL on purpose: a person has already decided to send this, so a
-    // cold-outreach warm-up cap should not hold it — but a paused mailbox or an
-    // unverified domain still stops it, and the thread's own sender still wins.
+    // Manual email uses the same sender pacing and allowances as outreach.
+    // Human review does not make an unverified or exhausted sender eligible.
+    const orgBlock = await outboundBlockReason(organizationId, lead);
+    if (orgBlock) throw new AppError(orgBlock);
     const decision = await resolveSenderDecision(organizationId, {
-      purpose: 'TRANSACTIONAL',
+      purpose: 'COLD_OUTREACH',
       conversationId: conversation.id,
       playbookId: identity.routingPlaybookId,
       preferAddress: identity.email,
@@ -108,6 +113,7 @@ async function deliverOnConversation(
       );
     }
 
+    if (!await reserveEmailSend(sender)) throw new AppError('Sender allowance was taken by another send. Try again later.');
     const delivery = await deliverEmail(sender, {
       to: contact.email,
       subject: subject || conversation.subject || 'Re: our conversation',
@@ -124,7 +130,7 @@ async function deliverOnConversation(
       // Keeps a Gmail reply inside the thread the lead is already reading.
       conversationId: conversation.id,
     });
-    if (!delivery.sent) throw new AppError(`Email delivery failed: ${delivery.error}`, 502);
+    if (!delivery.sent) { await releaseEmailSend(sender); throw new AppError(`Email delivery failed: ${delivery.error}`, 502); }
     await markEmailSent(sender);
     await anchorThread(conversation.id, null, sender, delivery).catch(() => undefined);
     return {
@@ -306,6 +312,23 @@ router.post(
     const body = String(req.body?.body ?? message.body).trim();
     if (!body) throw new AppError('body cannot be empty');
 
+    if (conversation.channel === 'EMAIL') {
+      const blocked = await automationSafetyReason(req.user!.organizationId, conversation.leadId, 'EMAIL', message.campaignId, !message.isConversationReply);
+      if (blocked) throw new AppError(blocked);
+      if (!conversation.contactId) throw new AppError('Choose a contact before approving this draft.');
+      const verification = await emailSafetyReason(req.user!.organizationId, conversation.contactId);
+      if (verification) throw new AppError(verification);
+      const updated = await prisma.message.updateMany({ where: { id: message.id, status: message.status }, data: { body, subject: req.body?.subject ?? message.subject, status: 'scheduled', approvedAt: new Date(), scheduledAt: new Date() } });
+      if (!updated.count) throw new AppError('This draft changed. Refresh before approving again.');
+      res.json({ success: true, data: await prisma.message.findUnique({ where: { id: message.id } }) });
+      return;
+    }
+    const safety = await automationSafetyReason(req.user!.organizationId, conversation.leadId, conversation.channel, message.campaignId);
+    if (safety) throw new AppError(safety);
+    const leadForLimits = await prisma.lead.findUnique({ where: { id: conversation.leadId } });
+    const limit = await outboundBlockReason(req.user!.organizationId, leadForLimits);
+    if (limit) throw new AppError(limit);
+
     // Social DMs go out through the browser agent in the background — the
     // request returns immediately with a 'sending' status the UI can poll.
     if (conversation.channel === 'SOCIAL') {
@@ -356,7 +379,7 @@ router.post(
     await leadService.logActivity({
       organizationId: req.user!.organizationId,
       leadId: conversation.leadId,
-      type: conversation.channel === 'EMAIL' ? 'EMAIL_SENT' : 'SMS_SENT',
+      type: 'SMS_SENT',
       summary: `Draft approved and sent to ${delivery.to}`,
       payload: { messageId: message.id, approvedDraft: true },
     });

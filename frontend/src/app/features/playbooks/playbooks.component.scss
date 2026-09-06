@@ -328,3 +328,7 @@
     color: var(--warning, #d97706);
   }
 }
+
+.readiness-check { padding: 16px 0; border-top: 1px solid var(--border-primary); }
+
+.readiness-check a { color: var(--text-primary); text-decoration: underline; text-underline-offset: 3px; }

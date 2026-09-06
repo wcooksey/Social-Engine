@@ -81,6 +81,7 @@
           </div>
 
           <div class="playbook-actions">
+            <app-button variant="secondary" size="sm" (clicked)="inspectReadiness(playbook)">Check readiness</app-button>
             <a
               class="icon-btn conversations-btn"
               [routerLink]="['/engine']"
@@ -319,4 +320,44 @@
       {{ editingPlaybook ? 'Save Changes' : 'Create Playbook' }}
     </app-button>
   </div>
+</app-dialog>
+
+<app-dialog title="Playbook readiness" [show]="readinessOpen()" size="lg" (close)="readinessOpen.set(false)">
+  @if (readinessLoading()) { <p>Checking configuration and observed activity. Nothing will be sent.</p> }
+  @if (readinessError()) { <p role="alert">{{ readinessError() }}</p> }
+  @if (readiness(); as report) {
+    <h2>{{ report.name }} · {{ report.status.replaceAll('_', ' ') }}</h2>
+    <p>Checked {{ report.checkedAt | date:'medium' }}. This report sends nothing and does not call address validation.</p>
+    <p><strong>Last send:</strong> {{ report.activity.lastSentAt ? (report.activity.lastSentAt | date:'medium') : 'None observed' }} · {{ report.activity.queued }} queued · {{ report.activity.drafts }} awaiting approval</p>
+    <p>{{ report.warmup }}</p>
+    @for (domain of report.domains; track domain.domain) {
+      <h3>{{ domain.domain }} · {{ domain.status }}</h3>
+      @for (mailbox of domain.mailboxes; track mailbox.address) {
+        <p>{{ mailbox.address }} · {{ mailbox.status }} · {{ mailbox.allowanceToday - mailbox.remainingToday }} / {{ mailbox.allowanceToday }} used today</p>
+      }
+    }
+    @for (mailbox of report.mailboxHealth; track mailbox.address) {
+      <div class="readiness-check"><strong>{{ mailbox.address }} · last 7 days</strong>
+        @if (mailbox.health; as health) {
+          <p>{{ health.sent }} sent · {{ health.bounced }} recorded bounces · {{ health.complained }} recorded complaints</p>
+          @if (mailbox.feedbackObserved && health.sent > 0) { <p>Recorded bounce rate {{ health.bounceRate | percent:'1.1-2' }} · complaint rate {{ health.complaintRate | percent:'1.1-2' }}</p> }
+        }
+        <p>{{ mailbox.feedbackObserved ? 'Some matched feedback has arrived. Confirm every event type is configured; these rates may be incomplete.' : 'Feedback not confirmed. Missing events must not be interpreted as a healthy zero rate.' }}</p>
+      </div>
+    }
+    @for (check of report.checks; track check.key) {
+      <div class="readiness-check">
+        <strong>{{ check.key }} · {{ check.state === 'unknown' ? 'Not confirmed' : check.state }}</strong>
+        <p>{{ check.detail }}</p><a [routerLink]="check.href" (click)="readinessOpen.set(false)">Open settings for this check →</a>
+      </div>
+    }
+    <div class="readiness-check">
+      <strong>Controlled test checklist</strong>
+      <p>1. Open the campaign and preview a lead. This sends nothing.</p>
+      <p>2. Use a separate test campaign with only inboxes you own and approval required. Approve one message in Inbox; it queues through the real sending safeguards.</p>
+      <p>3. Confirm receipt and inspect authentication in the received headers. Reply and confirm the conversation appears here and queued prospecting is cancelled.</p>
+      <p>4. Test unsubscribe on a separate test contact and confirm further sends are blocked. Recheck event receipts. Use provider test events or local fixtures for bounce/complaint checks; do not deliberately bounce real outreach.</p>
+      <p>The Settings test email checks connectivity and bypasses outreach limits. It does not prove this campaign is ready.</p>
+    </div>
+  }
 </app-dialog>

@@ -1,3 +1,4 @@
+import { getPlaybookReadiness } from '../services/playbook-readiness.service';
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
@@ -5,6 +6,11 @@ import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { forgetIcpCache } from '../services/icp.service';
 
 const router = Router();
+router.get('/:id/readiness', asyncHandler(async (req, res) => {
+  const owned = await prisma.playbook.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId }, select: { id: true } });
+  if (!owned) throw new AppError('Playbook not found', 404);
+  res.json({ success: true, data: await getPlaybookReadiness(req.user!.organizationId, owned.id) });
+}));
 
 const includeRelations = {
   group: { select: { id: true, name: true } },

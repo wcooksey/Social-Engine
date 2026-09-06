@@ -18,6 +18,9 @@ router.patch(
     for (const key of allowed) {
       if (key in req.body) data[key] = req.body[key];
     }
+    if ('email' in data && String(data.email || '').trim().toLowerCase() !== existing.email?.trim().toLowerCase()) {
+      data.emailVerifiedAt = null; data.emailVerifiedAddress = null;
+    }
     const contact = await prisma.contact.update({ where: { id: existing.id }, data });
     // Editing a person changes what the lead has on file — re-grade it.
     await recomputeLeadEnrichment(existing.leadId);

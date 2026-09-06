@@ -22,6 +22,7 @@ const SHARED = [
   'list_calendar_events',
   'get_booking_links',
   'list_playbooks',
+  'get_playbook_readiness',
   'list_coverage',
   'update_group_summary',
   'schedule_followup',

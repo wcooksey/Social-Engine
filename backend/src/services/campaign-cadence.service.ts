@@ -1,3 +1,4 @@
+import { runExplicitSequence } from './sequence.service';
 import { prisma } from '../config/database';
 
 /**
@@ -110,6 +111,7 @@ export async function runCadenceSweep(): Promise<number> {
           groupId: campaign.autoEnrollGroupId,
           organizationId: campaign.organizationId,
           doNotContact: false,
+          coldOutreachHeldAt: null,
           campaignLeads: { none: { campaignId: campaign.id } },
         },
         select: { id: true },
@@ -121,6 +123,11 @@ export async function runCadenceSweep(): Promise<number> {
           skipDuplicates: true,
         });
       }
+    }
+
+    if (campaign.sequenceEnabled) {
+      jobsQueued += await runExplicitSequence(campaign);
+      continue;
     }
 
     // Leads that exhausted their touches go dormant rather than simply ending.
@@ -148,7 +155,7 @@ export async function runCadenceSweep(): Promise<number> {
         status: { in: ['PENDING', 'IN_SEQUENCE'] },
         touchCount: { lt: campaign.maxTouches },
         OR: [{ nextTouchAt: null }, { nextTouchAt: { lte: new Date() } }],
-        lead: { doNotContact: false },
+        lead: { doNotContact: false, coldOutreachHeldAt: null },
         // Operator hold from the Scheduled page. This is the only field that
         // actually stops a campaign: cancelling the messages it has already
         // written just frees the lead to be batched again on the next pass.

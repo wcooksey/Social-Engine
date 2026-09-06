@@ -387,6 +387,10 @@ export async function handleInbound(input: InboundMessage): Promise<{
     return { matched: true, leadId, conversationId: conversation.id };
   }
 
+  // A human reply owns the conversation across all campaigns and channels.
+  await prisma.lead.update({ where: { id: leadId }, data: { coldOutreachHeldAt: new Date(), engagementChannel: input.channel } });
+  await prisma.message.updateMany({ where: { conversation: { leadId, organizationId }, direction: 'OUTBOUND', status: { in: ['scheduled', 'draft_pending_approval', 'draft_blocked', 'draft'] } }, data: { status: 'cancelled', scheduledAt: null } });
+
   // Move the lead forward if it was just contacted.
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
   if (lead && (lead.status === 'CONTACTED' || lead.status === 'NEW')) {

@@ -1,8 +1,45 @@
+import { automationSafetyReason, emailSafetyReason } from '../services/send-safety.service';
+import { outboundBlockReason } from '../services/outbound.service';
+import { resolveSenderIdentity, withSignature } from '../services/identity.service';
+import { resolveSenderDecision } from '../services/sender.service';
+import { nextStep } from '../services/sequence.service';
+import { randomUUID } from 'crypto';
+import { stepsFrom, validateStep } from '../services/sequence.service';
 import { Router } from 'express';
 import { prisma } from '../config/database';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
 
 const router = Router();
+router.get('/:id/preview', asyncHandler(async (req, res) => {
+  const enrollment = await prisma.campaignLead.findFirst({ where: { campaignId: req.params.id, leadId: String(req.query.leadId || ''), campaign: { organizationId: req.user!.organizationId } }, include: { campaign: true, lead: { include: { contacts: true } } } });
+  if (!enrollment) throw new AppError('Enrolled lead not found', 404);
+  const { campaign, lead } = enrollment;
+  const blockers: string[] = [];
+  const safety = await automationSafetyReason(req.user!.organizationId, lead.id, 'EMAIL', campaign.id);
+  const limits = await outboundBlockReason(req.user!.organizationId, lead);
+  if (safety) blockers.push(safety);
+  if (limits) blockers.push(limits);
+  const step = campaign.sequenceEnabled ? nextStep(campaign.sequenceSteps, enrollment.touchCount) : null;
+  if (step) {
+    const existing = await prisma.message.findUnique({ where: { sequenceKey: `${campaign.id}:${lead.id}:${step.id}` }, select: { status: true } });
+    if (existing) blockers.push(`This step already has a message: ${existing.status}. Inspect it in Inbox or Scheduled; it will not be generated again.`);
+  }
+  if (!step) blockers.push(campaign.sequenceEnabled ? 'Waiting for another approved step.' : 'AI cadence: no fixed next email to preview. Create an approval-required draft to review the actual copy.');
+  let contact = null;
+  for (const candidate of lead.contacts) { if (!await emailSafetyReason(req.user!.organizationId, candidate.id)) { contact = candidate; break; } }
+  if (!contact) blockers.push('No current, verified, unsuppressed email address.');
+  const identity = await resolveSenderIdentity(req.user!.organizationId, { lead, channel: 'EMAIL' });
+  if (!identity.postalAddress) blockers.push('Sender postal footer is missing.');
+  const conversation = contact ? await prisma.conversation.findFirst({ where: { organizationId: req.user!.organizationId, leadId: lead.id, contactId: contact.id, channel: 'EMAIL' } }) : null;
+  const decision = await resolveSenderDecision(req.user!.organizationId, { purpose: 'COLD_OUTREACH', playbookId: identity.routingPlaybookId, conversationId: conversation?.id, preferAddress: identity.email });
+  if (!decision.sender) blockers.push(decision.reason || 'No sender available.');
+  if (campaign.mode === 'APPROVAL_REQUIRED') blockers.push('The generated message must be approved in Inbox before it can send.');
+  if (step && enrollment.lastTouchAt) {
+    const due = new Date(enrollment.lastTouchAt.getTime() + step.delayDays * 86400000);
+    if (due > new Date()) blockers.push('Sequence delay: eligible after ' + due.toISOString());
+  }
+  res.json({ success: true, data: { subject: step?.subject ?? null, body: step ? withSignature(step.body, identity) : null, sender: decision.sender?.fromEmail ?? null, blockers, nextEligibleAt: decision.retryAt ?? null } });
+}));
 
 function serialize(c: { _count?: { campaignLeads: number } } & Record<string, unknown>) {
   const { _count, ...rest } = c;
@@ -71,6 +108,38 @@ router.get(
   })
 );
 
+/** Append-only sequences preserve each enrolled lead's position. Draft steps can be approved later. */
+router.post('/:id/sequence', asyncHandler(async (req, res) => {
+  let step;
+  try { step = validateStep({ ...req.body, id: randomUUID() }); } catch (err) { throw new AppError((err as Error).message); }
+  const updated = await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${req.params.id}))`;
+    const campaign = await tx.campaign.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
+    if (!campaign) throw new AppError('Campaign not found', 404);
+    if (!campaign.sequenceEnabled) {
+      if (campaign.status === 'ACTIVE' || await tx.campaignLead.count({ where: { campaignId: campaign.id, touchCount: { gt: 0 } } }) || await tx.message.count({ where: { campaignId: campaign.id } })) throw new AppError('Start an explicit sequence on a draft or paused campaign with no previous touches or messages. Existing campaign history cannot be reinterpreted as sequence steps.');
+    }
+    const steps = stepsFrom(campaign.sequenceSteps);
+    if (steps.length >= 100) throw new AppError('Maximum 100 steps.');
+    return tx.campaign.update({ where: { id: campaign.id }, data: { sequenceEnabled: true, sequenceSteps: [...steps, step] as any, maxTouches: steps.length + 1, channels: ['EMAIL'], reEngageAfterDays: null, maxCycles: 1 } });
+  });
+  res.json({ success: true, data: updated });
+}));
+router.patch('/:id/sequence/:stepId', asyncHandler(async (req, res) => {
+  const updated = await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${req.params.id}))`;
+    const campaign = await tx.campaign.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
+    if (!campaign) throw new AppError('Campaign not found', 404);
+    const steps = stepsFrom(campaign.sequenceSteps);
+    const index = steps.findIndex(s => s.id === req.params.stepId);
+    if (index < 0) throw new AppError('Step not found', 404);
+    if (steps[index].approved) throw new AppError('Approved steps are immutable. Pause the campaign to stop sending; append new content as a new step.');
+    try { steps[index] = validateStep({ ...req.body, id: steps[index].id }); } catch (err) { throw new AppError((err as Error).message); }
+    return tx.campaign.update({ where: { id: campaign.id }, data: { sequenceSteps: steps as any } });
+  });
+  res.json({ success: true, data: updated });
+}));
+
 /** Everything that has happened on this campaign, newest first (paginated). */
 router.get(
   '/:id/activity',
@@ -110,6 +179,11 @@ router.patch(
     const data: Record<string, unknown> = {};
     for (const key of allowed) {
       if (key in req.body) data[key] = req.body[key];
+    }
+
+    if (existing.sequenceEnabled) {
+      delete data.channels; delete data.maxTouches; delete data.followUpCadenceDays;
+      if (req.body.reEngageAfterDays || (req.body.maxCycles && req.body.maxCycles !== 1)) throw new AppError('Explicit sequences do not repeat. Append an approved step instead.');
     }
 
     // Re-engagement. Blank or null turns it off — one pass, then done.

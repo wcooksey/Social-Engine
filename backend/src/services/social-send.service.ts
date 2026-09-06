@@ -1,3 +1,4 @@
+import { automationSafetyReason } from './send-safety.service';
 import { prisma } from '../config/database';
 import { getOrgConfig } from './settings.service';
 import { config } from '../config/environment';
@@ -42,6 +43,9 @@ export async function dispatchApprovedSocialDm(messageId: string): Promise<void>
       await leadService.advanceStatusOnTouch(lead.id, `${platform ?? 'Social'} DM`);
     }
   };
+
+  const safety = await automationSafetyReason(organizationId, lead.id, 'SOCIAL', message.campaignId);
+  if (safety) { await finalize('cancelled', safety); return; }
 
   if (!platform) {
     await finalize('failed', `Could not determine the social platform for this DM — send it manually.`);

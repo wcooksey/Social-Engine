@@ -1,3 +1,4 @@
+import { nextStep } from './sequence.service';
 import { prisma } from '../config/database';
 import { config } from '../config/environment';
 import { signToken } from '../utils/signing';
@@ -93,7 +94,9 @@ export async function outboundBlockReason(
 export async function recordCampaignTouch(campaignId: string, leadId: string): Promise<void> {
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
   if (!campaign) return;
-  const nextTouchAt = new Date(Date.now() + campaign.followUpCadenceDays * 24 * 3600 * 1000);
+  const enrollment = await prisma.campaignLead.findUnique({ where: { campaignId_leadId: { campaignId, leadId } } });
+  const following = nextStep(campaign.sequenceSteps, (enrollment?.touchCount ?? 0) + 1);
+  const nextTouchAt = campaign.sequenceEnabled ? (following ? new Date(Date.now() + following.delayDays * 86400000) : null) : new Date(Date.now() + campaign.followUpCadenceDays * 86400000);
   await prisma.campaignLead.updateMany({
     where: { campaignId, leadId },
     data: { touchCount: { increment: 1 }, lastTouchAt: new Date(), nextTouchAt },

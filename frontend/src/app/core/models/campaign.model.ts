@@ -77,7 +77,11 @@ export interface CampaignSchedule {
   upcoming: ScheduledTouch[];
 }
 
+export interface EmailSequenceStep { id: string; subject: string; body: string; delayDays: number; approved: boolean; }
+
 export interface Campaign {
+  sequenceEnabled: boolean;
+  sequenceSteps: EmailSequenceStep[];
   id: string;
   name: string;
   offer: string;

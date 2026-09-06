@@ -1,3 +1,5 @@
+import { getPlaybookReadiness } from '../services/playbook-readiness.service';
+import { automationSafetyReason, emailSafetyReason } from '../services/send-safety.service';
 import Anthropic from '@anthropic-ai/sdk';
 import { AutopilotMetric, Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
@@ -917,6 +919,11 @@ export const engineTools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'get_playbook_readiness',
+    description: 'Read the shared playbook readiness assessment: scoped recipients, sender, campaign, verification, warm-up, activity and tracking evidence. Call before declaring a playbook ready or planning outreach. Unknown checks are not passes. Read-only; no validation requests or sends.',
+    input_schema: { type: 'object' as const, properties: { playbookId: { type: 'string' } }, required: ['playbookId'] },
+  },
+  {
     name: 'get_sending_capacity',
     description:
       "How much email this organization can actually send right now, and from where. Reports each sending domain and mailbox: warm-up status, today's allowance and how much of it is left, the trailing-hour count, rolling bounce/complaint/reply rates, and the reason for anything paused. Consult this BEFORE planning a batch of cold email so the plan matches real capacity — and when a send comes back queued or drafted for lack of a sender, to explain why. Read-only.",
@@ -1303,6 +1310,7 @@ async function recordOutbound(opts: {
   leadId: string;
   contactId?: string;
   channel: 'EMAIL' | 'SMS';
+  isConversationReply?: boolean;
   subject?: string;
   body: string;
   campaignId?: string;
@@ -1339,6 +1347,7 @@ async function recordOutbound(opts: {
 
   const message = await prisma.message.create({
     data: {
+      isConversationReply: opts.isConversationReply ?? false,
       conversationId: conversation.id,
       direction: 'OUTBOUND',
       body: opts.body,
@@ -1747,9 +1756,9 @@ const executors: Record<string, ToolExecutor> = {
     // confirmed-deliverable address is stamped on emailVerifiedAt (NOT
     // emailStatus, where any value means suppressed) so it counts as the
     // strongest enrichment signal a lead can carry.
-    if (result.verdict === 'undeliverable' || result.verdict === 'deliverable') {
+    {
       const affected = await prisma.contact.findMany({
-        where: { organizationId: ctx.organizationId, email },
+        where: { organizationId: ctx.organizationId, email: { equals: email, mode: 'insensitive' } },
         select: { id: true, leadId: true },
       });
       if (affected.length) {
@@ -1757,8 +1766,8 @@ const executors: Record<string, ToolExecutor> = {
           where: { id: { in: affected.map((c) => c.id) } },
           data:
             result.verdict === 'deliverable'
-              ? { emailVerifiedAt: new Date() }
-              : { emailStatus: 'undeliverable' },
+              ? { emailVerifiedAt: new Date(), emailVerifiedAddress: email.toLowerCase().trim() }
+              : { emailVerifiedAt: null, emailVerifiedAddress: null, ...(result.verdict === 'undeliverable' ? { emailStatus: 'undeliverable' } : {}) },
         });
         for (const leadId of new Set(affected.map((c) => c.leadId))) {
           await recomputeLeadEnrichment(leadId);
@@ -1784,7 +1793,7 @@ const executors: Record<string, ToolExecutor> = {
           ? 'Safe to email.'
           : result.verdict === 'undeliverable'
             ? 'Dead address — suppressed. Find another contact or channel.'
-            : 'Mailgun checked it but could not decide (catch-all or risky domain) — acceptable to try once, but prefer a deliverable address if available.',
+            : 'Mailgun could not establish deliverability. Sending remains blocked; use a verified address.',
     };
   },
 
@@ -2036,6 +2045,8 @@ const executors: Record<string, ToolExecutor> = {
     if (contact.emailStatus) {
       return { sent: false, reason: `This email previously ${contact.emailStatus} — address suppressed. Try another contact or channel.` };
     }
+    const verification = await emailSafetyReason(ctx.organizationId, contact.id, contact.email);
+    if (verification) return { sent: false, reason: verification };
     const emailSuppressed = await suppressionRefusal(ctx.organizationId, { email: contact.email });
     if (emailSuppressed) return { sent: false, reason: emailSuppressed };
 
@@ -2055,6 +2066,7 @@ const executors: Record<string, ToolExecutor> = {
       channel: 'EMAIL',
       mailgunDomain: orgConfig.mailgun.domain,
     });
+    if (!identity.postalAddress) return { sent: false, reason: 'Sender postal footer is missing. Set it on the organization or matching playbook.' };
     const body = withSignature(input.body, identity);
 
     // Which address this actually leaves from. Looked up before the draft
@@ -2098,6 +2110,7 @@ const executors: Record<string, ToolExecutor> = {
       // up, with no second agent run and no draft for a human to approve.
       const queued = await recordOutbound({
         ctx,
+        isConversationReply: !input.campaignId && !!lead.coldOutreachHeldAt,
         leadId: lead.id,
         contactId: contact.id,
         channel: 'EMAIL',
@@ -2137,6 +2150,7 @@ const executors: Record<string, ToolExecutor> = {
     if (draftReason || !sender) {
       const result = await recordOutbound({
         ctx,
+        isConversationReply: !input.campaignId && !!lead.coldOutreachHeldAt,
         leadId: lead.id,
         contactId: contact.id,
         channel: 'EMAIL',
@@ -2150,6 +2164,9 @@ const executors: Record<string, ToolExecutor> = {
       return { sent: false, drafted: true, ...result, note: draftReason };
     }
 
+    const sendSafety = await automationSafetyReason(ctx.organizationId, lead.id, 'EMAIL', input.campaignId, !lead.coldOutreachHeldAt) || await emailSafetyReason(ctx.organizationId, contact.id, contact.email);
+    if (sendSafety) return { sent: false, reason: sendSafety };
+
     // Claim the slot before sending. The capacity check that chose this sender
     // was a read, so two agents can reach here at the same moment both believing
     // the last send of the day is theirs; only one wins the claim.
@@ -2162,6 +2179,7 @@ const executors: Record<string, ToolExecutor> = {
         const retryAt = new Date(Date.now() + 15 * 60 * 1000);
         const queued = await recordOutbound({
           ctx,
+          isConversationReply: !input.campaignId && !!lead.coldOutreachHeldAt,
           leadId: lead.id,
           contactId: contact.id,
           channel: 'EMAIL',
@@ -2213,6 +2231,7 @@ const executors: Record<string, ToolExecutor> = {
     }
     const result = await recordOutbound({
       ctx,
+      isConversationReply: !input.campaignId && !!lead.coldOutreachHeldAt,
       leadId: lead.id,
       contactId: contact.id,
       channel: 'EMAIL',
@@ -2280,6 +2299,7 @@ const executors: Record<string, ToolExecutor> = {
     if (draftReason) {
       const result = await recordOutbound({
         ctx,
+        isConversationReply: !input.campaignId && !!lead.coldOutreachHeldAt,
         leadId: lead.id,
         contactId: contact.id,
         channel: 'SMS',
@@ -2292,12 +2312,15 @@ const executors: Record<string, ToolExecutor> = {
       return { sent: false, drafted: true, ...result, note: draftReason };
     }
 
+    const sendSafety = await automationSafetyReason(ctx.organizationId, lead.id, 'SMS', input.campaignId, !lead.coldOutreachHeldAt);
+    if (sendSafety) return { sent: false, reason: sendSafety };
     const delivery = await channels.sendSms({ to: contact.phone, body: input.body }, orgConfig.twilio);
     if (!delivery.sent) {
       return { sent: false, reason: `SMS delivery failed: ${delivery.error}` };
     }
     const result = await recordOutbound({
       ctx,
+      isConversationReply: !input.campaignId && !!lead.coldOutreachHeldAt,
       leadId: lead.id,
       contactId: contact.id,
       channel: 'SMS',
@@ -3351,6 +3374,8 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
     return { topics: GUIDE_TOPICS, guide: PLATFORM_GUIDE };
   },
 
+  get_playbook_readiness: async (input, ctx) => getPlaybookReadiness(ctx.organizationId, input.playbookId),
+
   get_sending_capacity: async (input, ctx) => {
     const purpose = input.purpose === 'TRANSACTIONAL' ? 'TRANSACTIONAL' : 'COLD_OUTREACH';
     const overview = await getSendingOverview(ctx.organizationId);
@@ -4085,6 +4110,7 @@ const SANDBOX_READ_ONLY = new Set([
   'list_autopilot_goals',
   'explain_platform',
   'get_setup_status',
+  'get_playbook_readiness',
   'get_sending_capacity',
   'read_conversation',
   'find_contacts_on_website',
@@ -4107,6 +4133,15 @@ export async function executeTool(name: string, input: ToolInput, ctx: ToolConte
   if (!executor) throw new Error(`Unknown tool: ${name}`);
   if (ctx.simulate && !SANDBOX_READ_ONLY.has(name)) {
     return simulatedResult(name, input);
+  }
+  const channel = ({ send_email: 'EMAIL', send_sms: 'SMS', place_call: 'VOICE', send_social_dm: 'SOCIAL', submit_contact_form: 'EMAIL' } as Record<string, string>)[name];
+  if (channel && input.leadId) {
+    const blocked = await automationSafetyReason(ctx.organizationId, input.leadId, channel, input.campaignId);
+    if (blocked) return { sent: false, reason: blocked };
+    if (input.campaignId) {
+      const campaign = await prisma.campaign.findFirst({ where: { id: input.campaignId, organizationId: ctx.organizationId } });
+      if (campaign?.sequenceEnabled) return { sent: false, reason: 'This campaign uses explicit sequence steps. The worker queues approved steps exactly once; manage the sequence on the campaign page.' };
+    }
   }
   return executor(input, ctx);
 }

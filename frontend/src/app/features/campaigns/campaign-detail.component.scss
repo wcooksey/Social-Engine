@@ -331,3 +331,7 @@
 
   .cycle-input { flex: 1; min-width: 260px; }
 }
+
+.sequence-field { display: block; width: 100%; box-sizing: border-box; margin: 6px 0 16px; padding: 10px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--border-primary); border-radius: 6px; }
+.sequence-copy { white-space: pre-wrap; overflow-wrap: anywhere; }
+.sequence-step { padding: 16px 0; border-bottom: 1px solid var(--border-primary); }
