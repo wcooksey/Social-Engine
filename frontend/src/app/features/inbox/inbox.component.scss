@@ -415,9 +415,24 @@
 
 .draft-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: $spacing-sm;
   margin-top: $spacing-xs;
+
+  > app-button {
+    display: block;
+    min-width: 0;
+  }
+
+  @include responsive($breakpoint-sm) {
+    flex-direction: column;
+    align-items: stretch;
+
+    > app-button {
+      width: 100%;
+    }
+  }
 }
 
 // ---------- Reply composer ----------

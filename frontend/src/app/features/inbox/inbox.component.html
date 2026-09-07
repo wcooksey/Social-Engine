@@ -150,6 +150,7 @@
                       size="sm"
                       variant="ghost"
                       icon="bi-x-circle"
+                      [fullWidth]="true"
                       [disabled]="actingMessageId() !== null"
                       (clicked)="discardDraft(convo, m)">
                       Cancel send
@@ -162,6 +163,7 @@
                       size="sm"
                       variant="primary"
                       icon="bi-send"
+                      [fullWidth]="true"
                       [loading]="actingMessageId() === m.id"
                       [disabled]="actingMessageId() !== null && actingMessageId() !== m.id"
                       (clicked)="approveDraft(convo, m)">
@@ -171,6 +173,7 @@
                       size="sm"
                       variant="ghost"
                       icon="bi-trash"
+                      [fullWidth]="true"
                       [disabled]="actingMessageId() !== null"
                       (clicked)="discardDraft(convo, m)">
                       Discard
