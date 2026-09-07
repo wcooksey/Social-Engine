@@ -173,6 +173,20 @@
         helperText="Sending domains are built for volume, with warm-up and rotation. A Gmail inbox sends as one real person at a handful a day, and replies land in that inbox.">
       </app-select>
 
+      @if (form.emailTransport === 'MAILGUN') {
+        @if (poolsLoaded()) {
+          <app-select
+            label="Sender pool"
+            placeholder="All eligible cold-outreach mailboxes"
+            [options]="poolOptions"
+            [(ngModel)]="form.senderPoolId"
+            [ngModelOptions]="{ standalone: true }"
+            helperText="Restricts new email threads to this pool. Existing threads keep their sender. Manage pool membership under Sending.">
+          </app-select>
+        } @else {
+          <p class="field-hint">Sender pools are unavailable. Existing routing is preserved.</p>
+        }
+      }
       @if (form.emailTransport === 'GMAIL') {
         @if (inboxes().length) {
           @if (inboxes().length > 1) {

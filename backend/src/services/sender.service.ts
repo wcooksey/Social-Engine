@@ -615,7 +615,12 @@ export async function resolveSenderDecision(
 
   if (req.preferAddress) {
     const preferred = await prisma.mailbox.findFirst({
-      where: { organizationId, address: req.preferAddress.trim().toLowerCase() },
+      where: {
+        organizationId,
+        address: req.preferAddress.trim().toLowerCase(),
+        emailDomain: { purpose },
+        ...(playbook?.senderPoolId ? { pools: { some: { poolId: playbook.senderPoolId } } } : {}),
+      },
       include: { emailDomain: true },
     });
     if (preferred && isMailboxAvailable(preferred, now)) {
