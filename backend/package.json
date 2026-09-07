@@ -9,7 +9,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
-    "test:outreach": "tsx --test tests/outreach-safety.test.ts tests/inbound-health.test.ts"
+    "test:outreach": "tsx --test tests/outreach-safety.test.ts tests/inbound-health.test.ts tests/email-events-setup.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
