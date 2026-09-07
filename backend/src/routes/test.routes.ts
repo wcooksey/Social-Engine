@@ -7,6 +7,8 @@ import { getOrgConfig } from '../services/settings.service';
 import * as channels from '../services/channels.service';
 import { deliverEmail } from '../services/email-delivery.service';
 import { resolveSenderDecision } from '../services/sender.service';
+import { apiKeyForDomain } from '../services/sender.service';
+import { setupDomainEvents, EventSetupCheck } from '../services/email-events-setup.service';
 import { checkInboundEmail } from '../services/inbound-health.service';
 import { suppressionReason } from '../services/suppression.service';
 import { buildCallSystemPrompt } from '../engine/prompts';
@@ -23,6 +25,24 @@ import { loadStorageState, PlatformKey, saveStorageState } from '../services/soc
 const router = Router();
 
 router.use(roleMiddleware('OWNER', 'ADMIN'));
+
+const emailEvents = (connect: boolean) => asyncHandler(async (req, res) => {
+  const organizationId = req.user!.organizationId;
+  const domains = await prisma.emailDomain.findMany({ where: { organizationId, status: { not: 'RETIRED' }, purpose: 'COLD_OUTREACH' } });
+  const checks: EventSetupCheck[] = [];
+  for (const domain of domains) {
+    try {
+      const key = await apiKeyForDomain(organizationId, domain);
+      if (!key) throw new Error('No Mailgun API key configured for this domain.');
+      checks.push(...await setupDomainEvents(domain.domain, key, connect));
+    } catch (error) {
+      checks.push({ domain: domain.domain, event: 'configuration', ok: false, detail: error instanceof Error ? error.message : 'Could not check Mailgun.' });
+    }
+  }
+  res.json({ success: true, data: { ok: checks.length > 0 && checks.every(c => c.ok), checks } });
+});
+router.get('/email-events', emailEvents(false));
+router.post('/email-events/connect', emailEvents(true));
 
 // What's ready to test.
 router.get(

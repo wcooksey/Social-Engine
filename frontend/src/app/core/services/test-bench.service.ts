@@ -69,6 +69,9 @@ export class TestBenchService {
   inboundEmailHealth(): Observable<InboundEmailHealth> {
     return this.api.get<InboundEmailHealth>('/api/test/inbound-email');
   }
+  emailEvents(connect = false): Observable<{ ok: boolean; checks: { domain: string; event: string; ok: boolean; detail: string }[] }> {
+    return connect ? this.api.post('/api/test/email-events/connect', {}) : this.api.get('/api/test/email-events');
+  }
 
   sendSms(to: string): Observable<TestSmsResult> {
     return this.api.post<TestSmsResult>('/api/test/sms', { to });

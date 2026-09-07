@@ -270,7 +270,7 @@ function decryptOrNull(payload: string): string | null {
  * Lets a domain live on a separate provider account without forcing every
  * domain to.
  */
-async function apiKeyForDomain(
+export async function apiKeyForDomain(
   organizationId: string,
   domain: EmailDomain,
   legacy?: LegacyCreds

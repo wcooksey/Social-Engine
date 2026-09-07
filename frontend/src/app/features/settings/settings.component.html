@@ -350,7 +350,7 @@
                 {{ inboundHealth.ok ? 'Replies will be tracked.' : 'Replies are not being tracked yet:' }}
               </span>
               <ul class="inbound-health-list">
-                @for (check of inboundHealth.checks; track check.key) {
+                @for (check of inboundHealth.checks; track check.key + check.label) {
                   <li class="inbound-check" [class.is-ok]="check.ok === true" [class.is-bad]="check.ok === false">
                     <i class="bi" [class.bi-check-circle-fill]="check.ok === true"
                        [class.bi-x-circle-fill]="check.ok === false"
@@ -363,6 +363,22 @@
                 }
               </ul>
             </div>
+          }
+        </div>
+
+        <div class="test-channel-section">
+          <span class="test-channel-label">Email delivery reporting</span>
+          <p class="field-hint">Check delivery, temporary failure, permanent failure and complaint webhooks for registered outreach domains. Connecting uses the saved Mailgun credentials and preserves existing destinations. This sends no email.</p>
+          <app-button variant="secondary" [disabled]="checkingEvents" (clicked)="checkEmailEvents()">Check delivery reporting</app-button>
+          @if (eventHealth && !eventHealth.ok) {
+            <app-button variant="primary" [disabled]="checkingEvents" (clicked)="checkEmailEvents(true)">Connect delivery reporting</app-button>
+          }
+          @if (checkingEvents) { <p>Checking Mailgun configuration...</p> }
+          @if (eventHealth) {
+            <p>{{ eventHealth.ok ? 'Event destinations configured. Actual receipt must be confirmed after a send.' : 'Event configuration needs attention.' }}</p>
+            @for (check of eventHealth.checks; track check.domain + check.event) {
+              <p><strong>{{ check.domain }} · {{ check.event }} · {{ check.ok ? 'Configured' : 'Not confirmed' }}</strong><br>{{ check.detail }}</p>
+            }
           }
         </div>
 
