@@ -50,8 +50,23 @@ export async function checkInboundEmail(
    * Mailgun route as the reason replies aren't arriving would send someone to
    * fix DNS for a transport that has no DNS.
    */
-  gmailAccounts: InboundGmailAccount[] = []
+  gmailAccounts: InboundGmailAccount[] = [],
+  registeredDomains: string[] = []
 ): Promise<InboundHealth> {
+  // Registered sending domains own the Mailgun reply path. The legacy domain
+  // can legitimately receive through Google; do not suggest replacing its MX.
+  const domains = [...new Set(registeredDomains.map(d => d.trim().toLowerCase()).filter(Boolean))];
+  if (domains.length) {
+    const reports = await Promise.all(domains.map((domain, index) =>
+      checkInboundEmail({ ...creds, domain }, index === 0 ? gmailAccounts : [])
+    ));
+    const checks = reports.flatMap((report, index) => report.checks
+      .filter(check => index === 0 || !['secret', 'publicUrl', 'gmail'].includes(check.key))
+      .map(check => ['mx', 'route', 'mailgun'].includes(check.key)
+        ? { ...check, label: `${domains[index]} — ${check.label}` }
+        : check));
+    return { ok: checks.every(check => check.ok === true), webhookUrl: reports[0].webhookUrl, checks };
+  }
   const secret = config.inbound.webhookSecret;
   const expectedPath = '/api/webhooks/inbound/email';
   const webhookUrl = `${config.appPublicUrl}${expectedPath}?secret=${
@@ -167,6 +182,8 @@ export async function checkInboundEmail(
       try {
         const parsed = new URL(t.url);
         return (
+          routeCoversDomain(t.expression, creds.domain) &&
+          parsed.pathname === expectedPath &&
           parsed.origin === new URL(config.appPublicUrl).origin &&
           parsed.searchParams.get('secret') === secret
         );
@@ -182,7 +199,7 @@ export async function checkInboundEmail(
       detail: match
         ? `Route matched: ${match.expression || '(no expression)'} → forwards here with the right secret.`
         : ours.length > 0
-          ? `A route points at ${expectedPath} but its host or secret doesn't match this deployment: ${ours
+          ? `A route points at ${expectedPath} but its domain scope, path, host or secret does not match this deployment: ${ours
               .map((t) => t.url.replace(/secret=[^&]*/i, 'secret=***'))
               .join(', ')}`
           : `No Mailgun route forwards to ${expectedPath}. Create one in Mailgun → Receiving → Routes: expression match_recipient(".*@${creds.domain}"), action forward("${config.appPublicUrl}${expectedPath}?secret=YOUR_INBOUND_WEBHOOK_SECRET").`,
@@ -197,4 +214,13 @@ export async function checkInboundEmail(
   }
 
   return { ok: checks.every((c) => c.ok === true), webhookUrl, checks };
+}
+
+/** Recognize domain-wide routing without executing arbitrary provider regexes. */
+export function routeCoversDomain(expression: string, domain: string): boolean {
+  if (expression.trim() === 'catch_all()') return true;
+  const match = expression.trim().match(/^match_recipient\(["'](.+)["']\)$/);
+  if (!match) return false;
+  const pattern = match[1].replace(/^\^/, '').replace(/\$$/, '');
+  return [`.*@${domain}`, `.*@${domain.replace(/\./g, '\\.')}`].includes(pattern);
 }

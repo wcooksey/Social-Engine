@@ -107,6 +107,8 @@ export class PlaybooksComponent implements OnInit {
    * have an inbox before they can answer it.
    */
   inboxes = signal<GmailAccount[]>([]);
+  poolOptions: SelectOption[] = [];
+  poolsLoaded = signal(false);
 
   transportOptions: SelectOption[] = [
     { label: 'Sending domains (Mailgun)', value: 'MAILGUN' },
@@ -128,6 +130,14 @@ export class PlaybooksComponent implements OnInit {
     this.loadGroups();
     this.loadCampaigns();
     this.loadInboxes();
+    this.sendingService.loadPools().subscribe({
+      next: res => {
+        this.poolOptions = [{ value: '', label: 'All eligible cold-outreach mailboxes' },
+          ...res.pools.map(pool => ({ value: pool.id, label: `${pool.name} (${pool.mailboxes.length} mailboxes)` }))];
+        this.poolsLoaded.set(true);
+      },
+      error: () => this.toast.error('Could not load sender pools. Existing routing will be preserved.')
+    });
   }
 
   private emptyForm(): PlaybookInput {
@@ -148,6 +158,7 @@ export class PlaybooksComponent implements OnInit {
       identitySignature: '',
       identityPostalAddress: '',
       emailTransport: 'MAILGUN',
+      senderPoolId: null,
       gmailAccountId: null
     };
   }
@@ -243,6 +254,7 @@ export class PlaybooksComponent implements OnInit {
       identitySignature: playbook.identitySignature ?? '',
       identityPostalAddress: playbook.identityPostalAddress ?? '',
       emailTransport: playbook.emailTransport ?? 'MAILGUN',
+      senderPoolId: playbook.senderPoolId ?? null,
       gmailAccountId: playbook.gmailAccountId ?? null
     };
     this.showIdentity.set(hasIdentity(playbook));
@@ -331,7 +343,7 @@ export class PlaybooksComponent implements OnInit {
 
   /** "Sends from a Gmail inbox" line for the card, or null on the default. */
   transportSummary(playbook: Playbook): string | null {
-    if (playbook.emailTransport !== 'GMAIL') return null;
+    if (playbook.emailTransport !== 'GMAIL') return playbook.senderPool ? `Sender pool: ${playbook.senderPool.name}` : null;
     const address = playbook.gmailAccount?.emailAddress;
     if (!address) return 'Sends from your connected Gmail inbox';
     return playbook.gmailAccount?.status === 'CONNECTED'

@@ -2,7 +2,7 @@ import { test, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { verificationBlock, engagementBlock, automationSafetyReason, emailSafetyReason } from '../src/services/send-safety.service';
 import { nextStep, validateStep, runExplicitSequence } from '../src/services/sequence.service';
-import { dailyAllowance, isMailboxAvailable } from '../src/services/sender.service';
+import { dailyAllowance, isMailboxAvailable, resolveSenderDecision } from '../src/services/sender.service';
 import { prisma } from '../src/config/database';
 
 const now = new Date('2026-09-06T12:00:00Z');
@@ -46,6 +46,20 @@ test('domain status alone is insufficient without verified SPF and DKIM', () => 
   assert.equal(isMailboxAvailable(m, now), true);
   assert.equal(isMailboxAvailable({ ...m, emailDomain: { ...m.emailDomain, dkimOk: null } }, now), false);
   assert.equal(isMailboxAvailable({ ...m, status: 'PAUSED' }, now), false);
+});
+test('a preferred address cannot escape its sender pool or sending purpose', async () => {
+  stub(prisma.playbook, 'findFirst', async () => ({ senderPoolId: 'restricted', emailTransport: 'MAILGUN', gmailAccountId: null }));
+  stub(prisma.mailbox, 'findFirst', async ({ where }: any) => {
+    assert.deepEqual(where, { organizationId: 'org', address: 'outside@example.com', emailDomain: { purpose: 'COLD_OUTREACH' }, pools: { some: { poolId: 'restricted' } } });
+    return null;
+  });
+  stub(prisma.mailbox, 'findMany', async ({ where }: any) => {
+    assert.deepEqual(where.pools, { some: { poolId: 'restricted' } });
+    return [];
+  });
+  stub(prisma.mailbox, 'count', async () => 1);
+  const result = await resolveSenderDecision('org', { purpose: 'COLD_OUTREACH', playbookId: 'playbook', preferAddress: 'Outside@example.com', legacy: { apiKey: 'fixture', domain: 'example.com', fromEmail: 'outside@example.com' } });
+  assert.equal(result.sender, null);
 });
 test('queued outreach rechecks a newly received reply even on the same channel', async () => {
   stub(prisma.lead, 'findFirst', async () => ({ ...held, id: 'lead', doNotContact: false, contactReviewReason: null }));

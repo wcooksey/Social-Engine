@@ -99,7 +99,11 @@ router.get(
       where: { organizationId: req.user!.organizationId },
       select: { emailAddress: true, status: true, lastSyncAt: true },
     });
-    res.json({ success: true, data: await checkInboundEmail(cfg.mailgun, inboxes) });
+    const domains = await prisma.emailDomain.findMany({
+      where: { organizationId: req.user!.organizationId, status: { not: 'RETIRED' } },
+      select: { domain: true },
+    });
+    res.json({ success: true, data: await checkInboundEmail(cfg.mailgun, inboxes, domains.map(d => d.domain)) });
   })
 );
 
