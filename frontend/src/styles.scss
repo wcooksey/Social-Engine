@@ -284,3 +284,12 @@ h6, .h6 {
     min-height: 40px;
   }
 }
+
+// One baseline for ordinary controls; textareas, checkboxes, ranges and large actions keep their own geometry.
+:root { --control-height: 34px; }
+input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]), select {
+  box-sizing: border-box; height: var(--control-height); min-height: var(--control-height); }
+.workflow-note { padding:12px 16px; margin:0 0 18px; border:1px solid var(--border-primary); border-radius:8px; color:var(--text-secondary); font-size:13px; line-height:1.5; }
+.provenance { margin:8px 0; font-size:12px; line-height:1.6; color:var(--text-secondary); overflow-wrap:anywhere; }
+.provenance summary { cursor:pointer; }
+.provenance p { margin:4px 0; }

@@ -25,6 +25,7 @@ export class EngineSessionService {
   private engineService = inject(EngineService);
   private toast = inject(ToastService);
 
+  workspaceGroupId = '';
   readonly activeChatId = signal<string | null>(null);
   readonly messages = signal<EngineMessage[]>([]);
   readonly loadingMessages = signal(false);

@@ -37,8 +37,8 @@ export class AgentService {
     return this.api.patch<AutopilotGoal>(`/api/agent/goals/${id}`, { status });
   }
 
-  getLive(): Observable<AgentLiveSnapshot> {
-    return this.api.get<AgentLiveSnapshot>('/api/agent/live');
+  getLive(groupId?: string): Observable<AgentLiveSnapshot> {
+    return this.api.get<AgentLiveSnapshot>('/api/agent/live', { groupId });
   }
 
   /**

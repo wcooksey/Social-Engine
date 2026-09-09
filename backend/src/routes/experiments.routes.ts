@@ -3,13 +3,15 @@ import { prisma } from '../config/database';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { getExperimentResults, summarizeVariant } from '../services/experiment.service';
 
+import { requireGroup, requireCampaign, experimentGroupWhere } from '../services/group-scope';
 const router = Router();
 
 router.get(
   '/',
   asyncHandler(async (req, res) => {
+    const groupId = await requireGroup(req.user!.organizationId, req.query.groupId);
     const experiments = await prisma.experiment.findMany({
-      where: { organizationId: req.user!.organizationId },
+      where: { organizationId: req.user!.organizationId, ...(groupId ? await experimentGroupWhere(req.user!.organizationId, groupId) : {}) },
       include: { variants: { orderBy: { createdAt: 'asc' } } },
       orderBy: { createdAt: 'desc' },
     });
@@ -17,6 +19,8 @@ router.get(
       success: true,
       data: experiments.map((e) => ({
         id: e.id,
+        groupId: e.groupId,
+        campaignId: e.campaignId,
         name: e.name,
         channel: e.channel,
         goal: e.goal,
@@ -36,13 +40,16 @@ router.post(
     const variants: { label: string; content: string; weight?: number }[] = req.body.variants || [];
     if (variants.length < 2) throw new AppError('Provide at least 2 variants to split test');
 
+    const groupId = await requireGroup(req.user!.organizationId, req.body.groupId);
+    const campaignId = await requireCampaign(req.user!.organizationId, req.body.campaignId, groupId);
     const experiment = await prisma.experiment.create({
       data: {
         organizationId: req.user!.organizationId,
         name: req.body.name.trim(),
         channel: req.body.channel || 'EMAIL',
         goal: req.body.goal || null,
-        campaignId: req.body.campaignId || null,
+        campaignId: campaignId || null,
+        groupId: groupId || null,
         variants: {
           create: variants.map((v) => ({
             label: v.label,

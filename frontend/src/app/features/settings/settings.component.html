@@ -4,6 +4,7 @@
     <p class="subtitle">Your profile, organization guardrails, and integrations</p>
   </div>
 
+  @if (returnTo) { <app-button variant="secondary" size="sm" [link]="returnTo" icon="bi-arrow-left">Back to campaign</app-button> }
   @if (currentUser(); as user) {
     <app-card padding="lg" class="section-card">
       <h3>Profile</h3>
@@ -80,13 +81,16 @@
           </app-button>
         </div>
 
-        <div class="guardrails">
+        <div class="guardrails" id="quiet-hours" #quietHoursSection>
+          <h3>Organization quiet hours</h3>
+          <p>Applies to all groups and campaigns. Outreach pauses from the start hour (inclusive) to the end hour (exclusive), in each lead’s local time. Overnight windows are supported. Set both hours equal to disable quiet hours. Hours are stored in whole-hour increments.</p>
+          <p>Lead time uses its saved timezone, then its US state, then America/New_York when neither is available.</p>
           <div class="guardrail-row">
             <app-input label="Daily send cap" type="number" [(ngModel)]="dailySendCap" [ngModelOptions]="{ standalone: true }"></app-input>
           </div>
           <div class="form-row">
-            <app-input label="Quiet hours start" type="time" [(ngModel)]="quietHoursStart" [ngModelOptions]="{ standalone: true }"></app-input>
-            <app-input label="Quiet hours end" type="time" [(ngModel)]="quietHoursEnd" [ngModelOptions]="{ standalone: true }"></app-input>
+            <app-select label="Quiet hours start" [options]="quietHourOptions" [showPlaceholderOption]="false" [(ngModel)]="quietHoursStart" [ngModelOptions]="{ standalone: true }"></app-select>
+            <app-select label="Quiet hours end" [options]="quietHourOptions" [showPlaceholderOption]="false" [(ngModel)]="quietHoursEnd" [ngModelOptions]="{ standalone: true }"></app-select>
           </div>
 
           <div class="postal-field">
@@ -128,6 +132,7 @@
 
           <div class="guardrails-actions">
             <app-button variant="primary" [loading]="savingGuardrails" (clicked)="saveGuardrails()">Save Guardrails</app-button>
+            @if (returnTo) { <app-button variant="secondary" size="sm" [link]="returnTo" icon="bi-arrow-left">Back to campaign</app-button> }
           </div>
         </div>
       </app-card>
@@ -298,7 +303,7 @@
   </app-card>
 
   <app-card padding="lg" class="section-card">
-    <h3>Test channels</h3>
+    <h3 id="test-channels" #testChannelsSection>Test channels</h3>
     <p class="integrations-intro">
       Send a real test message to yourself on each channel to confirm your providers work. These use your configured
       providers and may incur provider costs.

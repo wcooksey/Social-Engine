@@ -79,7 +79,7 @@
     <app-select
       placeholder="All groups"
       [options]="groupOptions"
-      [(ngModel)]="groupId"
+      [(ngModel)]="groupId" [disabled]="!!workspaceGroupId"
       (selectionChange)="onFilterChange()">
     </app-select>
     <app-select

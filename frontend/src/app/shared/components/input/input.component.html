@@ -13,6 +13,7 @@
     }
     <input
       [type]="getInputType()"
+      [attr.aria-label]="label || placeholder"
       [placeholder]="placeholder"
       [required]="required"
       [disabled]="disabled"

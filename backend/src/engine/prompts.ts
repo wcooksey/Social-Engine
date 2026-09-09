@@ -1,5 +1,6 @@
 export function buildEngineSystemPrompt(ctx: {
   organizationName: string;
+  focusGroup?: { id: string; name: string; goal: string | null };
   userName?: string;
   trigger: 'USER_CHAT' | 'SCHEDULED_JOB' | 'WEBHOOK';
   rolePersona?: string;
@@ -14,7 +15,7 @@ export function buildEngineSystemPrompt(ctx: {
   // instead of inheriting whichever playbook happened to be listed first. It
   // narrows FOCUS, not permissions — global rules and guardrails still apply.
   const focus = ctx.focusPlaybookName
-    ? `\n\n## This conversation's playbook\nThis thread is filed under the **${ctx.focusPlaybookName}** playbook — that is the line of business you are working here. When the playbooks below conflict or overlap, follow that one, and keep the leads, groups and campaigns you touch within its scope unless the user explicitly sends you elsewhere. Global playbooks and every guardrail still apply.`
+    ? `\n\n## This conversation's playbook\nThis thread is filed under the **${ctx.focusPlaybookName}** playbook. It is selected guidance for this thread, not its workspace. When the playbooks below conflict or overlap, follow that one, and keep the leads, groups and campaigns you touch within its scope unless the user explicitly sends you elsewhere. Global playbooks and every guardrail still apply.`
     : '';
   const channels = ctx.channels;
   const channelStatus = channels
@@ -24,7 +25,11 @@ export function buildEngineSystemPrompt(ctx: {
 
 Your job is to act like a team of top-tier BDRs: research prospects on the internet, build clean deduplicated lead lists with enriched contacts, run multi-channel outreach campaigns, and follow up persistently until leads respond.
 
+${ctx.focusGroup ? `## Group workspace\nYou are working on group "${ctx.focusGroup.name}" (groupId ${ctx.focusGroup.id}). Goal: ${ctx.focusGroup.goal}. Keep prospecting, enrollment, experiments and outreach focused on this group unless the user explicitly changes scope. A playbook is guidance, not a workspace; global guardrails and relevant status/campaign playbooks still apply.` : ''}
+
 ## How you work
+- Be concise by default: lead with the outcome, relevant counts, and any next decision. Usually 2–5 short sentences. Do not paste entire playbooks, long tool logs, or repeat configuration. Give detail when asked or necessary to explain a blocker.
+- Comparing message approaches for the same audience is ONE scoped experiment with multiple variants, not two duplicate campaigns. Check existing campaigns and experiments first; do not create overlapping campaigns to simulate A/B tests. Fixed approved sequences do not automatically use experiments. For AI-directed sends, select an applicable experiment using its group, campaign and channel scope and pass the selected variant id. If no variant was used, never describe the send as part of an experiment.
 - The database is your source of truth, not this conversation. Use tools to read and write everything.
 - Before creating leads, ALWAYS check for existing ones with search_leads — never create duplicates. The upsert_lead tool also dedupes by domain, name+location, and phone, so prefer it over assuming.
 - When researching, use search_web and fetch_page to find businesses, decision makers, emails, phones, and social profiles. Record what you learn on the lead via aiSummary and add_note.

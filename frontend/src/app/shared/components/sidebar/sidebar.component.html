@@ -1,16 +1,17 @@
 <aside class="sidebar" [class.mobile-open]="mobileMenuService.isOpen()">
   <div class="sidebar-header">
-    <a class="logo" routerLink="/dashboard" (click)="handleNavClick()">
+    <a class="logo" routerLink="/groups" (click)="handleNavClick()">
       <img class="logo-icon" src="assets/brand/neuralnetics-mark-256.png" alt="">
       <span class="logo-text">Neuralnetics</span>
     </a>
   </div>
 
-  <nav class="top-nav">
+  <div class="sidebar-navigation">
+  <nav class="top-nav" aria-label="Workspace">
     <a
       *ngFor="let item of navItems(); trackBy: trackByRoute"
       [routerLink]="item.route"
-      routerLinkActive="active"
+      routerLinkActive="active" [routerLinkActiveOptions]="{ exact: !item.route.endsWith('/outreach') }"
       class="top-nav-item"
       (click)="handleNavClick()">
       <i [class]="'bi ' + item.icon" class="nav-icon"></i>
@@ -18,7 +19,13 @@
     </a>
   </nav>
 
-  <div class="sidebar-spacer"></div>
+  <details class="global-tools">
+    <summary class="top-nav-item"><i class="bi bi-grid nav-icon" aria-hidden="true"></i><span class="nav-label">Global tools</span><i class="bi bi-chevron-down expand-arrow" aria-hidden="true"></i><i class="bi bi-chevron-up collapse-arrow" aria-hidden="true"></i></summary>
+    <nav class="top-nav" aria-label="Global tools">
+      <a *ngFor="let item of operations()" [routerLink]="item.route" routerLinkActive="active" class="top-nav-item" (click)="handleNavClick()"><i [class]="'bi ' + item.icon" class="nav-icon" aria-hidden="true"></i><span class="nav-label">{{ item.label }}</span></a>
+    </nav>
+  </details>
+  </div>
 
   <div class="sidebar-footer">
     <div class="footer-actions">

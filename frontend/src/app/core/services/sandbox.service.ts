@@ -11,6 +11,7 @@ export interface SandboxAction {
 }
 
 export interface SandboxReply {
+  composed?: { channel: string; subject?: string; body?: string; message?: string }[];
   runId: string;
   channel: SandboxChannel;
   leadName?: string | null;
@@ -86,6 +87,7 @@ export class SandboxService {
   private api = inject(ApiService);
 
   reply(input: {
+    groupId?: string;
     channel: SandboxChannel;
     message: string;
     leadId?: string;

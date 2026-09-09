@@ -1,3 +1,5 @@
+import { inject } from '@angular/core';
+import { GroupContextService } from '../../core/services/group-context.service';
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -55,6 +57,9 @@ const LEAD_STATUSES: LeadStatus[] = [
   styleUrl: './playbooks.component.scss'
 })
 export class PlaybooksComponent implements OnInit {
+  context = inject(GroupContextService);
+  readonly workspaceGroupId = this.context.currentId();
+
   readiness = signal<PlaybookReadiness | null>(null);
   readinessOpen = signal(false);
   readinessLoading = signal(false);
@@ -133,8 +138,8 @@ export class PlaybooksComponent implements OnInit {
   private emptyForm(): PlaybookInput {
     return {
       name: '',
-      scope: 'GLOBAL',
-      groupId: null,
+      scope: this.workspaceGroupId ? 'GROUP' : 'GLOBAL',
+      groupId: this.workspaceGroupId || null,
       campaignId: null,
       leadStatus: null,
       channel: 'ALL',
@@ -188,7 +193,7 @@ export class PlaybooksComponent implements OnInit {
 
   load(): void {
     this.loading.set(true);
-    this.playbooksService.list().subscribe({
+    this.playbooksService.list(this.workspaceGroupId || undefined).subscribe({
       next: (playbooks) => {
         this.playbooks.set(playbooks);
         // Drop ticks for playbooks that no longer exist, so a stale id can't

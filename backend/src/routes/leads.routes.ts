@@ -127,7 +127,7 @@ router.get(
   '/:id',
   asyncHandler(async (req, res) => {
     const lead = await prisma.lead.findFirst({
-      where: { id: req.params.id, organizationId: req.user!.organizationId },
+      where: { id: req.params.id, organizationId: req.user!.organizationId, ...(req.query.groupId ? { groupId: String(req.query.groupId) } : {}) },
       include: {
         group: { select: { id: true, name: true } },
         contacts: { orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }] },

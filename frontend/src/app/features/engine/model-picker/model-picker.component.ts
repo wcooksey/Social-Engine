@@ -1,55 +1,43 @@
-import { Component, ElementRef, HostListener, OnInit, inject, signal } from '@angular/core';
+import { Component, computed, effect, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ModelsService } from '../../../core/services/models.service';
 import { ToastService } from '../../../core/services/toast.service';
+import { FormsModule } from '@angular/forms';
+import { SelectComponent } from '../../../shared/components/select/select.component';
 import { ModelOption } from '../../../core/models/model.model';
 
-/**
- * Compact pill in the Engine console header showing the active model.
- * Clicking opens a small dropdown panel (grouped/labeled by provider) to
- * switch the org's active Engine model on the fly.
- */
+/** Shared select for the organization-wide Engine model, preserving catalog and
+ * provider-key warnings and restoring the saved value if an update fails. */
 @Component({
   selector: 'app-model-picker',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule, SelectComponent],
   templateUrl: './model-picker.component.html',
   styleUrl: './model-picker.component.scss'
 })
 export class ModelPickerComponent implements OnInit {
   private modelsService = inject(ModelsService);
   private toast = inject(ToastService);
-  private elementRef = inject(ElementRef<HTMLElement>);
+
 
   models = this.modelsService.modelOptionsWithCurrent;
   currentModelId = this.modelsService.currentModel;
-  currentOption = this.modelsService.currentModelOption;
   loaded = this.modelsService.loaded;
 
-  open = signal(false);
+  selectedId = signal<string | null>(null);
+  options = computed(() => this.models().map(m => ({ value: m.id, label: `${m.label} · ${m.providerLabel}${m.recommended ? ' · Recommended' : ''}${m.configured ? '' : ' · API key needed'}` })));
+  constructor() { effect(() => this.selectedId.set(this.currentModelId()), { allowSignalWrites: true }); }
   switchingId = signal<string | null>(null);
 
   ngOnInit(): void {
     if (!this.loaded()) {
-      this.modelsService.getModels().subscribe();
+      this.modelsService.getModels().subscribe({ error: () => this.toast.error('Could not load Engine models') });
     }
   }
 
-  toggle(): void {
-    if (this.switchingId()) return;
-    this.open.update(v => !v);
-  }
-
-  @HostListener('document:click', ['$event'])
-  onDocumentClick(event: MouseEvent): void {
-    if (this.open() && !this.elementRef.nativeElement.contains(event.target as Node)) {
-      this.open.set(false);
-    }
-  }
-
-  @HostListener('document:keydown.escape')
-  onEscape(): void {
-    this.open.set(false);
+  selectById(id: string): void {
+    const option = this.models().find(m => m.id === id);
+    if (option) { this.selectedId.set(id); this.select(option); }
   }
 
   select(option: ModelOption): void {
@@ -60,7 +48,7 @@ export class ModelPickerComponent implements OnInit {
     this.modelsService.setModel(option.id).subscribe({
       next: () => {
         this.switchingId.set(null);
-        this.open.set(false);
+        this.selectedId.set(this.currentModelId());
         // Let the user pick any model, but warn if its provider key is missing.
         if (option.configured) {
           this.toast.success(`Engine model set to ${option.label}`);
@@ -70,12 +58,10 @@ export class ModelPickerComponent implements OnInit {
       },
       error: () => {
         this.switchingId.set(null);
+        this.selectedId.set(this.currentModelId());
         this.toast.error('Failed to switch the Engine model');
       }
     });
   }
 
-  trackByModelId(index: number, option: ModelOption): string {
-    return option.id;
-  }
 }

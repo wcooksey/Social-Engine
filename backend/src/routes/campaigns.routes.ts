@@ -9,6 +9,8 @@ import { Router } from 'express';
 import { prisma } from '../config/database';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
 
+import { campaignGroupWhere, requireGroup } from '../services/group-scope';
+
 const router = Router();
 router.get('/:id/preview', asyncHandler(async (req, res) => {
   const enrollment = await prisma.campaignLead.findFirst({ where: { campaignId: req.params.id, leadId: String(req.query.leadId || ''), campaign: { organizationId: req.user!.organizationId } }, include: { campaign: true, lead: { include: { contacts: true } } } });
@@ -49,9 +51,10 @@ function serialize(c: { _count?: { campaignLeads: number } } & Record<string, un
 router.get(
   '/',
   asyncHandler(async (req, res) => {
+    const groupId = await requireGroup(req.user!.organizationId, req.query.groupId);
     const campaigns = await prisma.campaign.findMany({
-      where: { organizationId: req.user!.organizationId },
-      include: { _count: { select: { campaignLeads: true } } },
+      where: { organizationId: req.user!.organizationId, ...(groupId ? campaignGroupWhere(groupId) : {}) },
+      include: { autoEnrollGroup: { select: { id: true, name: true } }, playbooks: { select: { id: true, name: true, isActive: true } }, _count: { select: { campaignLeads: true } } },
       orderBy: { createdAt: 'desc' },
     });
     res.json({ success: true, data: campaigns.map(serialize) });
@@ -62,10 +65,12 @@ router.post(
   '/',
   asyncHandler(async (req, res) => {
     if (!req.body.name?.trim()) throw new AppError('name is required');
+    const groupId = await requireGroup(req.user!.organizationId, req.body.groupId);
     const campaign = await prisma.campaign.create({
       data: {
         organizationId: req.user!.organizationId,
         name: req.body.name.trim(),
+        autoEnrollGroupId: groupId,
         offer: req.body.offer || null,
         channels: req.body.channels || ['EMAIL'],
         mode: req.body.mode || 'APPROVAL_REQUIRED',
@@ -80,12 +85,14 @@ router.post(
 router.get(
   '/:id',
   asyncHandler(async (req, res) => {
+    const groupId = await requireGroup(req.user!.organizationId, req.query.groupId);
     const campaign = await prisma.campaign.findFirst({
-      where: { id: req.params.id, organizationId: req.user!.organizationId },
+      where: { id: req.params.id, organizationId: req.user!.organizationId, ...(groupId ? campaignGroupWhere(groupId) : {}) },
       include: {
         _count: { select: { campaignLeads: true } },
         autoEnrollGroup: { select: { id: true, name: true } },
         campaignLeads: {
+          ...(groupId ? { where: { lead: { groupId } } } : {}),
           include: {
             lead: {
               select: {
@@ -184,6 +191,19 @@ router.patch(
     if (existing.sequenceEnabled) {
       delete data.channels; delete data.maxTouches; delete data.followUpCadenceDays;
       if (req.body.reEngageAfterDays || (req.body.maxCycles && req.body.maxCycles !== 1)) throw new AppError('Explicit sequences do not repeat. Append an approved step instead.');
+    }
+
+    if ('name' in data) {
+      if (typeof data.name !== 'string' || !data.name.trim()) throw new AppError('Campaign name cannot be empty');
+      data.name = data.name.trim();
+    }
+    if ('mode' in data && !['AUTONOMOUS', 'APPROVAL_REQUIRED'].includes(String(data.mode))) throw new AppError('Invalid sending mode');
+    for (const key of ['followUpCadenceDays', 'maxTouches'] as const) {
+      if (key in data) {
+        const value = Number(data[key]);
+        if (!Number.isInteger(value) || value < 1 || value > 365) throw new AppError('Cadence and maximum touches must be whole numbers between 1 and 365');
+        data[key] = value;
+      }
     }
 
     // Re-engagement. Blank or null turns it off — one pass, then done.

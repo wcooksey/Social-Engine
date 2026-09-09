@@ -283,13 +283,18 @@
   display: flex;
   align-items: center;
   gap: $spacing-sm;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  max-width: 100%;
+  min-width: 0;
+  app-model-picker { flex: 1 1 240px; }
 
   // Narrow screens can't fit the title and both pickers on one line, so the
   // controls take their own row rather than one of them being dropped.
   @include responsive($breakpoint-md) {
     width: 100%;
-    flex-shrink: 1;
+    flex-direction: column;
+    align-items: stretch;
+    app-model-picker { width: 100%; flex: none; }
   }
 }
 
@@ -1140,3 +1145,5 @@
   font-weight: 400;
   @include truncate;
 }
+
+.engine-page.group-engine { height: calc(100vh - 300px); min-height: 400px; }

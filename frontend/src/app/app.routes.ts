@@ -49,6 +49,25 @@ export const routes: Routes = [
         ]
       },
       {
+        path: 'groups/:groupId',
+        loadComponent: () => import('./features/group-workspace/group-workspace.component').then(m => m.GroupWorkspaceComponent),
+        children: [
+          { path: 'outreach', loadComponent: () => import('./features/group-workspace/group-outreach.component').then(m => m.GroupOutreachComponent), children: [
+            { path: '', redirectTo: 'campaigns', pathMatch: 'full' },
+          { path: 'campaigns', loadComponent: () => import('./features/campaigns/campaigns.component').then(m => m.CampaignsComponent) },
+          { path: 'campaigns/:id', loadComponent: () => import('./features/campaigns/campaign-detail.component').then(m => m.CampaignDetailComponent) },
+          { path: 'playbooks', loadComponent: () => import('./features/playbooks/playbooks.component').then(m => m.PlaybooksComponent) },
+          { path: 'experiments', loadComponent: () => import('./features/experiments/experiments.component').then(m => m.ExperimentsComponent) },
+          { path: 'sandbox', loadComponent: () => import('./features/sandbox/sandbox.component').then(m => m.SandboxComponent) },
+          ] },
+          { path: '', pathMatch: 'full', loadComponent: () => import('./features/group-workspace/group-overview.component').then(m => m.GroupOverviewComponent) },
+          { path: 'engine', loadComponent: () => import('./features/engine/engine.component').then(m => m.EngineComponent) },
+          { path: 'leads', loadComponent: () => import('./features/leads/leads-list.component').then(m => m.LeadsListComponent) },
+          { path: 'leads/:id', loadComponent: () => import('./features/leads/lead-detail.component').then(m => m.LeadDetailComponent) },
+          { path: 'inbox', loadComponent: () => import('./features/inbox/inbox.component').then(m => m.InboxComponent) },
+        ]
+      },
+      {
         path: 'groups',
         loadComponent: () => import('./features/groups/groups.component').then(m => m.GroupsComponent)
       },
@@ -104,13 +123,13 @@ export const routes: Routes = [
       },
       {
         path: '',
-        redirectTo: 'dashboard',
+        redirectTo: 'groups',
         pathMatch: 'full'
       }
     ]
   },
   {
     path: '**',
-    redirectTo: 'dashboard'
+    redirectTo: 'groups'
   }
 ];

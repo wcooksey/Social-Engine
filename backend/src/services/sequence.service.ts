@@ -1,3 +1,4 @@
+import { messageProvenance } from './message-provenance';
 import { prisma } from '../config/database';
 import { resolveSenderIdentity, withSignature } from './identity.service';
 import { automationSafetyReason, emailSafetyReason } from './send-safety.service';
@@ -39,12 +40,13 @@ export async function runExplicitSequence(campaign: { id: string; organizationId
     const identity = await resolveSenderIdentity(campaign.organizationId, { lead: row.lead, channel: 'EMAIL' });
     if (!identity.postalAddress) continue;
     const sequenceKey = `${campaign.id}:${row.leadId}:${step.id}`;
+    const provenance = await messageProvenance({ organizationId: campaign.organizationId, leadId: row.leadId, source: 'sequence', routingPlaybookId: identity.routingPlaybookId, stepId: step.id });
     // Unique sequenceKey prevents concurrent sweeps and future sweeps duplicating this step.
     await prisma.$transaction(async tx => {
       if (await tx.message.findUnique({ where: { sequenceKey } })) return;
       let conversation = await tx.conversation.findFirst({ where: { organizationId: campaign.organizationId, leadId: row.leadId, contactId: contact!.id, channel: 'EMAIL' } });
       if (!conversation) conversation = await tx.conversation.create({ data: { organizationId: campaign.organizationId, leadId: row.leadId, contactId: contact!.id, channel: 'EMAIL', subject: step.subject } });
-      await tx.message.create({ data: { conversationId: conversation.id, campaignId: campaign.id, sequenceKey, direction: 'OUTBOUND', subject: step.subject, body: withSignature(step.body, identity), status: campaign.mode === 'APPROVAL_REQUIRED' ? 'draft_pending_approval' : 'scheduled', scheduledAt: campaign.mode === 'APPROVAL_REQUIRED' ? null : dueAt } });
+      await tx.message.create({ data: { conversationId: conversation.id, campaignId: campaign.id, sequenceKey, provenance, direction: 'OUTBOUND', subject: step.subject, body: withSignature(step.body, identity), status: campaign.mode === 'APPROVAL_REQUIRED' ? 'draft_pending_approval' : 'scheduled', scheduledAt: campaign.mode === 'APPROVAL_REQUIRED' ? null : dueAt } });
       queued++;
     }).catch((err: any) => { if (err.code !== 'P2002') throw err; });
   }

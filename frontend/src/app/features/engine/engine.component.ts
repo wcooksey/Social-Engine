@@ -1,3 +1,6 @@
+import { GroupLiveComponent } from '../group-workspace/group-live.component';
+import { inject } from '@angular/core';
+import { GroupContextService } from '../../core/services/group-context.service';
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -32,6 +35,7 @@ const UNFILED = 'none';
   selector: 'app-engine',
   standalone: true,
   imports: [
+    GroupLiveComponent,
     CommonModule,
     FormsModule,
     ModelPickerComponent,
@@ -44,6 +48,9 @@ const UNFILED = 'none';
   styleUrl: './engine.component.scss'
 })
 export class EngineComponent implements OnInit, OnDestroy {
+  context = inject(GroupContextService);
+  readonly workspaceGroupId = this.context.currentId();
+
   chats = signal<EngineChatSummary[]>([]);
   loadingChats = signal(true);
 
@@ -190,6 +197,7 @@ export class EngineComponent implements OnInit, OnDestroy {
   /** id of the in-progress assistant bubble built from live voice events. */
   private pendingVoiceMessageId: string | null = null;
   private voiceEventsSub?: Subscription;
+  private routeSub?: Subscription;
 
   constructor(
     protected session: EngineSessionService,
@@ -205,6 +213,16 @@ export class EngineComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    if (this.workspaceGroupId) this.examplePrompts = [
+      'Review this group and suggest the next useful step',
+      'Find more prospects matching this group’s goal',
+      'Which leads need enrichment before outreach?',
+      'Prepare a scoped experiment comparing two message approaches'
+    ];
+    if (this.session.workspaceGroupId !== this.workspaceGroupId) {
+      this.session.startNewChat();
+      this.session.workspaceGroupId = this.workspaceGroupId;
+    }
     // ?playbook=<id> is how a playbook card opens its own conversations.
     const requested = this.route.snapshot.queryParamMap.get('playbook');
     if (requested) this.playbookFilter.set(requested);
@@ -215,6 +233,11 @@ export class EngineComponent implements OnInit, OnDestroy {
 
     this.loadPlaybooks();
     this.loadChats();
+    this.routeSub = this.route.queryParamMap.subscribe(params => {
+      const requestedChat = params.get('chat');
+      const match = this.chats().find(c => c.id === requestedChat);
+      if (match && this.activeChatId() !== match.id) this.selectChat(match);
+    });
     this.voiceAgent.checkAvailability();
     this.voiceEventsSub = this.voiceAgent.events$.subscribe((event) => this.onVoiceAgentEvent(event));
     // Coming back to the page: the session service still holds the thread and
@@ -228,6 +251,7 @@ export class EngineComponent implements OnInit, OnDestroy {
       this.clockHandle = null;
     }
     this.voiceEventsSub?.unsubscribe();
+    this.routeSub?.unsubscribe();
     void this.voiceAgent.stop();
     this.voiceService.stopListening();
     this.voiceService.cancelSpeech();
@@ -238,6 +262,7 @@ export class EngineComponent implements OnInit, OnDestroy {
   // --- Live voice mode (ElevenLabs agent) ---------------------------------
 
   async toggleVoiceAgent(): Promise<void> {
+    if (this.workspaceGroupId) { this.toast.info('Live voice is available in Global Engine. Group text chats keep this workspace context.'); return; }
     if (this.voiceAgent.status() === 'active' || this.voiceAgent.status() === 'connecting') {
       await this.voiceAgent.stop();
       return;
@@ -326,7 +351,7 @@ export class EngineComponent implements OnInit, OnDestroy {
   }
 
   loadPlaybooks(): void {
-    this.playbooksService.list().subscribe({
+    this.playbooksService.list(this.workspaceGroupId || undefined).subscribe({
       // Playbooks only label and group the sidebar — failing to load them must
       // not stop the conversations themselves from rendering.
       next: (playbooks) => this.playbooks.set(playbooks),
@@ -336,9 +361,12 @@ export class EngineComponent implements OnInit, OnDestroy {
 
   loadChats(): void {
     this.loadingChats.set(true);
-    this.engineService.listChats(this.playbookFilter() || undefined).subscribe({
+    this.engineService.listChats(this.playbookFilter() || undefined, this.workspaceGroupId || undefined).subscribe({
       next: (chats) => {
         this.chats.set(chats);
+        const requestedChat = this.route.snapshot.queryParamMap.get('chat');
+        const match = chats.find(c => c.id === requestedChat);
+        if (match && this.activeChatId() !== match.id) this.selectChat(match);
         this.loadingChats.set(false);
       },
       error: () => this.loadingChats.set(false)
@@ -564,7 +592,7 @@ export class EngineComponent implements OnInit, OnDestroy {
       // The new conversation is born into whichever line of business the
       // sidebar is showing (or the one picked above), so it never lands unfiled
       // while you are working a single segment.
-      this.engineService.createChat(this.activePlaybookId() || null).subscribe({
+      this.engineService.createChat(this.activePlaybookId() || null, this.workspaceGroupId || undefined).subscribe({
         next: (chat) => {
           this.chats.update(list => [chat, ...list]);
           this.openChatRow.set(chat);

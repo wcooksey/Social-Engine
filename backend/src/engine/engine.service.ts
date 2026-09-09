@@ -41,6 +41,7 @@ export interface RunEngineOptions {
    * playbooks — global protocols still apply.
    */
   playbookId?: string;
+  groupId?: string;
   /**
    * Fires as soon as the AgentRun row exists — lets a caller return the runId
    * to the client immediately and let the run continue in the background.
@@ -118,6 +119,7 @@ class EngineService {
         role,
         objective: options.objective.slice(0, 2000),
         model,
+        groupId: options.groupId,
         // Inherited, so the notes accumulate across attempts at one job rather
         // than each retry starting blank.
         workingNotes: options.priorNotes || undefined,
@@ -127,6 +129,7 @@ class EngineService {
       organizationId: options.organizationId,
       runId: run.id,
       playbookId: options.playbookId,
+      groupId: options.groupId,
       simulate: options.simulate,
     };
 
@@ -188,7 +191,9 @@ class EngineService {
     const focusPlaybookName = options.playbookId
       ? await getFocusPlaybookName(options.organizationId, options.playbookId)
       : null;
+    const focusGroup = options.groupId ? await prisma.leadGroup.findFirst({ where: { id: options.groupId, organizationId: options.organizationId }, select: { id: true, name: true, goal: true } }) : null;
     const system = buildEngineSystemPrompt({
+      focusGroup: focusGroup ?? undefined,
       organizationName: organization.name,
       userName: user ? `${user.firstName} ${user.lastName}`.trim() : undefined,
       trigger: options.trigger,

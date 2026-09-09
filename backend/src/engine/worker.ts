@@ -1,3 +1,4 @@
+import { resolveJobGroup } from '../services/job-group';
 import { prisma } from '../config/database';
 import { engineService } from './engine.service';
 import { getPlatformEngineConfig } from '../services/settings.service';
@@ -55,6 +56,7 @@ export function stopEngineWorker(): void {
 }
 
 interface ClaimedJob {
+  createdByRunId: string | null;
   id: string;
   organizationId: string;
   playbookId: string | null;
@@ -195,6 +197,7 @@ async function claimNextJob(
       attempts: job.attempts + 1,
       payload: job.payload,
       workingNotes: job.workingNotes,
+      createdByRunId: job.createdByRunId,
     };
   }
   return null;
@@ -248,6 +251,7 @@ async function runJob(job: ClaimedJob): Promise<void> {
     // returns, a provider connection that stalls past its own retries — would
     // otherwise keep the drain loop's flag set and stop the worker claiming any
     // further job, for every organization, until the process restarts.
+    const groupId = await resolveJobGroup(job);
     const result = await Promise.race([
       engineService.run({
         organizationId: job.organizationId,
@@ -260,6 +264,7 @@ async function runJob(job: ClaimedJob): Promise<void> {
         // Keeps the line of business intact through the chain: work this run
         // schedules inherits the playbook and counts against its allowance.
         playbookId: job.playbookId ?? undefined,
+        groupId,
       }),
       new Promise<{
         runId?: string;

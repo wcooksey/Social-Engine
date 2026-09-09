@@ -13,6 +13,7 @@
     }
     <select
       #selectEl
+      [attr.aria-label]="ariaLabel || label || placeholder"
       [disabled]="disabled"
       [required]="required"
       [value]="value"

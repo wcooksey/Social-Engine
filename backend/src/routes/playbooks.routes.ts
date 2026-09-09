@@ -5,6 +5,7 @@ import { prisma } from '../config/database';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { forgetIcpCache } from '../services/icp.service';
 
+import { playbookGroupWhere, requireGroup } from '../services/group-scope';
 const router = Router();
 router.get('/:id/readiness', asyncHandler(async (req, res) => {
   const owned = await prisma.playbook.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId }, select: { id: true } });
@@ -194,8 +195,9 @@ async function validateScopeTarget(
 router.get(
   '/',
   asyncHandler(async (req, res) => {
+    const groupId = await requireGroup(req.user!.organizationId, req.query.groupId);
     const playbooks = await prisma.playbook.findMany({
-      where: { organizationId: req.user!.organizationId },
+      where: { organizationId: req.user!.organizationId, ...(groupId ? playbookGroupWhere(groupId) : {}) },
       include: includeRelations,
       orderBy: [{ priority: 'asc' }, { createdAt: 'desc' }],
     });

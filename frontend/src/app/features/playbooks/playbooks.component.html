@@ -1,3 +1,4 @@
+<p class="workflow-note">Prepare the instructions and sender for this group. Global and status rules shown here are shared; changes to them affect other groups too. Use Readiness before testing.</p>
 <div class="playbooks-page">
   <div class="page-header">
     <div>
@@ -84,7 +85,7 @@
             <app-button variant="secondary" size="sm" (clicked)="inspectReadiness(playbook)">Check readiness</app-button>
             <a
               class="icon-btn conversations-btn"
-              [routerLink]="['/engine']"
+              [routerLink]="context.link('engine')"
               [queryParams]="{ playbook: playbook.id }"
               [title]="conversationsLabel(playbook)">
               <i class="bi bi-chat-left-text"></i>

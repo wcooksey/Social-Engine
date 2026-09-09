@@ -10,6 +10,8 @@ export interface ExperimentVariantInput {
 }
 
 export interface ExperimentInput {
+  groupId?: string;
+  campaignId?: string;
   name: string;
   channel: ExperimentChannel;
   goal?: string;
@@ -27,8 +29,8 @@ export interface ExperimentPatch {
 export class ExperimentsService {
   private api = inject(ApiService);
 
-  list(): Observable<Experiment[]> {
-    return this.api.get<Experiment[]>('/api/experiments');
+  list(groupId?: string): Observable<Experiment[]> {
+    return this.api.get<Experiment[]>('/api/experiments', { groupId });
   }
 
   get(id: string): Observable<Experiment> {

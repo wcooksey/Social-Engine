@@ -25,6 +25,7 @@ import {
   releaseEmailSend,
 } from '../services/email-delivery.service';
 
+import { requireGroup } from '../services/group-scope';
 const router = Router();
 
 /**
@@ -165,20 +166,19 @@ router.get(
   asyncHandler(async (req, res) => {
     const page = Math.max(1, parseInt((req.query.page as string) || '1', 10));
     const pageSize = 25;
+    const groupId = req.query.groupId === 'ungrouped' ? null : await requireGroup(req.user!.organizationId, req.query.groupId);
     const where: Prisma.ConversationWhereInput = {
       organizationId: req.user!.organizationId,
       ...(req.query.channel ? { channel: req.query.channel as never } : {}),
       ...(req.query.leadId ? { leadId: req.query.leadId as string } : {}),
-      ...(req.query.search
-        ? { lead: { companyName: { contains: req.query.search as string, mode: 'insensitive' } } }
-        : {}),
+      lead: { ...(groupId !== undefined ? { groupId } : {}), ...(req.query.search ? { companyName: { contains: String(req.query.search), mode: 'insensitive' as const } } : {}) },
     };
 
     const [conversations, total] = await Promise.all([
       prisma.conversation.findMany({
         where,
         include: {
-          lead: { select: { id: true, companyName: true, status: true } },
+          lead: { select: { id: true, companyName: true, status: true, group: { select: { id: true, name: true } } } },
           contact: { select: { id: true, firstName: true, lastName: true } },
           messages: { orderBy: { createdAt: 'desc' }, take: 1 },
           _count: { select: { messages: true } },
@@ -224,11 +224,11 @@ router.get(
   '/:id',
   asyncHandler(async (req, res) => {
     const conversation = await prisma.conversation.findFirst({
-      where: { id: req.params.id, organizationId: req.user!.organizationId },
+      where: { id: req.params.id, organizationId: req.user!.organizationId, ...(req.query.groupId ? { lead: { groupId: String(req.query.groupId) } } : {}) },
       include: {
-        lead: { select: { id: true, companyName: true, status: true } },
+        lead: { select: { id: true, companyName: true, status: true, group: { select: { id: true, name: true } } } },
         contact: true,
-        messages: { orderBy: { createdAt: 'asc' } },
+        messages: { orderBy: { createdAt: 'asc' }, include: { campaign: { select: { id: true, name: true, sequenceEnabled: true } }, experimentVariant: { select: { id: true, label: true, experiment: { select: { id: true, name: true } } } } } },
       },
     });
     if (!conversation) throw new AppError('Conversation not found', 404);
@@ -259,6 +259,7 @@ router.post(
       data: {
         conversationId: conversation.id,
         direction: 'OUTBOUND',
+        provenance: { source: 'manual', reason: 'Written and sent by a person in Inbox.' },
         body,
         status: 'sent',
         sentAt: new Date(),

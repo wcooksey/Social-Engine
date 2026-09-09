@@ -1,4 +1,5 @@
-<div class="engine-page">
+@if (workspaceGroupId) { <app-group-live [groupId]="workspaceGroupId" /> }
+<div class="engine-page" [class.group-engine]="!!workspaceGroupId">
   <aside class="chat-list-panel">
     <button class="new-chat-btn" (click)="startNewChat()">
       <i class="bi bi-plus-lg"></i> New chat

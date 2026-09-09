@@ -1,7 +1,8 @@
 @import '../../../../assets/styles/variables';
 @import '../../../../assets/styles/mixins';
 
-button {
+.button {
+  text-decoration: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -12,13 +13,13 @@ button {
   font-size: $font-size-base;
   font-weight: $font-weight-regular;
   border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.1));
-  border-radius: $border-radius-md;
+  border-radius: var(--control-radius, 8px);
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
   box-shadow: none;
 
-  &:disabled {
+  &:disabled, &[aria-disabled="true"] {
     opacity: 0.5;
     cursor: not-allowed;
     border-color: var(--border-primary, rgba(255, 255, 255, 0.05));
@@ -34,8 +35,8 @@ button {
 .button--icon-only {
   gap: 0;
   padding: 0;
-  width: 40px;
-  height: 40px;
+  width: var(--control-height, 34px);
+  height: var(--control-height, 34px);
 
   .button__content {
     display: none;
@@ -137,7 +138,7 @@ button {
   height: 34px;
   padding: 8px 12px;
   font-size: $font-size-sm;
-  border-radius: $border-radius-md;
+  border-radius: var(--control-radius, 8px);
 }
 
 .button--icon-only.button--sm {
@@ -146,22 +147,22 @@ button {
 }
 
 .button--md {
-  height: 40px;
-  padding: 10px 16px;
+  height: var(--control-height, 34px);
+  padding: 6px 12px;
   font-size: $font-size-base;
-  border-radius: $border-radius-md;
+  border-radius: var(--control-radius, 8px);
 }
 
 .button--icon-only.button--md {
-  width: 40px;
-  height: 40px;
+  width: var(--control-height, 34px);
+  height: var(--control-height, 34px);
 }
 
 .button--lg {
   height: 48px;
   padding: 14px 20px;
   font-size: $font-size-lg;
-  border-radius: $border-radius-md;
+  border-radius: var(--control-radius, 8px);
 }
 
 .button--icon-only.button--lg {
