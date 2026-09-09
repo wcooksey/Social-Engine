@@ -1,8 +1,9 @@
+<p class="workflow-note">Campaigns pace enrolled leads. Fixed sequences send approved steps; AI cadence composes each touch. The Engine can also send outside a campaign. Open Replies to inspect what was actually sent.</p>
 <div class="campaigns-page">
   <div class="page-header">
     <div>
       <h1>Campaigns</h1>
-      <p class="subtitle">Multi-channel outreach the Engine is running</p>
+      <p class="subtitle">Outreach schedules, approved sequences and AI cadence</p>
     </div>
     <app-button variant="primary" icon="bi-plus-lg" (clicked)="openCreate()">New Campaign</app-button>
   </div>
@@ -20,6 +21,7 @@
             <h3>{{ campaign.name }}</h3>
             <app-badge [variant]="statusBadgeVariant(campaign.status)" size="sm">{{ campaign.status }}</app-badge>
           </div>
+          <p>{{ campaign.sequenceEnabled ? 'Fixed approved sequence' : 'AI-directed cadence' }} · {{ campaign.autoEnrollGroup?.name || 'Linked by enrollment / unassigned' }}</p>
           <p class="campaign-offer">{{ campaign.offer }}</p>
 
           <div class="channel-row">
@@ -45,6 +47,7 @@
 
 <app-dialog title="New Campaign" [show]="showDialog()" size="md" (close)="showDialog.set(false)">
   <div class="campaign-form">
+    @if (workspaceGroupId) { <p class="workflow-note">This draft is linked to the current group for auto-enrollment. It will not run until activated. Review its enrollment settings before activation.</p> }
     <app-input label="Name" [required]="true" [(ngModel)]="form.name" [ngModelOptions]="{ standalone: true }"></app-input>
 
     <div class="textarea-field">

@@ -1,3 +1,4 @@
+@if (workspaceGroupId) { <p class="workflow-note">Lead rows are limited to this group. Campaign settings, sequence steps and schedule are shared with every group enrolled in this campaign.</p> }
 @if (loading()) {
   <div class="loading-state">
     <span class="spinner"></span>
@@ -8,7 +9,7 @@
   <div class="campaign-detail-page">
     <div class="page-header">
       <div>
-        <a routerLink="/campaigns" class="back-link"><i class="bi bi-arrow-left"></i> Campaigns</a>
+        <app-button variant="secondary" size="sm" icon="bi-arrow-left" [link]="context.link('campaigns')">Campaigns</app-button>
         <h1>{{ c.name }}</h1>
         <p class="subtitle">
           <app-badge [variant]="statusBadgeVariant(c.status)" size="sm">{{ c.status }}</app-badge>
@@ -29,6 +30,30 @@
         }
       </div>
     </div>
+
+    <app-card padding="lg" class="section-card">
+      <div class="card-head"><h2>Campaign settings</h2><app-button variant="secondary" (clicked)="editSettings()" [disabled]="editingSettings()">Edit campaign settings</app-button></div>
+      <p>Changes apply to this campaign across all enrolled groups. Saving settings keeps its current status.</p>
+      @if (editingSettings()) {
+        <form (ngSubmit)="saveSettings()" class="campaign-settings-form">
+          <app-input label="Campaign name" name="campaignName" [(ngModel)]="settingsForm.name" [required]="true" />
+          <label>Offer<textarea name="offer" class="sequence-field" rows="3" [(ngModel)]="settingsForm.offer"></textarea></label>
+          <app-select label="Sending mode" name="mode" [options]="modeOptions" [showPlaceholderOption]="false" [(ngModel)]="settingsForm.mode" />
+          @if (!c.sequenceEnabled) {
+            <div class="settings-fields">
+              <app-input label="Days between touches" name="cadence" type="number" [(ngModel)]="settingsForm.followUpCadenceDays" />
+              <app-input label="Maximum touches per pass" name="maxTouches" type="number" [(ngModel)]="settingsForm.maxTouches" />
+              <app-input label="Re-engage after days" name="reEngage" type="number" helperText="Leave blank for no repeat passes" [(ngModel)]="settingsForm.reEngageAfterDays" />
+              <app-input label="Total passes" name="maxCycles" type="number" [(ngModel)]="settingsForm.maxCycles" />
+            </div>
+          } @else { <p>Fixed email sequences use the delays in each step and do not repeat automatically.</p> }
+          <div class="header-actions"><app-button type="submit" [loading]="savingSettings()" [disabled]="!settingsForm.name.trim()">Save campaign settings</app-button><app-button variant="ghost" [disabled]="savingSettings()" (clicked)="editingSettings.set(false)">Cancel</app-button></div>
+        </form>
+      }
+      <h3>Organization quiet hours</h3>
+      <p>{{ quietHoursLabel() }} These hours apply across every group and campaign in the organization.</p>
+      <app-button variant="secondary" size="sm" link="/settings" [queryParams]="{ returnTo: returnTo }" fragment="quiet-hours">View / edit organization quiet hours</app-button>
+    </app-card>
 
     <app-card padding="lg" class="section-card">
       <h3>Email sequence</h3>
@@ -129,7 +154,7 @@
               <div class="timeline-content">
                 <span class="timeline-summary">
                   @if (activity.lead) {
-                    <a [routerLink]="['/leads', activity.lead.id]" class="lead-link">{{ activity.lead.companyName }}</a> —
+                    <a [routerLink]="context.link('leads', activity.lead.id)" class="lead-link">{{ activity.lead.companyName }}</a> —
                   }
                   {{ activity.summary }}
                 </span>

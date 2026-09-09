@@ -1,15 +1,19 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { RouterModule, Params } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
 @Component({
   selector: 'app-button',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, RouterModule],
   templateUrl: './button.component.html',
   styleUrl: './button.component.scss'
 })
 export class ButtonComponent {
+  @Input() link: string | any[] | null = null;
+  @Input() queryParams: Params | null = null;
+  @Input() fragment?: string;
   @Input() variant: 'primary' | 'secondary' | 'ghost' | 'danger' | 'text' = 'primary';
   @Input() size: 'sm' | 'md' | 'lg' = 'md';
   @Input() type: 'button' | 'submit' | 'reset' = 'button';
@@ -38,7 +42,8 @@ export class ButtonComponent {
     return this.customIcon ? this.sanitizer.bypassSecurityTrustHtml(this.customIcon) : null;
   }
 
-  onClick(): void {
+  onClick(event: MouseEvent): void {
+    if (this.disabled || this.loading) { event.preventDefault(); return; }
     if (!this.disabled && !this.loading) {
       this.clicked.emit();
     }

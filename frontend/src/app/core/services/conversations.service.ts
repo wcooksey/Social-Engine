@@ -11,8 +11,8 @@ export class ConversationsService {
     return this.api.get<ConversationsPage>('/api/conversations', query);
   }
 
-  getConversation(id: string): Observable<ConversationDetail> {
-    return this.api.get<ConversationDetail>(`/api/conversations/${id}`);
+  getConversation(id: string, groupId?: string): Observable<ConversationDetail> {
+    return this.api.get<ConversationDetail>(`/api/conversations/${id}`, { groupId });
   }
 
   getLeadConversations(leadId: string): Observable<Conversation[]> {

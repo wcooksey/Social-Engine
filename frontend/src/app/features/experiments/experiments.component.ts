@@ -1,3 +1,6 @@
+import { CampaignsService } from '../../core/services/campaigns.service';
+import { inject } from '@angular/core';
+import { GroupContextService } from '../../core/services/group-context.service';
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -53,6 +56,12 @@ function emptyForm(): ExperimentForm {
   styleUrl: './experiments.component.scss'
 })
 export class ExperimentsComponent implements OnInit {
+  context = inject(GroupContextService);
+  readonly workspaceGroupId = this.context.currentId();
+
+  private campaignsService = inject(CampaignsService);
+  campaignOptions: SelectOption[] = [{ label: 'Any AI-directed send in this group', value: '' }];
+  campaignId = '';
   experiments = signal<Experiment[]>([]);
   loading = signal(true);
 
@@ -77,11 +86,12 @@ export class ExperimentsComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    this.campaignsService.list(this.workspaceGroupId || undefined).subscribe(rows => { this.campaignOptions = [...this.campaignOptions, ...rows.filter(c => !c.sequenceEnabled).map(c => ({ label: c.name, value: c.id }))]; });
   }
 
   load(): void {
     this.loading.set(true);
-    this.experimentsService.list().subscribe({
+    this.experimentsService.list(this.workspaceGroupId || undefined).subscribe({
       next: (experiments) => {
         this.experiments.set(experiments);
         this.loading.set(false);
@@ -110,6 +120,7 @@ export class ExperimentsComponent implements OnInit {
   }
 
   openCreate(): void {
+    this.campaignId = '';
     this.form = emptyForm();
     this.showDialog.set(true);
   }
@@ -135,6 +146,8 @@ export class ExperimentsComponent implements OnInit {
     if (!this.isFormValid()) return;
 
     const payload: ExperimentInput = {
+      groupId: this.workspaceGroupId || undefined,
+      campaignId: this.campaignId || undefined,
       name: this.form.name.trim(),
       channel: this.form.channel,
       goal: this.form.goal.trim() || undefined,

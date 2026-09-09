@@ -41,7 +41,7 @@
                 <span class="row-company">{{ c.lead.companyName }}</span>
                 <span class="row-time">{{ c.lastMessageAt ? relativeTime(c.lastMessageAt) : '' }}</span>
               </div>
-              <div class="row-contact">{{ contactName(c.contact) }}</div>
+              <div class="row-contact">{{ contactName(c.contact) }} · {{ c.lead.group?.name || 'Unassigned / legacy' }}</div>
               @if (c.lastMessage) {
                 <div class="row-preview">
                   <i
@@ -109,8 +109,8 @@
             <i class="bi bi-arrow-left"></i>
           </button>
           <div class="thread-header-main">
-            <a [routerLink]="['/leads', convo.lead.id]" class="thread-company">{{ convo.lead.companyName }}</a>
-            <div class="thread-meta">
+            <a [routerLink]="context.link('leads', convo.lead.id)" class="thread-company">{{ convo.lead.companyName }}</a>
+            <div class="thread-meta"><span>{{ convo.lead.group?.name || 'Unassigned / legacy group' }}</span>
               <app-badge [variant]="channelBadgeVariant(convo.channel)" size="sm" [icon]="channelIcon(convo.channel)">{{ convo.channel }}</app-badge>
               @if (convo.contact) {
                 <span class="thread-contact"><i class="bi bi-person"></i> {{ convo.contact.firstName }} {{ convo.contact.lastName }}</span>
@@ -155,6 +155,19 @@
                       Cancel send
                     </app-button>
                   </div>
+                }
+                @if (m.direction === 'OUTBOUND') {
+                  <details class="provenance"><summary>Why this message · {{ m.campaign?.name || m.provenance?.source || 'Source not recorded' }}</summary>
+                    @if (m.provenance) { <p>Group when composed: {{ m.provenance.groupName || 'Unassigned / not recorded' }}</p> }
+                    <p>Current lead group: {{ convo.lead.group?.name || 'Unassigned / legacy' }}</p>
+                    @if (m.campaign) { <p>Campaign: <a [routerLink]="context.link('campaigns', m.campaign.id)">{{ m.campaign.name }}</a></p> }
+                    @else { <p>No campaign recorded. This may be direct Engine outreach, a manual reply, or a legacy message.</p> }
+                    @if (m.experimentVariant; as variant) { <p>Experiment: <a [routerLink]="context.link('experiments')">{{ variant.experiment.name }}</a> · {{ variant.label }}</p> }
+                    @else { <p>No experiment variant recorded.</p> }
+                    <p>{{ m.provenance?.reason || 'Historical playbook and content-selection rationale were not stored for this message.' }}</p>
+                    @if (m.provenance?.playbookId || m.provenance?.routingPlaybookId) { <p><a [routerLink]="context.link('playbooks')">Inspect playbooks</a> · Focus: {{ m.provenance?.playbookName || 'none recorded' }} · Sender routing: {{ m.provenance?.routingPlaybookName || 'not recorded' }}</p> }
+                    @if (m.provenance?.runId) { <app-button variant="secondary" size="sm" (clicked)="inspectSource(m.provenance!.runId!)">Read Engine objective & result</app-button><p style="white-space: pre-wrap">{{ sourceRuns()[m.provenance!.runId!] }}</p> }
+                  </details>
                 }
                 @if (isDraft(m)) {
                   <div class="draft-actions">

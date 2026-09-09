@@ -36,8 +36,8 @@ export class PlaybooksService {
 
   readiness(id: string): Observable<PlaybookReadiness> { return this.api.get<PlaybookReadiness>(`/api/playbooks/${id}/readiness`); }
 
-  list(): Observable<Playbook[]> {
-    return this.api.get<Playbook[]>('/api/playbooks');
+  list(groupId?: string): Observable<Playbook[]> {
+    return this.api.get<Playbook[]>('/api/playbooks', { groupId });
   }
 
   create(input: PlaybookInput): Observable<Playbook> {

@@ -53,6 +53,12 @@ router.patch(
       if (key in req.body) data[key] = req.body[key];
     }
 
+    for (const key of ['quietHoursStart', 'quietHoursEnd'] as const) {
+      if (key in data && (typeof data[key] !== 'number' || !Number.isInteger(data[key]) || Number(data[key]) < 0 || Number(data[key]) > 23)) {
+        throw new AppError('Quiet hours must be whole hours between 0 and 23');
+      }
+    }
+
     // Daily AI spend ceiling. Blank clears it back to no limit.
     if ('dailyAiSpendCapUsd' in req.body) {
       const raw = req.body.dailyAiSpendCapUsd;

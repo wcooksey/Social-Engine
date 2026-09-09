@@ -4,6 +4,9 @@ import { ApiService } from './api.service';
 import { Campaign, CampaignActivityPage, CampaignChannel, CampaignMode, CampaignSchedule } from '../models/campaign.model';
 
 export interface CampaignInput {
+  groupId?: string;
+  reEngageAfterDays?: number | null;
+  maxCycles?: number;
   name: string;
   offer: string;
   channels: CampaignChannel[];
@@ -42,12 +45,12 @@ export class CampaignsService {
   updateStep(id: string, stepId: string, step: unknown): Observable<Campaign> { return this.api.patch<Campaign>(`/api/campaigns/${id}/sequence/${stepId}`, step); }
   preview(id: string, leadId: string): Observable<{ subject: string | null; body: string | null; sender: string | null; blockers: string[]; nextEligibleAt: string | null }> { return this.api.get(`/api/campaigns/${id}/preview`, { leadId }); }
 
-  list(): Observable<Campaign[]> {
-    return this.api.get<Campaign[]>('/api/campaigns');
+  list(groupId?: string): Observable<Campaign[]> {
+    return this.api.get<Campaign[]>('/api/campaigns', { groupId });
   }
 
-  get(id: string): Observable<Campaign> {
-    return this.api.get<Campaign>(`/api/campaigns/${id}`);
+  get(id: string, groupId?: string): Observable<Campaign> {
+    return this.api.get<Campaign>(`/api/campaigns/${id}`, { groupId });
   }
 
   create(input: CampaignInput): Observable<Campaign> {

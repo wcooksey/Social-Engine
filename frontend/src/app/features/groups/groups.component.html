@@ -2,7 +2,7 @@
   <div class="page-header">
     <div>
       <h1>Groups</h1>
-      <p class="subtitle">Lead lists the Engine is building and tracking</p>
+      <p class="subtitle">Open a group to manage its leads, outreach, conversations, and tests</p>
     </div>
     <app-button variant="primary" icon="bi-plus-lg" (clicked)="openCreate()">New Group</app-button>
   </div>
@@ -51,7 +51,7 @@
           }
 
           <div class="group-footer">
-            <span class="lead-count"><i class="bi bi-building"></i> {{ group.leadCount }} leads</span>
+            <span class="lead-count"><i class="bi bi-building"></i> {{ group.leadCount }} leads</span><app-button variant="secondary" size="sm" [link]="['/groups', group.id]" (click)="$event.stopPropagation()">Open group</app-button>
           </div>
         </app-card>
       }

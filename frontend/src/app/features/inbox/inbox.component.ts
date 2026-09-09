@@ -1,3 +1,6 @@
+import { AgentService } from '../../core/services/agent.service';
+import { inject } from '@angular/core';
+import { GroupContextService } from '../../core/services/group-context.service';
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -20,6 +23,15 @@ import { ChatAmbientComponent } from '../../shared/components/chat-ambient/chat-
   styleUrl: './inbox.component.scss'
 })
 export class InboxComponent implements OnInit {
+  private agent = inject(AgentService);
+  sourceRuns = signal<Record<string, string>>({});
+  inspectSource(runId: string): void {
+    this.sourceRuns.update(rows => ({ ...rows, [runId]: 'Loading source…' }));
+    this.agent.getRun(runId).subscribe({ next: run => this.sourceRuns.update(rows => ({ ...rows, [runId]: run.objective + '\n\n' + (run.summary || 'No run summary recorded.') })), error: () => this.sourceRuns.update(rows => ({ ...rows, [runId]: 'Source run is unavailable.' })) });
+  }
+  context = inject(GroupContextService);
+  readonly workspaceGroupId = this.context.currentId();
+
   conversations = signal<ConversationSummary[]>([]);
   total = signal(0);
   loading = signal(false);
@@ -90,6 +102,7 @@ export class InboxComponent implements OnInit {
     this.loading.set(true);
     this.conversationsService
       .listInbox({
+        groupId: this.workspaceGroupId || undefined,
         channel: this.channel || undefined,
         search: this.search || undefined,
         page: this.page
@@ -112,7 +125,7 @@ export class InboxComponent implements OnInit {
     this.mobileShowThread.set(true);
     this.replyBody = '';
     this.loadingDetail.set(true);
-    this.conversationsService.getConversation(summary.id).subscribe({
+    this.conversationsService.getConversation(summary.id, this.workspaceGroupId || undefined).subscribe({
       next: (detail) => {
         this.selectedConversation.set(detail);
         this.loadingDetail.set(false);
@@ -132,7 +145,7 @@ export class InboxComponent implements OnInit {
   refreshThread(): void {
     const id = this.selectedId();
     if (!id) return;
-    this.conversationsService.getConversation(id).subscribe({
+    this.conversationsService.getConversation(id, this.workspaceGroupId || undefined).subscribe({
       next: (detail) => this.selectedConversation.set(detail),
       error: () => this.toast.error('Failed to refresh conversation')
     });

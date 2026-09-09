@@ -1,8 +1,11 @@
-<button
-  [type]="type"
-  [disabled]="disabled || loading"
-  [class]="getButtonClasses()"
-  (click)="onClick()">
+@if (link !== null) {
+  <a [routerLink]="disabled || loading ? null : link" [queryParams]="queryParams" [fragment]="fragment"
+    [attr.aria-disabled]="disabled || loading ? true : null" [attr.tabindex]="disabled || loading ? -1 : null"
+    [class]="getButtonClasses()" (click)="onClick($event)"><ng-container *ngTemplateOutlet="content" /></a>
+} @else {
+  <button [type]="type" [disabled]="disabled || loading" [class]="getButtonClasses()" (click)="onClick($event)"><ng-container *ngTemplateOutlet="content" /></button>
+}
+<ng-template #content>
   @if (loading) {
     <span class="button__spinner"></span>
   }
@@ -23,5 +26,4 @@
       <i [class]="'bi ' + icon" class="button__icon button__icon--right"></i>
     }
   }
-</button>
-
+</ng-template>

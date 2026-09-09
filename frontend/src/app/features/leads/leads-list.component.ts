@@ -1,3 +1,5 @@
+import { inject } from '@angular/core';
+import { GroupContextService } from '../../core/services/group-context.service';
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -46,6 +48,9 @@ type QualityFilter = '' | 'needs' | 'ready' | 'no_email' | 'has_email' | 'multi_
   styleUrl: './leads-list.component.scss'
 })
 export class LeadsListComponent implements OnInit {
+  context = inject(GroupContextService);
+  readonly workspaceGroupId = this.context.currentId();
+
   leads = signal<Lead[]>([]);
   total = signal(0);
   loading = signal(false);
@@ -160,7 +165,7 @@ export class LeadsListComponent implements OnInit {
     // bookmark, a shared link and the browser Back button all land on the same
     // filtered view instead of silently falling back to every lead in the org.
     const params = this.route.snapshot.queryParamMap;
-    this.groupId = params.get('groupId') || '';
+    this.groupId = this.workspaceGroupId || params.get('groupId') || '';
     this.status = params.get('status') || '';
     this.search = params.get('search') || '';
     this.tier = (params.get('tier') as EnrichmentTier) || '';
@@ -325,7 +330,7 @@ export class LeadsListComponent implements OnInit {
   }
 
   openAddDialog(): void {
-    this.newLead = { companyName: '', website: '', phone: '', address: '', city: '', state: '', industry: '', groupId: '' };
+    this.newLead = { companyName: '', website: '', phone: '', address: '', city: '', state: '', industry: '', groupId: this.workspaceGroupId };
     this.showAddDialog.set(true);
   }
 
@@ -354,7 +359,7 @@ export class LeadsListComponent implements OnInit {
     // Leads" returns to this group and these filters. Router state rather than
     // a query param: it keeps the lead's own URL clean and shareable, and the
     // browser persists it across a reload of the detail page.
-    this.router.navigate(['/leads', lead.id], { state: { returnUrl: this.router.url } });
+    this.router.navigate(this.context.link('leads', lead.id), { state: { returnUrl: this.router.url } });
   }
 
   statusBadgeVariant(status: string): BadgeVariant {

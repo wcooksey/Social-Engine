@@ -1,3 +1,6 @@
+<app-campaign-preview [groupId]="workspaceGroupId" />
+<p class="workflow-note">Rehearsals do not deliver mail, check inbox placement, or simulate every sending gate. For a real round trip to your own email, open the Settings test bench and supply your recipient there. That plumbing test does not prove generated outreach parity.</p>
+<app-button variant="secondary" size="sm" link="/settings" fragment="test-channels">Settings test bench</app-button>
 <div class="sandbox-page">
   <div class="page-header">
     <div>
@@ -8,10 +11,10 @@
       <button type="button" [class.active]="tab() === 'chat'" (click)="tab.set('chat')">
         <i class="bi bi-chat-dots"></i> Conversation
       </button>
-      <button type="button" [class.active]="tab() === 'voice'" (click)="tab.set('voice')">
+      <button *ngIf="!workspaceGroupId" type="button" [class.active]="tab() === 'voice'" (click)="tab.set('voice')">
         <i class="bi bi-telephone"></i> Voice
       </button>
-      <button type="button" [class.active]="tab() === 'coach'" (click)="tab.set('coach')">
+      <button *ngIf="!workspaceGroupId" type="button" [class.active]="tab() === 'coach'" (click)="tab.set('coach')">
         <i class="bi bi-mortarboard"></i> Call coach
       </button>
     </div>
@@ -23,13 +26,13 @@
         <h3>Setup</h3>
         <p class="hint">
           You play the prospect. The reply comes from the same SDR role and playbooks that handle live
-          replies — but nothing is sent and no record changes.
+          replies — with sending and CRM writes intercepted. Rehearsal diagnostics are saved.
         </p>
 
         <app-select
           label="Channel"
           [options]="channelOptions"
-          [(ngModel)]="channel"
+          [(ngModel)]="channel" (ngModelChange)="resetConversation()"
           [showPlaceholderOption]="false">
         </app-select>
 
@@ -37,7 +40,7 @@
           label="Lead context (optional)"
           placeholder="No lead — hypothetical prospect"
           [options]="leadOptions"
-          [(ngModel)]="leadId">
+          [(ngModel)]="leadId" (ngModelChange)="resetConversation()">
         </app-select>
         <p class="hint hint--tight">
           Pick a real lead to rehearse with its actual notes, contacts and status.
@@ -83,6 +86,7 @@
                   <p class="turn-body">{{ turn.content }}</p>
                 }
 
+                @for (copy of turn.composed || []; track $index) { <div class="workflow-note"><strong>Simulated message {{ copy.subject ? '· ' + copy.subject : '' }}</strong><p style="white-space: pre-wrap">{{ copy.body || copy.message }}</p></div> }
                 @if (turn.actions?.length) {
                   <div class="actions">
                     <span class="actions-label">Would have:</span>

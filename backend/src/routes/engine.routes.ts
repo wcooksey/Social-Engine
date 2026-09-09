@@ -4,6 +4,7 @@ import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { engineService } from '../engine/engine.service';
 import * as runRegistry from '../engine/run-registry';
 
+import { requireGroup } from '../services/group-scope';
 const router = Router();
 
 /** Playbook summary carried on every chat, so the list can be grouped by it. */
@@ -15,6 +16,7 @@ const CHAT_SUMMARY_SELECT = {
   updatedAt: true,
   createdAt: true,
   playbookId: true,
+  groupId: true,
   playbook: playbookSelect,
 } as const;
 
@@ -49,11 +51,13 @@ router.get(
     const playbookWhere =
       filter === 'none' ? { playbookId: null } : filter ? { playbookId: filter } : {};
 
+    const groupId = await requireGroup(req.user!.organizationId, req.query.groupId);
     const chats = await prisma.engineChat.findMany({
       where: {
         organizationId: req.user!.organizationId,
         userId: req.user!.userId,
         ...playbookWhere,
+        ...(groupId ? { groupId } : {}),
       },
       orderBy: { updatedAt: 'desc' },
       select: CHAT_SUMMARY_SELECT,
@@ -66,12 +70,18 @@ router.post(
   '/chats',
   asyncHandler(async (req, res) => {
     const playbookId = await resolvePlaybookId(req.body, req.user!.organizationId);
+    const groupId = await requireGroup(req.user!.organizationId, req.body.groupId);
+    if (playbookId && groupId) {
+      const playbook = await prisma.playbook.findFirst({ where: { id: playbookId, organizationId: req.user!.organizationId } });
+      if (playbook?.scope === 'GROUP' && playbook.groupId !== groupId) throw new AppError('Playbook belongs to a different group');
+    }
     const chat = await prisma.engineChat.create({
       data: {
         organizationId: req.user!.organizationId,
         userId: req.user!.userId,
         title: req.body?.title || 'New conversation',
         playbookId: playbookId ?? null,
+        groupId: groupId ?? null,
       },
       select: CHAT_SUMMARY_SELECT,
     });
@@ -101,11 +111,15 @@ router.patch(
   asyncHandler(async (req, res) => {
     const existing = await prisma.engineChat.findFirst({
       where: { id: req.params.id, organizationId: req.user!.organizationId, userId: req.user!.userId },
-      select: { id: true },
+      select: { id: true, groupId: true },
     });
     if (!existing) throw new AppError('Chat not found', 404);
 
     const playbookId = await resolvePlaybookId(req.body, req.user!.organizationId);
+    if (playbookId && existing.groupId) {
+      const playbook = await prisma.playbook.findFirst({ where: { id: playbookId, organizationId: req.user!.organizationId } });
+      if (playbook?.scope === 'GROUP' && playbook.groupId !== existing.groupId) throw new AppError('Playbook belongs to a different group');
+    }
     const title = typeof req.body?.title === 'string' ? req.body.title.trim() : undefined;
 
     const chat = await prisma.engineChat.update({
@@ -193,6 +207,7 @@ router.post(
           // which line of business it is working, so a Tampa freight thread
           // isn't steered by the dealership playbook sitting next to it.
           playbookId: chat.playbookId ?? undefined,
+          groupId: chat.groupId ?? undefined,
           watch: req.body?.watch === true,
           history: recent.map((m) => ({
             role: m.role as 'user' | 'assistant',

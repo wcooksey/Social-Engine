@@ -50,8 +50,8 @@ export class LeadsService {
     });
   }
 
-  get(id: string): Observable<Lead> {
-    return this.api.get<Lead>(`/api/leads/${id}`);
+  get(id: string, groupId?: string): Observable<Lead> {
+    return this.api.get<Lead>(`/api/leads/${id}`, { groupId });
   }
 
   create(input: LeadInput): Observable<Lead> {

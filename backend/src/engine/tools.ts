@@ -1,3 +1,4 @@
+import { messageProvenance } from '../services/message-provenance';
 import { getPlaybookReadiness } from '../services/playbook-readiness.service';
 import { automationSafetyReason, emailSafetyReason } from '../services/send-safety.service';
 import Anthropic from '@anthropic-ai/sdk';
@@ -91,6 +92,8 @@ import { AgentRole, defaultRoleForJobType } from './roles';
 import { evaluateGoalProgress } from '../services/autopilot.service';
 import { buildCallSystemPrompt } from './prompts';
 import { buildCallTools } from '../services/call-tools.service';
+import { experimentScopeError } from '../services/experiment-scope';
+import { requireCampaign } from '../services/group-scope';
 import { researchService } from './research.service';
 
 export interface ToolContext {
@@ -102,6 +105,7 @@ export interface ToolContext {
    * separable and each gets its own concurrency allowance.
    */
   playbookId?: string;
+  groupId?: string;
   /**
    * Sandbox mode: run the real prompt, playbooks, role and tools, but let
    * NOTHING escape — no message sent, no call placed, no CRM row written.
@@ -1330,6 +1334,7 @@ async function recordOutbound(opts: {
   scheduledAt?: Date;
   /** Display name to send under, frozen so a queued message can't drift. */
   senderName?: string;
+  routingPlaybookId?: string;
 }) {
   const conversation =
     (await prisma.conversation.findFirst({
@@ -1347,6 +1352,7 @@ async function recordOutbound(opts: {
 
   const message = await prisma.message.create({
     data: {
+      provenance: await messageProvenance({ organizationId: opts.ctx.organizationId, leadId: opts.leadId, source: 'engine', runId: opts.ctx.runId, playbookId: opts.ctx.playbookId, routingPlaybookId: opts.routingPlaybookId, variantId: opts.experimentVariantId }),
       isConversationReply: opts.isConversationReply ?? false,
       conversationId: conversation.id,
       direction: 'OUTBOUND',
@@ -1359,12 +1365,8 @@ async function recordOutbound(opts: {
       // Mailgun wraps message ids in angle brackets; events echo them bare.
       externalId: opts.externalId?.replace(/^<|>$/g, ''),
       campaignId: opts.campaignId,
-      // A queued message keeps its variant so the eventual send still credits
-      // it; a draft does not, because it may never go out at all.
-      experimentVariantId:
-        opts.status === 'sent' || opts.status === 'scheduled'
-          ? opts.experimentVariantId
-          : undefined,
+      // Preserve selection on drafts; selection is attribution, not a send count.
+      experimentVariantId: opts.experimentVariantId,
       // Same for the sender: a draft has not been assigned one yet.
       mailboxId: opts.status === 'sent' ? opts.mailboxId : undefined,
     },
@@ -2110,6 +2112,7 @@ const executors: Record<string, ToolExecutor> = {
       // up, with no second agent run and no draft for a human to approve.
       const queued = await recordOutbound({
         ctx,
+        routingPlaybookId: identity.routingPlaybookId,
         isConversationReply: !input.campaignId && !!lead.coldOutreachHeldAt,
         leadId: lead.id,
         contactId: contact.id,
@@ -2150,6 +2153,7 @@ const executors: Record<string, ToolExecutor> = {
     if (draftReason || !sender) {
       const result = await recordOutbound({
         ctx,
+        routingPlaybookId: identity.routingPlaybookId,
         isConversationReply: !input.campaignId && !!lead.coldOutreachHeldAt,
         leadId: lead.id,
         contactId: contact.id,
@@ -2179,6 +2183,7 @@ const executors: Record<string, ToolExecutor> = {
         const retryAt = new Date(Date.now() + 15 * 60 * 1000);
         const queued = await recordOutbound({
           ctx,
+        routingPlaybookId: identity.routingPlaybookId,
           isConversationReply: !input.campaignId && !!lead.coldOutreachHeldAt,
           leadId: lead.id,
           contactId: contact.id,
@@ -2231,6 +2236,7 @@ const executors: Record<string, ToolExecutor> = {
     }
     const result = await recordOutbound({
       ctx,
+      routingPlaybookId: identity.routingPlaybookId,
       isConversationReply: !input.campaignId && !!lead.coldOutreachHeldAt,
       leadId: lead.id,
       contactId: contact.id,
@@ -3310,7 +3316,8 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
         name: input.name,
         channel: input.channel,
         goal: input.goal,
-        campaignId: input.campaignId,
+        campaignId: await requireCampaign(ctx.organizationId, input.campaignId, ctx.groupId),
+        groupId: ctx.groupId,
         variants: {
           create: (input.variants as { label: string; content: string; weight?: number }[]).map(
             (v) => ({ label: v.label, content: v.content, weight: v.weight ?? 1 })
@@ -3338,6 +3345,8 @@ Finish with: the page URL, whether it has a message/DM button, and exactly which
         channel: e.channel,
         status: e.status,
         goal: e.goal,
+        groupId: e.groupId,
+        campaignId: e.campaignId,
         variants: e.variants.map(summarizeVariant),
       })),
     };
@@ -4136,6 +4145,15 @@ export async function executeTool(name: string, input: ToolInput, ctx: ToolConte
   }
   const channel = ({ send_email: 'EMAIL', send_sms: 'SMS', place_call: 'VOICE', send_social_dm: 'SOCIAL', submit_contact_form: 'EMAIL' } as Record<string, string>)[name];
   if (channel && input.leadId) {
+    if (input.experimentVariantId) {
+      const [variant, lead] = await Promise.all([
+        prisma.experimentVariant.findFirst({ where: { id: input.experimentVariantId, experiment: { organizationId: ctx.organizationId } }, include: { experiment: true } }),
+        prisma.lead.findFirst({ where: { id: input.leadId, organizationId: ctx.organizationId }, select: { groupId: true } })
+      ]);
+      if (!variant || !lead) return { sent: false, reason: 'Experiment variant or lead not found.' };
+      const mismatch = experimentScopeError(variant.experiment, { organizationId: ctx.organizationId, channel, groupId: lead.groupId, campaignId: input.campaignId });
+      if (mismatch) return { sent: false, reason: mismatch };
+    }
     const blocked = await automationSafetyReason(ctx.organizationId, input.leadId, channel, input.campaignId);
     if (blocked) return { sent: false, reason: blocked };
     if (input.campaignId) {

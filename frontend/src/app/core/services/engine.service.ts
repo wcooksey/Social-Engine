@@ -19,12 +19,12 @@ export class EngineService {
    * `playbookId` narrows the list to one line of business; pass 'none' for the
    * conversations that haven't been filed anywhere yet.
    */
-  listChats(playbookId?: string | null): Observable<EngineChatSummary[]> {
-    return this.api.get<EngineChatSummary[]>('/api/engine/chats', { playbookId });
+  listChats(playbookId?: string | null, groupId?: string): Observable<EngineChatSummary[]> {
+    return this.api.get<EngineChatSummary[]>('/api/engine/chats', { playbookId, groupId });
   }
 
-  createChat(playbookId?: string | null): Observable<EngineChatSummary> {
-    return this.api.post<EngineChatSummary>('/api/engine/chats', { playbookId: playbookId ?? null });
+  createChat(playbookId?: string | null, groupId?: string): Observable<EngineChatSummary> {
+    return this.api.post<EngineChatSummary>('/api/engine/chats', { playbookId: playbookId ?? null, groupId });
   }
 
   /** File a conversation under a playbook, or pass null to unfile it. */

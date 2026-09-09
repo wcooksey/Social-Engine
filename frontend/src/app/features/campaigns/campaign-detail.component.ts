@@ -1,3 +1,8 @@
+import { OrganizationService, OrganizationSettings } from '../../core/services/organization.service';
+import { SelectComponent } from '../../shared/components/select/select.component';
+import { CampaignInput } from '../../core/services/campaigns.service';
+import { inject } from '@angular/core';
+import { GroupContextService } from '../../core/services/group-context.service';
 import { Component, OnInit, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -28,6 +33,7 @@ import { ToastService } from '../../core/services/toast.service';
     FormsModule,
     RouterLink,
     InputComponent,
+    SelectComponent,
     CardComponent,
     ButtonComponent,
     BadgeComponent,
@@ -38,6 +44,40 @@ import { ToastService } from '../../core/services/toast.service';
   styleUrl: './campaign-detail.component.scss'
 })
 export class CampaignDetailComponent implements OnInit {
+  context = inject(GroupContextService);
+  readonly workspaceGroupId = this.context.currentId();
+
+  private organizationService = inject(OrganizationService);
+  organization = signal<OrganizationSettings | null>(null);
+  editingSettings = signal(false);
+  savingSettings = signal(false);
+  settingsForm: CampaignInput = { name: '', offer: '', channels: ['EMAIL'], mode: 'APPROVAL_REQUIRED', followUpCadenceDays: 3, maxTouches: 3, reEngageAfterDays: null, maxCycles: 1 };
+  modeOptions = [{ label: 'Human approval required', value: 'APPROVAL_REQUIRED' }, { label: 'Autonomous', value: 'AUTONOMOUS' }];
+  quietHoursLabel(): string {
+    const org = this.organization();
+    if (!org) return 'Open organization settings to view quiet hours.';
+    if (org.quietHoursStart === org.quietHoursEnd) return 'No quiet hours configured.';
+    return `${String(org.quietHoursStart).padStart(2, '0')}:00–${String(org.quietHoursEnd).padStart(2, '0')}:00 in each lead’s local time.`;
+  }
+  get returnTo(): string { return this.router.url.split('?')[0]; }
+  editSettings(): void {
+    const c = this.campaign();
+    if (!c) return;
+    this.settingsForm = { name: c.name, offer: c.offer || '', channels: [...c.channels], mode: c.mode, followUpCadenceDays: c.followUpCadenceDays, maxTouches: c.maxTouches, reEngageAfterDays: c.reEngageAfterDays ?? null, maxCycles: c.maxCycles ?? 1 };
+    this.editingSettings.set(true);
+  }
+  saveSettings(): void {
+    const c = this.campaign();
+    if (!c || !this.settingsForm.name.trim()) return;
+    const data: Partial<CampaignInput> = { ...this.settingsForm, name: this.settingsForm.name.trim(), reEngageAfterDays: this.settingsForm.reEngageAfterDays || null };
+    if (c.sequenceEnabled) { delete data.channels; delete data.followUpCadenceDays; delete data.maxTouches; delete data.reEngageAfterDays; delete data.maxCycles; }
+    this.savingSettings.set(true);
+    this.campaignsService.update(this.id, data).subscribe({
+      next: () => { this.savingSettings.set(false); this.editingSettings.set(false); this.load(); this.loadSchedule(); this.toast.success('Campaign settings saved for all enrolled groups.'); },
+      error: err => { this.savingSettings.set(false); this.toast.error(err.error?.message || err.error?.error || 'Could not save campaign settings.'); }
+    });
+  }
+
   stepForm = { subject: '', body: '', delayDays: 3, approved: false };
   stepSaving = signal(false);
   editingStepId: string | null = null;
@@ -103,6 +143,7 @@ export class CampaignDetailComponent implements OnInit {
   ngOnInit(): void {
     this.id = this.route.snapshot.paramMap.get('id') || '';
     this.load();
+    this.organizationService.getMine().subscribe({ next: org => this.organization.set(org), error: () => this.organization.set(null) });
     this.loadActivity();
     this.loadSchedule();
   }
@@ -202,7 +243,7 @@ export class CampaignDetailComponent implements OnInit {
 
   load(): void {
     this.loading.set(true);
-    this.campaignsService.get(this.id).subscribe({
+    this.campaignsService.get(this.id, this.workspaceGroupId || undefined).subscribe({
       next: (campaign) => {
         this.campaign.set(campaign);
         this.loading.set(false);
@@ -253,7 +294,7 @@ export class CampaignDetailComponent implements OnInit {
   }
 
   goToLead(entry: CampaignLeadEntry): void {
-    this.router.navigate(['/leads', entry.lead.id]);
+    this.router.navigate(this.context.link('leads', entry.lead.id));
   }
 
   statusBadgeVariant(status: CampaignStatus): BadgeVariant {

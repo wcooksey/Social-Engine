@@ -118,6 +118,8 @@ export async function getExperimentResults(experimentId: string, organizationId:
     .sort((a, b) => b.responseRate - a.responseRate)[0];
   return {
     id: experiment.id,
+    groupId: experiment.groupId,
+    campaignId: experiment.campaignId,
     name: experiment.name,
     channel: experiment.channel,
     goal: experiment.goal,

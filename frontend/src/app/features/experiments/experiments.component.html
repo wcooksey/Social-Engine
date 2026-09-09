@@ -1,3 +1,4 @@
+<p class="workflow-note">Compare message approaches for this group. AI sends must choose a variant to count toward results. Fixed sequences do not automatically use these tests. Separate campaigns alone are not an A/B test.</p>
 <div class="experiments-page">
   <div class="page-header">
     <div>
@@ -18,7 +19,7 @@
         <app-card padding="lg" class="experiment-card">
           <div class="experiment-header">
             <div class="experiment-title">
-              <h3>{{ experiment.name }}</h3>
+              <h3>{{ experiment.name }}</h3><p>{{ experiment.groupId ? 'Group experiment' : experiment.campaignId ? 'Campaign experiment' : 'Shared / legacy experiment — no group assigned' }}</p>
               <div class="badge-row">
                 <app-badge [variant]="channelBadgeVariant(experiment.channel)" size="sm">{{ experiment.channel }}</app-badge>
                 <app-badge [variant]="statusBadgeVariant(experiment.status)" size="sm">{{ experiment.status }}</app-badge>
@@ -95,6 +96,7 @@
 
 <app-dialog title="New Experiment" [show]="showDialog()" size="lg" (close)="showDialog.set(false)">
   <div class="experiment-form">
+    <app-select label="Campaign scope" [options]="campaignOptions" [showPlaceholderOption]="false" [(ngModel)]="campaignId"></app-select>
     <app-input label="Name" [required]="true" [(ngModel)]="form.name" [ngModelOptions]="{ standalone: true }"></app-input>
 
     <div class="form-row">

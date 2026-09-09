@@ -33,6 +33,7 @@ export interface SelectOption {
 })
 export class SelectComponent implements ControlValueAccessor, AfterViewChecked {
   @Input() label?: string;
+  @Input() ariaLabel?: string;
   @Input() placeholder: string = 'Select an option...';
   @Input() required: boolean = false;
   @Input() disabled: boolean = false;

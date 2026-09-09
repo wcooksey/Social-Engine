@@ -1,7 +1,7 @@
-import { Component, OnInit, computed } from '@angular/core';
+import { Component, OnInit, AfterViewInit, ElementRef, ViewChild, computed, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { OrganizationService } from '../../core/services/organization.service';
 import { ThemeService } from '../../core/services/theme.service';
@@ -140,11 +140,24 @@ function availabilityFromRows(rows: DayAvailabilityRow[]): Availability {
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.scss'
 })
-export class SettingsComponent implements OnInit {
+export class SettingsComponent implements OnInit, AfterViewInit {
   currentUser = computed(() => this.authService.currentUser());
 
   dailySendCap = 200;
   postalAddress = '';
+  @ViewChild('quietHoursSection') quietHoursSection?: ElementRef<HTMLElement>;
+  @ViewChild('testChannelsSection') testChannelsSection?: ElementRef<HTMLElement>;
+  ngAfterViewInit(): void {
+    const fragment = this.workspaceRoute.snapshot.fragment;
+    const target = fragment === 'quiet-hours' ? this.quietHoursSection : fragment === 'test-channels' ? this.testChannelsSection : null;
+    target?.nativeElement.scrollIntoView({ block: 'start' });
+  }
+  private workspaceRoute = inject(ActivatedRoute);
+  readonly returnTo = (() => {
+    const value = this.workspaceRoute.snapshot.queryParamMap.get('returnTo');
+    return value && /^\/(?:groups\/[a-zA-Z0-9-]+\/outreach\/)?campaigns\/[a-zA-Z0-9-]+$/.test(value) ? value : null;
+  })();
+  readonly quietHourOptions = Array.from({ length: 24 }, (_, hour) => ({ label: hourToTime(hour), value: hourToTime(hour) }));
   quietHoursStart = '20:00';
   quietHoursEnd = '08:00';
   engineActive = true;

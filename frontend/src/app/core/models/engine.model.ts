@@ -6,6 +6,7 @@ export interface EngineChatPlaybook {
 }
 
 export interface EngineChatSummary {
+  groupId?: string | null;
   id: string;
   title: string;
   updatedAt: string;

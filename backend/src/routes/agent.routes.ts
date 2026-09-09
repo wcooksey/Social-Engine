@@ -5,6 +5,7 @@ import { browserActiveRunIds, getFrameImage, getLiveEntry } from '../engine/live
 import { control as controlRun, listRuns as listTrackedRuns } from '../engine/run-registry';
 import { forceStopAllRuns, forceStopRun } from '../engine/orphan-recovery';
 
+import { requireGroup, campaignGroupWhere } from '../services/group-scope';
 const router = Router();
 
 /**
@@ -79,8 +80,9 @@ router.get(
   '/live',
   asyncHandler(async (req, res) => {
     const organizationId = req.user!.organizationId;
+    const groupId = await requireGroup(organizationId, req.query.groupId);
     const runs = await prisma.agentRun.findMany({
-      where: { organizationId, status: 'RUNNING' },
+      where: { organizationId, ...(groupId ? { groupId } : {}), status: 'RUNNING' },
       orderBy: { startedAt: 'desc' },
       take: 25,
       include: {
@@ -95,9 +97,9 @@ router.get(
     );
     const trackedRuns = new Map(listTrackedRuns(organizationId).map((r) => [r.runId, r]));
     const [pendingJobs, recentFinished] = await Promise.all([
-      prisma.agentJob.count({ where: { organizationId, status: 'PENDING', runAt: { lte: new Date() } } }),
+      prisma.agentJob.count({ where: { organizationId, ...(groupId ? { OR: [{ lead: { groupId } }, { playbook: { groupId } }, { campaign: campaignGroupWhere(groupId) }] } : {}), status: 'PENDING', runAt: { lte: new Date() } } }),
       prisma.agentRun.findMany({
-        where: { organizationId, status: { in: ['COMPLETED', 'FAILED'] } },
+        where: { organizationId, ...(groupId ? { groupId } : {}), status: { in: ['COMPLETED', 'FAILED'] } },
         orderBy: { finishedAt: 'desc' },
         take: 5,
         select: { id: true, role: true, objective: true, status: true, summary: true, finishedAt: true, costUsd: true },

@@ -13,6 +13,8 @@ export interface ExperimentVariant {
 }
 
 export interface Experiment {
+  groupId?: string | null;
+  campaignId?: string | null;
   id: string;
   name: string;
   channel: ExperimentChannel;

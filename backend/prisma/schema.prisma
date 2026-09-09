@@ -124,6 +124,7 @@ enum LeadStatus {
 }
 
 model LeadGroup {
+  engineChats EngineChat[]
   id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -531,6 +532,7 @@ model Conversation {
 }
 
 model Message {
+  provenance Json?
   isConversationReply Boolean @default(false)
   sequenceKey String? @unique
   approvedAt DateTime?
@@ -670,6 +672,8 @@ enum AgentRole {
 }
 
 model AgentRun {
+  groupId String?
+  @@index([organizationId, groupId])
   id             String          @id @default(uuid())
   organizationId String
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1419,6 +1423,9 @@ model Notification {
 // ============================================
 
 model EngineChat {
+  @@index([organizationId, groupId])
+  groupId String?
+  group LeadGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
   id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)

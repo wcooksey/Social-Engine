@@ -1,3 +1,7 @@
+import { CampaignPreviewComponent } from '../group-workspace/campaign-preview.component';
+import { RouterModule } from '@angular/router';
+import { inject } from '@angular/core';
+import { GroupContextService } from '../../core/services/group-context.service';
 import { Component, ElementRef, OnInit, ViewChild, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -24,6 +28,7 @@ interface SandboxTurn {
   role: 'user' | 'assistant';
   content: string;
   actions?: SandboxAction[];
+  composed?: { subject?: string; body?: string; message?: string }[];
 }
 
 interface CoachTurnView {
@@ -46,6 +51,8 @@ interface CoachTurnView {
   selector: 'app-sandbox',
   standalone: true,
   imports: [
+    CampaignPreviewComponent,
+    RouterModule,
     CommonModule,
     FormsModule,
     CardComponent,
@@ -59,6 +66,9 @@ interface CoachTurnView {
   styleUrl: './sandbox.component.scss'
 })
 export class SandboxComponent implements OnInit {
+  context = inject(GroupContextService);
+  readonly workspaceGroupId = this.context.currentId();
+
   tab = signal<'chat' | 'voice' | 'coach'>('chat');
 
   // --- Conversation rehearsal ---
@@ -127,16 +137,16 @@ export class SandboxComponent implements OnInit {
 
   ngOnInit(): void {
     // A short list is enough — this is for grounding a rehearsal, not browsing.
-    this.leadsService.list({ pageSize: 50, sort: 'score', sortDir: 'desc' }).subscribe({
+    this.leadsService.list({ groupId: this.workspaceGroupId || undefined, pageSize: 50, sort: 'score', sortDir: 'desc' }).subscribe({
       next: (res) => this.leads.set(res.leads),
       error: () => this.leads.set([])
     });
-    this.refreshCallPrompt();
+    if (!this.workspaceGroupId) this.refreshCallPrompt();
     this.modelsService.getModels().subscribe({
       next: (res) => (this.coachModel = res.coachCurrent || res.current),
       error: () => undefined
     });
-    this.loadCoachContext();
+    if (!this.workspaceGroupId) this.loadCoachContext();
   }
 
   get modelOptions(): SelectOption[] {
@@ -186,7 +196,7 @@ export class SandboxComponent implements OnInit {
     this.scrollToBottom();
 
     this.sandbox
-      .reply({ channel: this.channel, message, leadId: this.leadId || undefined, history })
+      .reply({ groupId: this.workspaceGroupId || undefined, channel: this.channel, message, leadId: this.leadId || undefined, history })
       .subscribe({
         next: (res) => {
           this.thinking.set(false);
@@ -195,7 +205,8 @@ export class SandboxComponent implements OnInit {
             {
               role: 'assistant',
               content: res.reply || res.error || '(the Engine produced no reply)',
-              actions: res.actions
+              actions: res.actions,
+              composed: res.composed
             }
           ]);
           this.scrollToBottom();
@@ -346,7 +357,7 @@ export class SandboxComponent implements OnInit {
           this.updateProposal(turnIndex, proposalIndex, { applying: false, applied: true });
           this.toast.success(res.note);
           // The prompt and playbook list the coach reasons from just changed.
-          this.loadCoachContext();
+          if (!this.workspaceGroupId) this.loadCoachContext();
           this.refreshCallPrompt();
         },
         error: (err) => {

@@ -1,3 +1,5 @@
+import { inject } from '@angular/core';
+import { GroupContextService } from '../../core/services/group-context.service';
 import { Component, OnInit, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
@@ -29,6 +31,9 @@ import { ToastService } from '../../core/services/toast.service';
   styleUrl: './campaigns.component.scss'
 })
 export class CampaignsComponent implements OnInit {
+  context = inject(GroupContextService);
+  readonly workspaceGroupId = this.context.currentId();
+
   campaigns = signal<Campaign[]>([]);
   loading = signal(true);
 
@@ -58,12 +63,12 @@ export class CampaignsComponent implements OnInit {
   }
 
   openCampaign(campaign: Campaign): void {
-    this.router.navigate(['/campaigns', campaign.id]);
+    this.router.navigate(this.context.link('campaigns', campaign.id));
   }
 
   load(): void {
     this.loading.set(true);
-    this.campaignsService.list().subscribe({
+    this.campaignsService.list(this.workspaceGroupId || undefined).subscribe({
       next: (campaigns) => {
         this.campaigns.set(campaigns);
         this.loading.set(false);
@@ -95,7 +100,7 @@ export class CampaignsComponent implements OnInit {
   submit(): void {
     if (!this.form.name.trim() || !this.form.offer.trim() || this.form.channels.length === 0) return;
     this.saving.set(true);
-    this.campaignsService.create(this.form).subscribe({
+    this.campaignsService.create({ ...this.form, groupId: this.workspaceGroupId || undefined }).subscribe({
       next: () => {
         this.saving.set(false);
         this.showDialog.set(false);

@@ -151,7 +151,7 @@ export class GroupsComponent implements OnInit {
   }
 
   viewLeads(group: LeadGroup): void {
-    this.router.navigate(['/leads'], { queryParams: { groupId: group.id } });
+    this.router.navigate(['/groups', group.id]);
   }
 
   // --- Enrichment mix ------------------------------------------------------

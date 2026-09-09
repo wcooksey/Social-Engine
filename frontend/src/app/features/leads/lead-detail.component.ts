@@ -1,3 +1,5 @@
+import { inject } from '@angular/core';
+import { GroupContextService } from '../../core/services/group-context.service';
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -38,6 +40,9 @@ import { Conversation } from '../../core/models/conversation.model';
   styleUrl: './lead-detail.component.scss'
 })
 export class LeadDetailComponent implements OnInit {
+  context = inject(GroupContextService);
+  readonly workspaceGroupId = this.context.currentId();
+
   lead = signal<Lead | null>(null);
   loading = signal(true);
   savingStatus = signal(false);
@@ -49,7 +54,7 @@ export class LeadDetailComponent implements OnInit {
    * — someone who followed a direct link to this lead.
    */
   private readonly returnUrl: string =
-    (typeof history !== 'undefined' && (history.state?.returnUrl as string)) || '/leads';
+    (typeof history !== 'undefined' && (history.state?.returnUrl as string)) || this.context.link('leads').join('/');
 
   /** Return to the list you came from, filters and group intact. */
   goBack(): void {
@@ -98,15 +103,16 @@ export class LeadDetailComponent implements OnInit {
     const id = this.route.snapshot.paramMap.get('id');
     if (id) {
       this.load(id);
-      this.loadConversations(id);
+
     }
   }
 
   load(id: string): void {
     this.loading.set(true);
-    this.leadsService.get(id).subscribe({
+    this.leadsService.get(id, this.workspaceGroupId || undefined).subscribe({
       next: (lead) => {
         this.lead.set(lead);
+        this.loadConversations(id);
         this.loading.set(false);
       },
       error: () => {

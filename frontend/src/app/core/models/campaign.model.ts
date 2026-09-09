@@ -80,6 +80,8 @@ export interface CampaignSchedule {
 export interface EmailSequenceStep { id: string; subject: string; body: string; delayDays: number; approved: boolean; }
 
 export interface Campaign {
+  playbooks?: { id: string; name: string; isActive: boolean }[];
+  autoEnrollGroupId?: string | null;
   sequenceEnabled: boolean;
   sequenceSteps: EmailSequenceStep[];
   id: string;
