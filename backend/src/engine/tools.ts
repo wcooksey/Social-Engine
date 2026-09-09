@@ -536,6 +536,7 @@ export const engineTools: Anthropic.Tool[] = [
       properties: {
         leadId: { type: 'string' },
         contactId: { type: 'string', description: 'Target contact; defaults to primary contact' },
+        conversationId: { type: 'string', description: 'For replies, the exact existing email conversation to preserve its sender and thread.' },
         subject: { type: 'string' },
         body: { type: 'string' },
         campaignId: { type: 'string' },
@@ -1315,6 +1316,7 @@ async function recordOutbound(opts: {
   contactId?: string;
   channel: 'EMAIL' | 'SMS';
   isConversationReply?: boolean;
+  conversationId?: string;
   subject?: string;
   body: string;
   campaignId?: string;
@@ -1338,7 +1340,7 @@ async function recordOutbound(opts: {
 }) {
   const conversation =
     (await prisma.conversation.findFirst({
-      where: { leadId: opts.leadId, channel: opts.channel, contactId: opts.contactId ?? undefined },
+      where: { organizationId: opts.ctx.organizationId, id: opts.conversationId, leadId: opts.leadId, channel: opts.channel, contactId: opts.contactId ?? undefined },
     })) ??
     (await prisma.conversation.create({
       data: {
@@ -2034,8 +2036,14 @@ const executors: Record<string, ToolExecutor> = {
     const lead = await requireLead(input.leadId, ctx.organizationId);
     assertContactable(lead);
     assertNotUnderReview(lead);
-    const contact = input.contactId
-      ? await prisma.contact.findFirst({ where: { id: input.contactId, leadId: lead.id } })
+    const requestedThread = input.conversationId ? await prisma.conversation.findFirst({
+      where: { id: input.conversationId, organizationId: ctx.organizationId, leadId: lead.id, channel: 'EMAIL' },
+    }) : null;
+    if (input.conversationId && !requestedThread) return { sent: false, reason: 'Email conversation does not belong to this lead and organization.' };
+    if (requestedThread?.contactId && input.contactId && requestedThread.contactId !== input.contactId) return { sent: false, reason: 'Contact does not match the requested conversation.' };
+    const targetContactId = requestedThread?.contactId || input.contactId;
+    const contact = targetContactId
+      ? await prisma.contact.findFirst({ where: { id: targetContactId, leadId: lead.id } })
       : await prisma.contact.findFirst({
           where: { leadId: lead.id, email: { not: null }, optedOut: false, emailStatus: null },
           orderBy: { isPrimary: 'desc' },
@@ -2073,7 +2081,7 @@ const executors: Record<string, ToolExecutor> = {
 
     // Which address this actually leaves from. Looked up before the draft
     // decision because "no mailbox has capacity" is itself a reason to draft.
-    const thread = await prisma.conversation.findFirst({
+    const thread = requestedThread ?? await prisma.conversation.findFirst({
       where: { leadId: lead.id, channel: 'EMAIL', contactId: contact.id },
       select: { id: true },
     });
@@ -2116,6 +2124,7 @@ const executors: Record<string, ToolExecutor> = {
         isConversationReply: !input.campaignId && !!lead.coldOutreachHeldAt,
         leadId: lead.id,
         contactId: contact.id,
+        conversationId: thread?.id,
         channel: 'EMAIL',
         subject: input.subject,
         body,
@@ -2157,6 +2166,7 @@ const executors: Record<string, ToolExecutor> = {
         isConversationReply: !input.campaignId && !!lead.coldOutreachHeldAt,
         leadId: lead.id,
         contactId: contact.id,
+        conversationId: thread?.id,
         channel: 'EMAIL',
         subject: input.subject,
         body,
@@ -2187,6 +2197,7 @@ const executors: Record<string, ToolExecutor> = {
           isConversationReply: !input.campaignId && !!lead.coldOutreachHeldAt,
           leadId: lead.id,
           contactId: contact.id,
+        conversationId: thread?.id,
           channel: 'EMAIL',
           subject: input.subject,
           body,
@@ -2240,6 +2251,7 @@ const executors: Record<string, ToolExecutor> = {
       isConversationReply: !input.campaignId && !!lead.coldOutreachHeldAt,
       leadId: lead.id,
       contactId: contact.id,
+      conversationId: thread?.id,
       channel: 'EMAIL',
       subject: input.subject,
       body,

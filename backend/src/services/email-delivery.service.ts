@@ -102,6 +102,7 @@ export async function deliverEmail(
   }
 
   if (!sender.creds) return { sent: false, error: 'No Mailgun credentials on the resolved sender.' };
+  const thread = opts.conversationId ? await threadContext(opts.conversationId) : {};
   const result = await channels.sendEmail(
     {
       to: opts.to,
@@ -114,6 +115,8 @@ export async function deliverEmail(
       unsubscribeUrl: opts.unsubscribeUrl,
       ics: opts.ics,
       trackClicks: opts.trackClicks,
+      inReplyTo: thread.inReplyTo,
+      references: thread.references,
     },
     sender.creds
   );
