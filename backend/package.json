@@ -9,7 +9,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
-    "test:outreach": "node --import tsx --test tests/outreach-safety.test.ts",
+    "test:outreach": "node --import tsx --test tests/outreach-safety.test.ts tests/inbound-health.test.ts tests/email-events-setup.test.ts",
     "test:groups": "node --import tsx --test tests/group-workspace.integration.test.ts tests/quiet-hours.test.ts"
   },
   "dependencies": {

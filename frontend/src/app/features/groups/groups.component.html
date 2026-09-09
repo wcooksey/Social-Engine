@@ -51,7 +51,7 @@
           }
 
           <div class="group-footer">
-            <span class="lead-count"><i class="bi bi-building"></i> {{ group.leadCount }} leads</span><button class="open-group-btn" (click)="viewLeads(group); $event.stopPropagation()" [attr.aria-label]="'Open ' + group.name">Open group →</button>
+            <span class="lead-count"><i class="bi bi-building"></i> {{ group.leadCount }} leads</span><app-button variant="secondary" size="sm" [link]="['/groups', group.id]" (click)="$event.stopPropagation()">Open group</app-button>
           </div>
         </app-card>
       }

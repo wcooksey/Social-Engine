@@ -37,6 +37,8 @@ export interface Playbook {
 
   // Where this playbook's email actually leaves from.
   emailTransport: EmailTransport;
+  senderPoolId?: string | null;
+  senderPool?: { id: string; name: string } | null;
   gmailAccountId?: string | null;
   gmailAccount?: { id: string; emailAddress: string; status: string } | null;
 }

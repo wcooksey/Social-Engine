@@ -26,6 +26,7 @@ export interface PlaybookInput {
   identitySignature?: string | null;
   identityPostalAddress?: string | null;
   emailTransport?: EmailTransport;
+  senderPoolId?: string | null;
   gmailAccountId?: string | null;
 }
 

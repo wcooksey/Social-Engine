@@ -24,7 +24,7 @@ Validated locally with an isolated PostgreSQL database, paused sample organizati
 
 - All 35 repository migrations applied to the empty test database.
 - Backend TypeScript and production Angular builds passed.
-- `npm run test:outreach`: 13 existing safety tests passed.
+- `npm run test:outreach`: 16 outreach, inbound-health and email-reporting safety tests passed after integration with main.
 - `GROUP_WORKSPACE_TEST_DB=1 DATABASE_URL=<isolated-local-db> npm run test:groups`: 15 checks passed, covering combined inbox filters, cross-group/tenant rejection, shared campaigns, chat filing, legacy and new attribution, experiment compatibility, scoped Live, read-only previews and simulated dispatch.
 - Browser verified group entry/switching, scoped replies and in-thread Engine provenance, connected outreach navigation, fixed-sequence preview/blockers, group Engine/activity, and 34px rendered select/button controls.
 
@@ -48,3 +48,5 @@ Browser save/reload checks confirmed campaign cadence, quiet hours and model per
 2. Back up the deployment database and apply the additive group-workspace migration through the normal release process; generate Prisma Client. This follow-up adds no further schema migration.
 3. Build backend/frontend and run the outreach and group suites against an isolated test database. Deploy the matching API and frontend together only after release approval.
 4. Smoke-test existing organizations, group switching, campaign settings and quiet-hour navigation. Provider/LLM and real email reply round-trip validation still require configured integrations and an explicitly chosen test recipient before enabling outreach.
+
+Release preparation: integrated main `ba9717c`, preserved its sender-pool and Mailgun reporting changes, and reran all 31 checks plus both builds. Railway configuration generates Prisma at build time and runs `prisma migrate deploy` before API startup. Merge remains held until production recovery access is verified.

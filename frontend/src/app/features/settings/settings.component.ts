@@ -270,6 +270,15 @@ export class SettingsComponent implements OnInit, AfterViewInit {
   sendingTestDm = false;
   checkingInbound = false;
   inboundHealth: InboundEmailHealth | null = null;
+  checkingEvents = false;
+  eventHealth: { ok: boolean; checks: { domain: string; event: string; ok: boolean; detail: string }[] } | null = null;
+  checkEmailEvents(connect = false): void {
+    this.checkingEvents = true;
+    this.testBenchService.emailEvents(connect).subscribe({
+      next: report => { this.eventHealth = report; this.checkingEvents = false; },
+      error: err => { this.checkingEvents = false; this.toast.error(this.testError(err, 'Could not check event reporting')); }
+    });
+  }
 
   constructor(
     private authService: AuthService,

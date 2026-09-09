@@ -166,7 +166,7 @@
                     @else { <p>No experiment variant recorded.</p> }
                     <p>{{ m.provenance?.reason || 'Historical playbook and content-selection rationale were not stored for this message.' }}</p>
                     @if (m.provenance?.playbookId || m.provenance?.routingPlaybookId) { <p><a [routerLink]="context.link('playbooks')">Inspect playbooks</a> · Focus: {{ m.provenance?.playbookName || 'none recorded' }} · Sender routing: {{ m.provenance?.routingPlaybookName || 'not recorded' }}</p> }
-                    @if (m.provenance?.runId) { <button type="button" (click)="inspectSource(m.provenance!.runId!)">Read Engine objective & result</button><p style="white-space: pre-wrap">{{ sourceRuns()[m.provenance!.runId!] }}</p> }
+                    @if (m.provenance?.runId) { <app-button variant="secondary" size="sm" (clicked)="inspectSource(m.provenance!.runId!)">Read Engine objective & result</app-button><p style="white-space: pre-wrap">{{ sourceRuns()[m.provenance!.runId!] }}</p> }
                   </details>
                 }
                 @if (isDraft(m)) {

@@ -270,7 +270,7 @@ function decryptOrNull(payload: string): string | null {
  * Lets a domain live on a separate provider account without forcing every
  * domain to.
  */
-async function apiKeyForDomain(
+export async function apiKeyForDomain(
   organizationId: string,
   domain: EmailDomain,
   legacy?: LegacyCreds
@@ -615,7 +615,12 @@ export async function resolveSenderDecision(
 
   if (req.preferAddress) {
     const preferred = await prisma.mailbox.findFirst({
-      where: { organizationId, address: req.preferAddress.trim().toLowerCase() },
+      where: {
+        organizationId,
+        address: req.preferAddress.trim().toLowerCase(),
+        emailDomain: { purpose },
+        ...(playbook?.senderPoolId ? { pools: { some: { poolId: playbook.senderPoolId } } } : {}),
+      },
       include: { emailDomain: true },
     });
     if (preferred && isMailboxAvailable(preferred, now)) {
