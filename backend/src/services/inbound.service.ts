@@ -1,4 +1,5 @@
 import { buildReplyObjective } from './reply-objective';
+import { replyMessageIds } from './email-thread-headers';
 import { Channel, Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
 import { recordMailboxEvent } from './sender.service';
@@ -27,6 +28,8 @@ export interface InboundMessage {
   subject?: string;
   body: string;
   externalId?: string;
+  inReplyTo?: string;
+  references?: string;
   /** Recipient info — used to resolve the owning org so contact matching
    *  never crosses tenants (Mailgun recipient domain / Twilio To number). */
   toEmailDomain?: string;
@@ -217,6 +220,26 @@ export async function handleInbound(input: InboundMessage): Promise<{
   // Resolve the owning org from the recipient address when the caller didn't
   // supply one, so contact matching below stays inside a single tenant.
   let organizationId = input.organizationId ?? (await resolveOrgFromRecipient(input));
+  // A sender address can appear on multiple leads. Resolve the original email
+  // before contact matching, confined to the organization owning the recipient.
+  let matchedThread: Awaited<ReturnType<typeof prisma.conversation.findFirst>> = null;
+  if (input.channel === 'EMAIL' && organizationId) {
+    for (const id of replyMessageIds(input.inReplyTo, input.references)) {
+      const parent = await prisma.message.findFirst({
+        where: {
+          direction: 'OUTBOUND',
+          conversation: { organizationId, channel: 'EMAIL', ...(leadId ? { leadId } : {}) },
+          OR: [{ externalId: { in: [id, `<${id}>`] } }, { headerMessageId: { in: [id, `<${id}>`] } }],
+        },
+        include: { conversation: true },
+      });
+      if (parent) { matchedThread = parent.conversation; break; }
+    }
+    if (matchedThread) {
+      leadId = matchedThread.leadId;
+      contactId = matchedThread.contactId ?? undefined;
+    }
+  }
 
   // Explicit leadId (social bridges) must be proven to belong to the claimed
   // org — otherwise a forged body could attach messages to another tenant.
@@ -234,6 +257,15 @@ export async function handleInbound(input: InboundMessage): Promise<{
   }
 
   if (!leadId) {
+    if (input.channel === 'EMAIL' && input.fromEmail) {
+      const candidates = await prisma.contact.findMany({
+        where: { email: input.fromEmail.toLowerCase().trim(), ...(organizationId ? { organizationId } : {}) },
+        select: { leadId: true },
+      });
+      if (new Set(candidates.map(c => c.leadId)).size > 1) {
+        return { matched: false, reason: 'Ambiguous sender: multiple leads share this address and no original email thread matched.' };
+      }
+    }
     const contact = await findContact({ ...input, organizationId });
     if (contact) {
       leadId = contact.leadId;
@@ -261,8 +293,9 @@ export async function handleInbound(input: InboundMessage): Promise<{
   }
 
   const conversation =
+    matchedThread ??
     (await prisma.conversation.findFirst({
-      where: { leadId, channel: input.channel },
+      where: { organizationId, leadId, channel: input.channel, ...(contactId ? { contactId } : {}) },
     })) ??
     (await prisma.conversation.create({
       data: {
@@ -297,6 +330,7 @@ export async function handleInbound(input: InboundMessage): Promise<{
       body: input.body,
       status: 'received',
       externalId: input.externalId,
+      headerMessageId: input.channel === 'EMAIL' ? input.externalId : undefined,
     },
   });
   await prisma.conversation.update({
@@ -424,11 +458,11 @@ export async function handleInbound(input: InboundMessage): Promise<{
       leadId,
       type: 'FOLLOW_UP',
       role: 'SDR',
-      objective: buildReplyObjective(input.channel, input.body),
+      objective: buildReplyObjective(input.channel, input.body) + (input.channel === 'EMAIL'
+        ? `\nReply using send_email with conversationId ${conversation.id}${contactId ? ` and contactId ${contactId}` : ''}. Preserve this exact email thread and its sending mailbox.` : ''),
       runAt: new Date(),
     },
   });
 
   return { matched: true, leadId, conversationId: conversation.id };
 }
-

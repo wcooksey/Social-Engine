@@ -105,6 +105,8 @@ export interface SendEmailOptions {
   fromEmail?: string;
   /** Where replies should go, when it differs from the sender address. */
   replyTo?: string;
+  inReplyTo?: string;
+  references?: string[];
   /** Optional HTML alternative part. */
   html?: string;
   /** RFC 2369 List-Unsubscribe target (mailto: or https:). Adds one-click too. */
@@ -137,6 +139,8 @@ export async function sendEmail(opts: SendEmailOptions, creds: EmailCreds): Prom
   form.append('from', from);
   form.append('to', opts.to);
   if (opts.replyTo?.trim()) form.append('h:Reply-To', opts.replyTo.trim());
+  if (opts.inReplyTo) form.append('h:In-Reply-To', opts.inReplyTo);
+  if (opts.references?.length) form.append('h:References', opts.references.join(' '));
   form.append('subject', opts.subject);
   form.append('text', opts.body);
   // Stated explicitly rather than inherited, so what a prospect receives does

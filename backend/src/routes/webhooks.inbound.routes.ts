@@ -5,6 +5,7 @@ import { prisma } from '../config/database';
 import { asyncHandler } from '../middleware/error.middleware';
 import { multipartFormData } from '../middleware/multipart.middleware';
 import { handleInbound } from '../services/inbound.service';
+import { emailThreadHeaders } from '../services/email-thread-headers';
 import { recomputeLeadEnrichment } from '../services/lead-enrichment.service';
 import { recordMailboxEvent } from '../services/sender.service';
 import { suppress } from '../services/suppression.service';
@@ -78,7 +79,7 @@ router.post(
       fromEmail,
       subject,
       body: String(text),
-      externalId: body['Message-Id'] || body['message-id'],
+      ...emailThreadHeaders(body),
       toEmailDomain: recipient?.split('@')[1],
     });
     if (!result.matched) {
