@@ -21,6 +21,7 @@ export interface Mailbox {
   displayName: string | null;
   status: MailboxStatus;
   warmupStartedAt: string | null;
+  warmup?: { activeSendingDays: number; remainingSendingDays: number | null };
   dailyCapMax: number;
   /** What the warm-up ramp permits today, and what is left of it. */
   allowanceToday: number;
