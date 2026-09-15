@@ -133,6 +133,9 @@ export const MODEL_CATALOG: CatalogModel[] = [
   // cache_control needed — so the hit rate is the one that dominates an agent
   // loop's bill, at ~1/120th of a miss on Pro and ~1/50th on Flash.
   { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', provider: 'deepseek', pricing: { inputPerMTok: 0.435, cachedInputPerMTok: 0.003625, outputPerMTok: 0.87 } },
+  // V4.1 Flash uses deepseek-flash. Estimate at peak rates; off-peak is 50% less.
+  // https://api-docs.deepseek.com/quick_start/pricing/
+  { id: 'deepseek-flash', label: 'DeepSeek V4.1 Flash', provider: 'deepseek', pricing: { inputPerMTok: 0.3, cachedInputPerMTok: 0.006, outputPerMTok: 1.2 } },
   { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', provider: 'deepseek', pricing: { inputPerMTok: 0.14, cachedInputPerMTok: 0.0028, outputPerMTok: 0.28 } },
   // Moonshot (Kimi). Pricing = cache-miss input / cache-hit input / output per
   // M tokens at Moonshot's own list rates. Context caching is automatic on the
