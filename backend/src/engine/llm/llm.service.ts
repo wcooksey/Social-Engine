@@ -262,6 +262,9 @@ async function chatOpenAICompatible(
 
   const response = await client.chat.completions.create({
     model: request.model,
+    // V4.1 Flash defaults to thinking, which requires replaying reasoning_content
+    // on tool turns. Our shared history stores content/tool calls only.
+    ...(request.model === 'deepseek-flash' ? { thinking: { type: 'disabled' } } : {}),
     max_completion_tokens: request.maxTokens ?? 8192,
     messages,
     tools: request.tools.map((t) => ({
