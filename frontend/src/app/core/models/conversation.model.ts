@@ -70,6 +70,7 @@ export interface ConversationDetail extends Conversation {
 }
 
 export interface ConversationsQuery {
+  replies?: 'human' | 'any';
   groupId?: string;
   channel?: string;
   search?: string;

@@ -137,6 +137,22 @@ export function dailyAllowance(
   return Math.min(mailbox.dailyCapMax, Math.max(mailbox.dailyCapStart, ramped));
 }
 
+/** Estimate assumes a real send on each subsequent day and no health hold. */
+export function warmupProgress(mailbox: Pick<Mailbox, 'status' | 'dailyCapStart' | 'dailyCapMax' | 'warmupGrowthPct' | 'warmupStartedAt'>, load: MailboxLoad, now = new Date()) {
+  const activeSendingDays = load.activeSendingDays ?? 0;
+  let remainingSendingDays: number | null = null;
+  if (!load.rampHalted) {
+    for (let days = 0; days <= MAX_RAMP_DAYS; days++) {
+      const future = new Date(now.getTime() + days * 86400000);
+      if (dailyAllowance({ ...mailbox, warmupStartedAt: mailbox.warmupStartedAt ?? now }, { ...load, activeSendingDays: activeSendingDays + days }, future) >= mailbox.dailyCapMax) {
+        remainingSendingDays = days;
+        break;
+      }
+    }
+  }
+  return { activeSendingDays, remainingSendingDays };
+}
+
 /**
  * Deterministic jitter in [JITTER_MIN, JITTER_MIN + JITTER_SPREAD).
  *
@@ -1026,6 +1042,7 @@ export async function getSendingOverview(organizationId: string) {
           displayName: mailbox.displayName,
           status: mailbox.status,
           warmupStartedAt: mailbox.warmupStartedAt,
+          warmup: warmupProgress(mailbox, load, now),
           dailyCapMax: mailbox.dailyCapMax,
           // What the ramp allows today, and what is left of it.
           allowanceToday: allowance,

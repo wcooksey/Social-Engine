@@ -1,3 +1,4 @@
+import { isHumanReply } from '../services/reply-classification';
 import { automationSafetyReason, emailSafetyReason } from '../services/send-safety.service';
 import { outboundBlockReason } from '../services/outbound.service';
 import { Router } from 'express';
@@ -173,6 +174,20 @@ router.get(
       ...(req.query.leadId ? { leadId: req.query.leadId as string } : {}),
       lead: { ...(groupId !== undefined ? { groupId } : {}), ...(req.query.search ? { companyName: { contains: String(req.query.search), mode: 'insensitive' as const } } : {}) },
     };
+
+    const replies = req.query.replies;
+    if (replies && replies !== 'human' && replies !== 'any') throw new AppError('Invalid reply filter');
+    if (replies === 'any') {
+      where.messages = { some: { direction: 'INBOUND' } };
+    } else if (replies === 'human') {
+      // Match all inbound history before pagination, not just the latest message.
+      // A thread stays in this view after our team replies back.
+      const inbound = await prisma.message.findMany({
+        where: { direction: 'INBOUND', conversation: where },
+        select: { conversationId: true, direction: true, subject: true, body: true, provenance: true, conversation: { select: { subject: true } } },
+      });
+      where.id = { in: [...new Set(inbound.filter(m => isHumanReply(m, m.conversation.subject)).map(m => m.conversationId))] };
+    }
 
     const [conversations, total] = await Promise.all([
       prisma.conversation.findMany({

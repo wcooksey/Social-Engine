@@ -20,6 +20,15 @@
         [(ngModel)]="channel"
         (selectionChange)="onFilterChange()">
       </app-select>
+      <app-select
+        placeholder="All conversations"
+        [options]="replyOptions"
+        [(ngModel)]="replies"
+        (selectionChange)="onFilterChange()">
+      </app-select>
+      @if (replies === 'human') {
+        <p class="reply-filter-help">Conversations with a reply, including ones you’ve answered. Recognized automatic replies are excluded.</p>
+      }
     </div>
 
     <div class="conversation-list">
@@ -66,7 +75,7 @@
       } @else {
         <div class="empty-state">
           <i class="bi bi-inbox"></i>
-          <p>No conversations found.</p>
+          <p>{{ replies === 'human' ? 'No human replies found.' : 'No conversations found.' }}</p>
         </div>
       }
     </div>

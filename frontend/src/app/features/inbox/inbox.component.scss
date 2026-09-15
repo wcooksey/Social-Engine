@@ -571,3 +571,10 @@
     cursor: default;
   }
 }
+
+.reply-filter-help {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: $font-size-xs;
+  line-height: 1.4;
+}

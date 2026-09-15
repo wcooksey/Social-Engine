@@ -50,6 +50,11 @@ export class InboxComponent implements OnInit {
 
   search = '';
   channel = '';
+  replies: '' | 'human' | 'any' = '';
+  replyOptions: SelectOption[] = [
+    { label: 'Human replies', value: 'human' },
+    { label: 'Any incoming message', value: 'any' }
+  ];
   page = 1;
   // Mirrors the API's fixed inbox page size.
   readonly pageSize = 25;
@@ -104,6 +109,7 @@ export class InboxComponent implements OnInit {
       .listInbox({
         groupId: this.workspaceGroupId || undefined,
         channel: this.channel || undefined,
+        replies: this.replies || undefined,
         search: this.search || undefined,
         page: this.page
       })

@@ -178,8 +178,16 @@
                   <app-badge [variant]="mailboxVariant(mailbox)">
                     {{ mailbox.rampHalted && mailbox.status !== 'PAUSED' ? 'held back' : (mailbox.status | lowercase) }}
                   </app-badge>
-                  @if (warmupDay(mailbox) !== null && mailbox.status === 'WARMING') {
-                    <span class="muted">day {{ warmupDay(mailbox) }} of warm-up</span>
+                  @if (mailbox.status === 'WARMING') {
+                    @if (mailbox.warmup; as progress) {
+                      <span class="muted">{{ progress.activeSendingDays }} prior sending days
+                        @if (progress.remainingSendingDays !== null) {
+                          · about {{ progress.remainingSendingDays }} more sending days to {{ mailbox.dailyCapMax }}/day
+                        }
+                      </span>
+                    } @else if (warmupDay(mailbox) !== null) {
+                      <span class="muted">{{ warmupDay(mailbox) }} days since warm-up started</span>
+                    }
                   }
                 </div>
 

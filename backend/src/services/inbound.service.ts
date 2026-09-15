@@ -1,3 +1,5 @@
+import { looksAutomated } from './reply-classification';
+export { looksAutomated } from './reply-classification';
 import { buildReplyObjective } from './reply-objective';
 import { replyMessageIds } from './email-thread-headers';
 import { Channel, Prisma } from '@prisma/client';
@@ -70,43 +72,6 @@ async function resolveOrgFromRecipient(input: InboundMessage): Promise<string | 
     }
   }
   return undefined;
-}
-
-/**
- * Auto-responders, which are not replies.
- *
- * Any inbound message used to retire a lead's campaign rows permanently, so an
- * out-of-office bounce-back ended the sequence as decisively as a real "no
- * thanks" — and because REPLIED is terminal, nothing ever picked that lead up
- * again. A holiday auto-reply cost the lead outright.
- *
- * Pattern matching catches the overwhelming majority and costs nothing. It is
- * deliberately conservative: a false positive here keeps drip-mailing someone
- * who answered, so every pattern below is one a human would never open with.
- */
-const AUTO_REPLY_RE = new RegExp(
-  [
-    'out\\s+of\\s+(the\\s+)?office',
-    'auto(matic)?[- ]?repl(y|ies)',
-    'automatic response',
-    'away from (my|the) (desk|office)',
-    'on (annual |parental |sick )?leave until',
-    'currently (away|unavailable|on holiday|on vacation)',
-    'thank you for (your )?(email|message)[^.]{0,40}(will respond|will get back|has been received)',
-    'this (is|was) an automated',
-    'do[- ]not[- ]reply',
-    'undeliverable',
-    'delivery status notification',
-    'mail delivery (failed|subsystem)',
-    'ticket #?\\d+ (has been )?(created|opened)',
-  ].join('|'),
-  'i'
-);
-
-/** True when this looks machine-generated rather than written by a person. */
-export function looksAutomated(subject: string | undefined, body: string): boolean {
-  const head = `${subject || ''}\n${body.slice(0, 600)}`;
-  return AUTO_REPLY_RE.test(head);
 }
 
 /** A return date mentioned by an auto-responder, when it states one. */
@@ -327,6 +292,8 @@ export async function handleInbound(input: InboundMessage): Promise<{
     data: {
       conversationId: conversation.id,
       direction: 'INBOUND',
+      subject: input.subject,
+      provenance: { replyKind: looksAutomated(input.subject, input.body) ? 'automated' : 'human' },
       body: input.body,
       status: 'received',
       externalId: input.externalId,
