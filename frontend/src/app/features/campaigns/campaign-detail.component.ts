@@ -78,6 +78,23 @@ export class CampaignDetailComponent implements OnInit {
     });
   }
 
+  sendingSummary = signal<any>(null);
+  refreshSendingSummary(): void { this.campaignsService.sendingSummary(this.id).subscribe({ next: s => this.sendingSummary.set(s), error: () => this.sendingSummary.set(null) }); }
+  continuationPlan = signal<any>(null);
+  continuationSteps = [
+    { subject: 'Quick question for {{companyName}}', body: 'Hey {{companyName}},\n\nQuick question... I created a new software for dealerships to increase sales. Do you mind if I send a quick video over showing how it works?', delayDays: 1, approved: true },
+    { subject: 'Re: Quick question for {{companyName}}', body: 'Hey {{companyName}},\n\nJust following up on my note. Would you like me to send over the short video showing how our dealership software works?', delayDays: 2, approved: true },
+    { subject: 'Re: Quick question for {{companyName}}', body: 'Hey {{companyName}},\n\nOne last follow-up — would a quick look at our dealership software be useful? Happy to send the short video if so.', delayDays: 3, approved: true }
+  ];
+  inspectContinuation(): void {
+    this.campaignsService.continuation(this.id).subscribe({ next: p => this.continuationPlan.set(p), error: e => this.toast.error(e.error?.message || 'Could not inspect continuation.') });
+  }
+  applyContinuation(): void {
+    const plan = this.continuationPlan(); if (!plan) return;
+    this.stepSaving.set(true);
+    this.campaignsService.continueSequence(this.id, { eligibleIds: plan.eligible.map((r: any) => r.id), steps: this.continuationSteps }).subscribe({ next: () => { this.stepSaving.set(false); this.continuationPlan.set(null); this.load(); this.loadSchedule(); this.toast.success('Sequence saved. Campaign remains paused until resumed.'); }, error: e => { this.stepSaving.set(false); this.toast.error(e.error?.message || 'Could not continue sequence.'); } });
+  }
+
   stepForm = { subject: '', body: '', delayDays: 3, approved: false };
   stepSaving = signal(false);
   editingStepId: string | null = null;
@@ -242,6 +259,7 @@ export class CampaignDetailComponent implements OnInit {
   }
 
   load(): void {
+    this.refreshSendingSummary();
     this.loading.set(true);
     this.campaignsService.get(this.id, this.workspaceGroupId || undefined).subscribe({
       next: (campaign) => {

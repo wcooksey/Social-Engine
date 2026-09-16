@@ -112,6 +112,7 @@ export async function runCadenceSweep(): Promise<number> {
           organizationId: campaign.organizationId,
           doNotContact: false,
           coldOutreachHeldAt: null,
+          status: { in: ['NEW', 'CONTACTED'] },
           campaignLeads: { none: { campaignId: campaign.id } },
         },
         select: { id: true },

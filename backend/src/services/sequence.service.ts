@@ -1,4 +1,5 @@
 import { messageProvenance } from './message-provenance';
+import { isHumanReply } from './reply-classification';
 import { prisma } from '../config/database';
 import { resolveSenderIdentity, withSignature } from './identity.service';
 import { automationSafetyReason, emailSafetyReason } from './send-safety.service';
@@ -15,7 +16,7 @@ export function validateStep(value: any): EmailStep {
   const body = String(value.body || '').trim();
   const delayDays = Number(value.delayDays);
   if (!subject || !body || subject.length > 250 || body.length > 20000 || !Number.isInteger(delayDays) || delayDays < 1 || delayDays > 365) throw new Error('Provide a subject, body and whole-number delay of 1–365 days.');
-  if (findUnresolvedPlaceholders(subject + '\n' + body).length) throw new Error('Replace placeholders before saving a sequence step.');
+  if (findUnresolvedPlaceholders((subject + '\n' + body).split('{{companyName}}').join('Company')).length) throw new Error('Replace placeholders before saving a sequence step.');
   return { id: String(value.id || ''), subject, body, delayDays, approved: value.approved === true };
 }
 
@@ -24,7 +25,7 @@ export async function runExplicitSequence(campaign: { id: string; organizationId
   const steps = stepsFrom(campaign.sequenceSteps);
   const firstDraft = steps.findIndex(step => !step.approved);
   const approvedLength = firstDraft < 0 ? steps.length : firstDraft;
-  const rows = await prisma.campaignLead.findMany({ where: { campaignId: campaign.id, touchCount: { lt: approvedLength }, status: { in: ['PENDING', 'IN_SEQUENCE'] }, pausedAt: null, lead: { doNotContact: false, coldOutreachHeldAt: null, contactReviewReason: null } }, take: 500, orderBy: { createdAt: 'asc' }, include: { lead: { include: { contacts: true } } } });
+  const rows = await prisma.campaignLead.findMany({ where: { campaignId: campaign.id, touchCount: { lt: approvedLength }, status: { in: ['PENDING', 'IN_SEQUENCE'] }, pausedAt: null, lead: { doNotContact: false, coldOutreachHeldAt: null, contactReviewReason: null } }, take: 500, orderBy: [{ touchCount: 'desc' }, { nextTouchAt: 'asc' }, { createdAt: 'asc' }], include: { lead: { include: { contacts: true } } } });
   let queued = 0;
   for (const row of rows) {
     const step = nextStep(campaign.sequenceSteps, row.touchCount);
@@ -32,21 +33,31 @@ export async function runExplicitSequence(campaign: { id: string; organizationId
     const dueAt = row.lastTouchAt ? new Date(row.lastTouchAt.getTime() + step.delayDays * 86400000) : new Date();
     if (dueAt > new Date() || (row.nextTouchAt && row.nextTouchAt > new Date())) continue;
     if (await automationSafetyReason(campaign.organizationId, row.leadId, 'EMAIL', campaign.id)) continue;
+    const history = await prisma.message.findMany({ where: { conversation: { organizationId: campaign.organizationId, leadId: row.leadId, channel: 'EMAIL' }, OR: [{ direction: 'INBOUND' }, { direction: 'OUTBOUND', sentAt: { not: null } }] }, include: { conversation: true }, orderBy: { sentAt: 'desc' } });
+    if (history.some(m => isHumanReply(m, m.conversation.subject))) continue;
+    const previous = history.find(m => m.direction === 'OUTBOUND');
+    // A first step cannot replay earlier outreach. Follow-ups must stay with the original recipient.
+    if (row.touchCount === 0 && previous) continue;
+    if (row.touchCount > 0 && (!previous || previous.campaignId !== campaign.id)) continue;
     let contact = null;
     for (const candidate of row.lead.contacts) {
+      if (previous && candidate.id !== previous.conversation.contactId) continue;
       if (!await emailSafetyReason(campaign.organizationId, candidate.id)) { contact = candidate; break; }
     }
     if (!contact) continue;
+    if (['ARCHIVED', 'NOT_INTERESTED', 'CUSTOMER'].includes(row.lead.status)) continue;
     const identity = await resolveSenderIdentity(campaign.organizationId, { lead: row.lead, channel: 'EMAIL' });
     if (!identity.postalAddress) continue;
+    const subject = step.subject.split('{{companyName}}').join(row.lead.companyName);
+    const body = step.body.split('{{companyName}}').join(row.lead.companyName);
     const sequenceKey = `${campaign.id}:${row.leadId}:${step.id}`;
     const provenance = await messageProvenance({ organizationId: campaign.organizationId, leadId: row.leadId, source: 'sequence', routingPlaybookId: identity.routingPlaybookId, stepId: step.id });
     // Unique sequenceKey prevents concurrent sweeps and future sweeps duplicating this step.
     await prisma.$transaction(async tx => {
       if (await tx.message.findUnique({ where: { sequenceKey } })) return;
-      let conversation = await tx.conversation.findFirst({ where: { organizationId: campaign.organizationId, leadId: row.leadId, contactId: contact!.id, channel: 'EMAIL' } });
-      if (!conversation) conversation = await tx.conversation.create({ data: { organizationId: campaign.organizationId, leadId: row.leadId, contactId: contact!.id, channel: 'EMAIL', subject: step.subject } });
-      await tx.message.create({ data: { conversationId: conversation.id, campaignId: campaign.id, sequenceKey, provenance, direction: 'OUTBOUND', subject: step.subject, body: withSignature(step.body, identity), status: campaign.mode === 'APPROVAL_REQUIRED' ? 'draft_pending_approval' : 'scheduled', scheduledAt: campaign.mode === 'APPROVAL_REQUIRED' ? null : dueAt } });
+      let conversation = previous ? await tx.conversation.findUnique({ where: { id: previous.conversationId } }) : await tx.conversation.findFirst({ where: { organizationId: campaign.organizationId, leadId: row.leadId, contactId: contact!.id, channel: 'EMAIL' } });
+      if (!conversation) conversation = await tx.conversation.create({ data: { organizationId: campaign.organizationId, leadId: row.leadId, contactId: contact!.id, channel: 'EMAIL', subject } });
+      await tx.message.create({ data: { conversationId: conversation.id, campaignId: campaign.id, sequenceKey, direction: 'OUTBOUND', subject, body: withSignature(body, identity), provenance: { ...provenance, outreachKind: row.touchCount ? 'followup' : 'initial', sequencePosition: row.touchCount, recipientEmail: contact!.email }, senderName: previous?.senderName || null, status: campaign.mode === 'APPROVAL_REQUIRED' ? 'draft_pending_approval' : 'scheduled', scheduledAt: campaign.mode === 'APPROVAL_REQUIRED' ? null : dueAt } });
       queued++;
     }).catch((err: any) => { if (err.code !== 'P2002') throw err; });
   }

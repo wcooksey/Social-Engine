@@ -32,6 +32,21 @@
     </div>
 
     <app-card padding="lg" class="section-card">
+      <h2>Sending status</h2>
+      <app-button variant="secondary" (clicked)="refreshSendingSummary()">Refresh sending status</app-button>
+      @if (sendingSummary(); as summary) {
+        <p>{{ summary.day }} (UTC): <strong>{{ summary.introductionsSent }} introductions sent</strong> · <strong>{{ summary.followupsSent }} follow-ups sent</strong></p>
+        <p>{{ summary.remainingCapacity }} sends remain across available outreach mailboxes today, shared with all campaigns. Sender routing and hourly limits still apply.</p>
+        <p>Due sequence follow-ups are queued before introductions. All mailboxes keep their current capacity and quiet-hour limits.</p>
+        @for (reason of summary.reasons | keyvalue; track reason.key) { <p>{{ reason.key }}: {{ reason.value }}</p> }
+        <h3>Messages waiting or stopped</h3>
+        @for (message of summary.messages; track message.status) { <p>{{ message.status }}: {{ message.count }}</p> }
+        <app-button variant="secondary" link="/sending">Mailbox capacity and warm-up</app-button>
+        <app-button variant="secondary" link="/scheduled">Queued messages and reasons</app-button>
+      } @else { <p>Sending summary unavailable. Refresh to try again.</p> }
+    </app-card>
+
+    <app-card padding="lg" class="section-card">
       <div class="card-head"><h2>Campaign settings</h2><app-button variant="secondary" (clicked)="editSettings()" [disabled]="editingSettings()">Edit campaign settings</app-button></div>
       <p>Changes apply to this campaign across all enrolled groups. Saving settings keeps its current status.</p>
       @if (editingSettings()) {
@@ -57,7 +72,23 @@
 
     <app-card padding="lg" class="section-card">
       <h3>Email sequence</h3>
-      <p>{{ c.sequenceEnabled ? 'Approved steps send in order. At the end, leads wait for the next approved step. Replies stop prospecting across channels.' : 'This campaign currently uses AI cadence. A fixed sequence can be started only before this campaign has messages or previous touches, while draft or paused.' }}</p>
+      <p>{{ c.sequenceEnabled ? 'Approved steps send in order. At the end, leads wait for the next approved step. Replies stop prospecting across channels.' : 'This campaign currently uses AI cadence. Start a fixed sequence before sending, or use the reviewed continuation below for a paused one-touch campaign.' }}</p>
+      @if (!c.sequenceEnabled && c.status === 'PAUSED' && c.maxTouches === 1) {
+        <h4>Continue with two follow-ups</h4>
+        <p>Preserve the original send. Add a follow-up after 2 days, then a final follow-up 3 days later. Removed, held, replied and ambiguous records stay excluded.</p>
+        <app-button variant="secondary" (clicked)="inspectContinuation()">Preview eligible leads</app-button>
+        @if (continuationPlan(); as plan) {
+          <p>{{ plan.eligible.length }} eligible enrollments. Existing completed introductions start at follow-up 1; untouched leads stay on hold for qualification. Automatic enrollment will be turned off.</p>
+          @for (reason of plan.excluded | keyvalue; track reason.key) { <p>{{ reason.key }}: {{ reason.value }}</p> }
+          @for (step of continuationSteps; track $index) {
+            <strong>{{ $index === 0 ? 'Introduction' : 'Follow-up ' + $index }}</strong>
+            <label>Subject<input class="sequence-field" [(ngModel)]="step.subject" /></label>
+            <label>Message<textarea class="sequence-field" rows="4" [(ngModel)]="step.body"></textarea></label>
+          }
+          <app-button [loading]="stepSaving()" (clicked)="applyContinuation()">Approve sequence and preserve progress</app-button>
+          <p>Saving keeps the campaign paused. Review the sequence before resuming.</p>
+        }
+      }
       @for (step of c.sequenceSteps; track step.id; let i = $index) {
         <div class="sequence-step">
           <strong>{{ i + 1 }}. {{ step.subject }}</strong>
@@ -67,7 +98,7 @@
         </div>
       }
       <h4>{{ editingStepId ? 'Edit draft step' : 'Append an email' }}</h4>
-      <p>New approved steps apply to existing, unreplied leads at their next position. Nothing already sent is replayed. Approved copy is fixed; replace placeholders before saving.</p>
+      <p>New approved steps apply to existing, unreplied leads at their next position. Nothing already sent is replayed. Approved copy is fixed; Use <code ngNonBindable>{{companyName}}</code> for the dealership name; replace other placeholders before saving.</p>
       <label>Subject <input class="sequence-field" [(ngModel)]="stepForm.subject" /></label>
       <label>Message <textarea class="sequence-field" rows="5" [(ngModel)]="stepForm.body"></textarea></label>
       <label>Days after previous send <input class="sequence-field" type="number" min="1" max="365" [(ngModel)]="stepForm.delayDays" /></label>

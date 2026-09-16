@@ -78,12 +78,12 @@ export async function runOutboundQueueSweep(now: Date = new Date()): Promise<Que
     })
     .catch(() => undefined);
 
-  const due = await prisma.message.findMany({
-    where: { status: 'scheduled', scheduledAt: { lte: now } },
-    orderBy: { scheduledAt: 'asc' },
-    take: DRAIN_BATCH,
-    select: { id: true },
-  });
+  // Two scans guarantee due follow-ups are considered before fresh introductions.
+  const followup = { provenance: { path: ['outreachKind'], equals: 'followup' } };
+  const dueFollowups = await prisma.message.findMany({ where: { status: 'scheduled', scheduledAt: { lte: now }, ...followup }, orderBy: { scheduledAt: 'asc' }, take: DRAIN_BATCH, select: { id: true } });
+  const remaining = DRAIN_BATCH - dueFollowups.length;
+  const other = remaining ? await prisma.message.findMany({ where: { status: 'scheduled', scheduledAt: { lte: now }, id: { notIn: dueFollowups.map(m => m.id) } }, orderBy: { scheduledAt: 'asc' }, take: remaining, select: { id: true } }) : [];
+  const due = [...dueFollowups, ...other];
   if (due.length === 0) return result;
 
   for (const { id } of due) {
@@ -236,7 +236,7 @@ async function deliver(messageId: string, now: Date): Promise<Outcome> {
     )) as Outcome;
   }
 
-  const safety = await automationSafetyReason(organizationId, lead.id, 'EMAIL', message.campaignId, !message.isConversationReply) || await emailSafetyReason(organizationId, contact.id, contact.email);
+  const safety = await automationSafetyReason(organizationId, lead.id, 'EMAIL', message.campaignId, !message.isConversationReply) || await emailSafetyReason(organizationId, contact.id, typeof (message.provenance as any)?.recipientEmail === 'string' ? (message.provenance as any).recipientEmail : contact.email);
   if (safety || (lead.coldOutreachHeldAt && !message.isConversationReply)) {
     await close(message.id, 'cancelled', organizationId, lead.id, safety || 'Queued prospecting cancelled: lead replied.');
     return 'cancelled';
