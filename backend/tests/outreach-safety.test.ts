@@ -97,9 +97,10 @@ test('concurrent and repeated sequence sweeps persist one message per lead/step,
   stub(prisma.organization, 'findUnique', async () => ({ name: 'Fixture', postalAddress: '1 Test Street' }));
   stub(prisma.playbook, 'findMany', async () => []);
   const messages = new Map<string, any>();
+  stub(prisma.message, 'findMany', async () => row.touchCount ? [{ direction: 'OUTBOUND', campaignId: 'campaign', conversationId: 'conversation', conversation: { contactId: 'contact' } }] : []);
   const tx = {
     message: { findUnique: async ({ where }: any) => messages.get(where.sequenceKey) ?? null, create: async ({ data }: any) => { if (messages.has(data.sequenceKey)) throw Object.assign(new Error('duplicate'), { code: 'P2002' }); messages.set(data.sequenceKey, data); return data; } },
-    conversation: { findFirst: async () => ({ id: 'conversation' }) },
+    conversation: { findFirst: async () => ({ id: 'conversation' }), findUnique: async () => ({ id: 'conversation' }) },
   };
   stub(prisma, '$transaction', async (fn: any) => fn(tx));
   mock.method(globalThis, 'fetch', async () => { assert.fail('Sequence composition must not send or validate externally'); });

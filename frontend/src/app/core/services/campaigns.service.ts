@@ -41,6 +41,9 @@ export class CampaignsService {
     return this.api.delete(`/api/campaigns/${campaignId}/cycles/${cycle}`);
   }
 
+  sendingSummary(id: string): Observable<any> { return this.api.get(`/api/campaigns/${id}/sending-summary`); }
+  continuation(id: string): Observable<any> { return this.api.get(`/api/campaigns/${id}/continuation`); }
+  continueSequence(id: string, body: unknown): Observable<Campaign> { return this.api.post(`/api/campaigns/${id}/continuation`, body); }
   appendStep(id: string, step: { subject: string; body: string; delayDays: number; approved: boolean }): Observable<Campaign> { return this.api.post<Campaign>(`/api/campaigns/${id}/sequence`, step); }
   updateStep(id: string, stepId: string, step: unknown): Observable<Campaign> { return this.api.patch<Campaign>(`/api/campaigns/${id}/sequence/${stepId}`, step); }
   preview(id: string, leadId: string): Observable<{ subject: string | null; body: string | null; sender: string | null; blockers: string[]; nextEligibleAt: string | null }> { return this.api.get(`/api/campaigns/${id}/preview`, { leadId }); }

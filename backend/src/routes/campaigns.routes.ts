@@ -1,7 +1,8 @@
+import { transitionPreview } from '../services/sequence-transition.service';
 import { automationSafetyReason, emailSafetyReason } from '../services/send-safety.service';
 import { outboundBlockReason } from '../services/outbound.service';
 import { resolveSenderIdentity, withSignature } from '../services/identity.service';
-import { resolveSenderDecision } from '../services/sender.service';
+import { getSendingOverview, resolveSenderDecision } from '../services/sender.service';
 import { nextStep } from '../services/sequence.service';
 import { randomUUID } from 'crypto';
 import { stepsFrom, validateStep } from '../services/sequence.service';
@@ -27,8 +28,10 @@ router.get('/:id/preview', asyncHandler(async (req, res) => {
     if (existing) blockers.push(`This step already has a message: ${existing.status}. Inspect it in Inbox or Scheduled; it will not be generated again.`);
   }
   if (!step) blockers.push(campaign.sequenceEnabled ? 'Waiting for another approved step.' : 'AI cadence: no fixed next email to preview. Create an approval-required draft to review the actual copy.');
+  const previous = enrollment.touchCount ? await prisma.message.findFirst({ where: { campaignId: campaign.id, direction: 'OUTBOUND', sentAt: { not: null }, conversation: { organizationId: req.user!.organizationId, leadId: lead.id, channel: 'EMAIL' } }, orderBy: { sentAt: 'desc' }, include: { conversation: true } }) : null;
+  if (enrollment.touchCount && !previous) blockers.push('Original sent message is unavailable; follow-up will not send.');
   let contact = null;
-  for (const candidate of lead.contacts) { if (!await emailSafetyReason(req.user!.organizationId, candidate.id)) { contact = candidate; break; } }
+  for (const candidate of lead.contacts) { if (enrollment.touchCount && candidate.id !== previous?.conversation.contactId) continue; if (!await emailSafetyReason(req.user!.organizationId, candidate.id)) { contact = candidate; break; } }
   if (!contact) blockers.push('No current, verified, unsuppressed email address.');
   const identity = await resolveSenderIdentity(req.user!.organizationId, { lead, channel: 'EMAIL' });
   if (!identity.postalAddress) blockers.push('Sender postal footer is missing.');
@@ -40,7 +43,7 @@ router.get('/:id/preview', asyncHandler(async (req, res) => {
     const due = new Date(enrollment.lastTouchAt.getTime() + step.delayDays * 86400000);
     if (due > new Date()) blockers.push('Sequence delay: eligible after ' + due.toISOString());
   }
-  res.json({ success: true, data: { subject: step?.subject ?? null, body: step ? withSignature(step.body, identity) : null, sender: decision.sender?.fromEmail ?? null, blockers, nextEligibleAt: decision.retryAt ?? null } });
+  res.json({ success: true, data: { subject: step?.subject.split('{{companyName}}').join(lead.companyName) ?? null, body: step ? withSignature(step.body.split('{{companyName}}').join(lead.companyName), identity) : null, sender: decision.sender?.fromEmail ?? null, blockers, nextEligibleAt: decision.retryAt ?? null } });
 }));
 
 function serialize(c: { _count?: { campaignLeads: number } } & Record<string, unknown>) {
@@ -114,6 +117,64 @@ router.get(
     res.json({ success: true, data: serialize(campaign as never) });
   })
 );
+
+router.get('/:id/sending-summary', asyncHandler(async (req, res) => {
+  const campaign = await prisma.campaign.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
+  if (!campaign) throw new AppError('Campaign not found', 404);
+  const now = new Date(); const today = new Date(now); today.setUTCHours(0, 0, 0, 0);
+  const [rows, sent, waiting, sending] = await Promise.all([
+    prisma.campaignLead.findMany({ where: { campaignId: campaign.id }, include: { lead: { include: { contacts: true } } } }),
+    prisma.message.findMany({ where: { campaignId: campaign.id, direction: 'OUTBOUND', sentAt: { gte: today } }, select: { provenance: true } }),
+    prisma.message.groupBy({ by: ['status'], where: { campaignId: campaign.id, direction: 'OUTBOUND', sentAt: null }, _count: true }),
+    getSendingOverview(req.user!.organizationId)
+  ]);
+  const reasons: Record<string, number> = {};
+  const count = (reason: string) => { reasons[reason] = (reasons[reason] || 0) + 1; };
+  for (const row of rows) {
+    if (row.pausedAt || ['REMOVED', 'REPLIED'].includes(row.status) || row.lead.doNotContact || row.lead.coldOutreachHeldAt || ['ARCHIVED','NOT_INTERESTED','ENGAGED','INTERESTED','CUSTOMER'].includes(row.lead.status)) { count('Excluded, replied, or held'); continue; }
+    if (row.status === 'COMPLETED' || row.touchCount >= campaign.maxTouches) { count('Sequence finished'); continue; }
+    if (campaign.status !== 'ACTIVE') { count('Campaign paused or inactive'); continue; }
+    let usable = false;
+    for (const contact of row.lead.contacts) { if (!await emailSafetyReason(req.user!.organizationId, contact.id)) { usable = true; break; } }
+    if (!usable) { count('No current verified, unsuppressed email'); continue; }
+    const step = nextStep(campaign.sequenceSteps, row.touchCount);
+    const due = row.lastTouchAt && step ? new Date(row.lastTouchAt.getTime() + step.delayDays * 86400000) : row.nextTouchAt;
+    if ((due && due > now) || (row.nextTouchAt && row.nextTouchAt > now)) count('Next touch not due');
+    else count(row.touchCount ? 'Follow-up due — subject to send checks' : 'Introduction due — subject to send checks');
+  }
+  const mailboxes = sending.domains.filter(d => d.purpose === 'COLD_OUTREACH' && ['ACTIVE', 'WARMING'].includes(d.status) && d.dns.spf && d.dns.dkim).flatMap(d => d.mailboxes).filter(m => !['PAUSED', 'RETIRED'].includes(m.status) && (!m.pausedUntil || m.pausedUntil <= now));
+  const remainingCapacity = mailboxes.reduce((sum, m) => sum + m.remainingToday, 0);
+  const followups = sent.filter(m => (m.provenance as any)?.outreachKind === 'followup').length;
+  res.json({ success: true, data: { day: today.toISOString().slice(0, 10), remainingCapacity, introductionsSent: sent.length - followups, followupsSent: followups, reasons, messages: waiting.map(r => ({ status: r.status || 'unknown', count: r._count })), status: campaign.status } });
+}));
+
+/** Explicit review boundary for continuing a paused historical one-touch campaign. */
+router.get('/:id/continuation', asyncHandler(async (req, res) => {
+  try {
+    const plan = await transitionPreview(prisma, req.user!.organizationId, req.params.id);
+    res.json({ success: true, data: { eligible: plan.eligible, excluded: plan.excluded } });
+  } catch (err) { throw new AppError((err as Error).message); }
+}));
+router.post('/:id/continuation', asyncHandler(async (req, res) => {
+  if (!Array.isArray(req.body.steps) || req.body.steps.length !== 3) throw new AppError('Provide an introduction and exactly two follow-ups.');
+  const steps = req.body.steps.map((s: any) => validateStep({ ...s, id: randomUUID() }));
+  if (steps.some((s: any) => !s.approved) || steps[1].delayDays !== 2 || steps[2].delayDays !== 3) throw new AppError('Approve all three emails with follow-ups after 2 and 3 days.');
+  try {
+    const result = await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${req.params.id}))`;
+      const plan = await transitionPreview(tx, req.user!.organizationId, req.params.id);
+      const ids = plan.eligible.map((r: any) => r.id);
+      if (!Array.isArray(req.body.eligibleIds) || JSON.stringify([...ids].sort()) !== JSON.stringify([...req.body.eligibleIds].sort())) throw new Error('Eligibility changed. Refresh the preview before applying.');
+      const pending = await tx.message.count({ where: { campaignId: req.params.id, status: { in: ['scheduled', 'sending', 'draft_pending_approval'] } } });
+      if (pending) throw new Error('Resolve existing queued or approval-pending messages before converting this campaign.');
+      for (const row of plan.eligible) await tx.campaignLead.update({ where: { id: row.id }, data: { status: row.touchCount ? 'IN_SEQUENCE' : 'PENDING', dormantSince: null, lastTouchAt: row.lastTouchAt, nextTouchAt: row.lastTouchAt ? new Date(row.lastTouchAt.getTime() + 2 * 86400000) : null } });
+      // Excluded enrollments remain excluded, including completed records with unsafe history.
+      await tx.campaignLead.updateMany({ where: { campaignId: req.params.id, id: { notIn: ids }, status: { in: ['PENDING', 'IN_SEQUENCE'] } }, data: { pausedAt: new Date() } });
+      return tx.campaign.update({ where: { id: req.params.id }, data: { sequenceEnabled: true, autoEnrollGroupId: null, sequenceSteps: steps, maxTouches: 3, reEngageAfterDays: null, maxCycles: 1 } });
+    }, { timeout: 30000 });
+    res.json({ success: true, data: result });
+  } catch (err) { throw new AppError((err as Error).message); }
+}));
 
 /** Append-only sequences preserve each enrolled lead's position. Draft steps can be approved later. */
 router.post('/:id/sequence', asyncHandler(async (req, res) => {
