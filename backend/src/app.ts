@@ -44,15 +44,16 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use(helmet({ contentSecurityPolicy: false }));
-// The backend serves the built frontend from the same origin, so production
-// needs no cross-origin access unless CORS_ORIGINS explicitly allows some.
+// Capacitor serves bundled assets locally; API authentication still requires
+// the same bearer token as the web app. Keep native origins explicit.
 app.use(
   cors({
-    origin: config.isProduction
-      ? config.corsOrigins.length
-        ? config.corsOrigins
-        : false
-      : ['http://localhost:4200'],
+    origin: [
+      'capacitor://localhost',
+      'https://localhost',
+      ...config.corsOrigins,
+      ...(!config.isProduction ? ['http://localhost:4200'] : []),
+    ],
     credentials: true,
   })
 );

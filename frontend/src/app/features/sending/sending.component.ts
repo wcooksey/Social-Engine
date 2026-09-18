@@ -16,6 +16,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select/se
 import { BadgeComponent, BadgeVariant } from '../../shared/components/badge/badge.component';
 import { DialogComponent } from '../../shared/components/dialog/dialog.component';
 import { ToastService } from '../../core/services/toast.service';
+import { NativeAppService } from '../../core/services/native-app.service';
 
 const PURPOSE_OPTIONS: SelectOption[] = [
   { value: 'COLD_OUTREACH', label: 'Cold outreach' },
@@ -41,6 +42,7 @@ const PURPOSE_OPTIONS: SelectOption[] = [
 export class SendingComponent implements OnInit {
   private sending = inject(SendingService);
   private toast = inject(ToastService);
+  private nativeApp = inject(NativeAppService);
 
   readonly purposeOptions = PURPOSE_OPTIONS;
   overview = this.sending.overview;
@@ -360,7 +362,9 @@ export class SendingComponent implements OnInit {
     this.sending.gmailAuthUrl().subscribe({
       next: ({ url }) => {
         this.busy.set(null);
-        window.location.href = url;
+        void this.nativeApp.openExternal(url).catch(() =>
+          this.toast.error('Could not open sign-in. Please try again.')
+        );
       },
       error: err => {
         this.busy.set(null);

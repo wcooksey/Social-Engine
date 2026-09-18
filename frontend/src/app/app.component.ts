@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { ThemeService } from './core/services/theme.service';
+import { NativeAppService } from './core/services/native-app.service';
 import { ToastContainerComponent } from './shared/components/toast/toast-container.component';
 
 @Component({
@@ -15,4 +16,5 @@ export class AppComponent {
 
   // Initialize theme service on app startup
   private themeService = inject(ThemeService);
+  private nativeApp = inject(NativeAppService);
 }

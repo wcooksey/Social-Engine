@@ -154,6 +154,7 @@
 
   @include responsive($breakpoint-md) {
     padding: calc($spacing-lg + 8px) $spacing-md $spacing-md;
+    padding-bottom: calc($spacing-md + env(safe-area-inset-bottom));
   }
 }
 
