@@ -101,6 +101,18 @@
       <app-button variant="ghost" [loading]="checkingDrafts()" [disabled]="cancellingDrafts()" (clicked)="checkSupersededDrafts()">Check duplicate drafts</app-button>
       @if (draftReport(); as report) {
         <p>{{ report.examined }} drafts checked · {{ report.matches.length }} confirmed duplicates · {{ report.unresolved }} left for review.</p>
+        @if (report.review?.length) {
+          <h4>Remaining draft checks</h4>
+          <p>Read-only checks. A draft can have several reasons. No messages are approved or sent by this review. Sender capacity and organization limits are checked separately at delivery.</p>
+          <ul>@for (reason of report.reviewCounts | keyvalue; track reason.key) { <li>{{ reason.key }}: {{ reason.value }}</li> }</ul>
+          <details>
+            <summary>Review remaining drafts</summary>
+            <ul>@for (draft of report.review; track draft.draftId) {
+              <li><a [routerLink]="['/leads', draft.leadId]">{{ draft.companyName }}</a> — {{ draft.subject }}. Draft {{ draft.draftedAt | date:'short' }}.
+                {{ draft.reasons.length ? draft.reasons.join('; ') : 'No listed blockers; review the content and sending limits in Inbox before approval.' }}</li>
+            }</ul>
+          </details>
+        }
         @if (report.matches.length) {
           <details>
             <summary>Review matched messages</summary>

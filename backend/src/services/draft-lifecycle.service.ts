@@ -1,7 +1,32 @@
 import { prisma } from '../config/database';
+import { verificationBlock } from './send-safety.service';
 
 const DRAFT_STATUSES = ['draft', 'draft_blocked', 'draft_pending_approval'];
 const SENT_STATUSES = ['sent', 'delivered', 'opened', 'clicked'];
+
+/** Read-only review. Passing these checks is not approval or a delivery promise. */
+export function draftReviewReasons(input: {
+  createdAt: Date; sequenceKey: string | null; campaignStatus: string; sequenceEnabled: boolean;
+  enrollment: { status: string; pausedAt: Date | null } | null;
+  lead: { status: string; doNotContact: boolean; contactReviewReason: string | null; coldOutreachHeldAt: Date | null };
+  contact: Parameters<typeof verificationBlock>[0] | null;
+  sentCount: number; hasInbound: boolean; hasOtherPending: boolean; sharedRecipient: boolean; suppressed: boolean;
+}, now = new Date()): string[] {
+  const reasons: string[] = [];
+  if (input.campaignStatus !== 'ACTIVE') reasons.push('Campaign is not active');
+  if (!input.enrollment || !['PENDING', 'IN_SEQUENCE'].includes(input.enrollment.status) || input.enrollment.pausedAt) reasons.push('Enrollment removed, completed, replied, or held');
+  if (input.lead.doNotContact || input.lead.contactReviewReason || input.lead.coldOutreachHeldAt || !['NEW', 'CONTACTED'].includes(input.lead.status)) reasons.push('Lead excluded, held, or engaged');
+  const verification = input.contact ? verificationBlock(input.contact, now) : 'No recipient contact';
+  if (verification) reasons.push(verification);
+  if (input.suppressed) reasons.push('Recipient or domain is suppressed');
+  if (input.hasInbound) reasons.push('Incoming message requires conversation review');
+  if (input.sentCount) reasons.push('Prior outbound history requires step review');
+  if (input.hasOtherPending) reasons.push('Another draft or queued message exists for this lead');
+  if (input.sharedRecipient) reasons.push('Recipient address is shared with another lead');
+  if (now.getTime() - input.createdAt.getTime() > 3 * 86400000) reasons.push('Draft exceeds the three-day queue lifetime');
+  if (input.sequenceEnabled && !input.sequenceKey) reasons.push('Legacy draft is not bound to a fixed sequence step');
+  return reasons;
+}
 
 /** Conservative legacy matching: same recipient thread, campaign and exact copy.
  * Never infer equivalence from a subject or company name alone. */
@@ -23,18 +48,41 @@ export async function findSupersededDrafts(organizationId: string, campaignId: s
   const drafts = await prisma.message.findMany({
     where: { campaignId, direction: 'OUTBOUND', status: { in: DRAFT_STATUSES }, sentAt: null, isConversationReply: false, conversation: { organizationId, channel: 'EMAIL', contactId: { not: null } } },
     orderBy: { createdAt: 'asc' },
-    include: { conversation: { select: { lead: { select: { companyName: true } } } } },
+    include: { conversation: { include: { lead: true, contact: true } } },
   });
+  const leadIds = [...new Set(drafts.map(d => d.conversation.leadId))];
+  const [campaign, enrollments, history, suppressions, recipientContacts] = await Promise.all([
+    prisma.campaign.findFirstOrThrow({ where: { id: campaignId, organizationId }, select: { status: true, sequenceEnabled: true } }),
+    prisma.campaignLead.findMany({ where: { campaignId, leadId: { in: leadIds } } }),
+    prisma.message.findMany({ where: { conversation: { organizationId, leadId: { in: leadIds } } }, include: { conversation: { select: { leadId: true } } } }),
+    prisma.suppression.findMany({ where: { organizationId, kind: { in: ['EMAIL', 'DOMAIN'] } }, select: { kind: true, value: true } }),
+    prisma.contact.findMany({ where: { organizationId, email: { not: null } }, select: { leadId: true, email: true } }),
+  ]);
   const matches: { draftId: string; sentMessageId: string; companyName: string; subject: string | null; draftedAt: Date; sentAt: Date }[] = [];
   for (const draft of drafts) {
-    const sent = await prisma.message.findMany({ where: {
-      conversationId: draft.conversationId, campaignId, direction: 'OUTBOUND',
-      status: { in: SENT_STATUSES }, sentAt: { gte: draft.createdAt }, subject: draft.subject, body: draft.body,
-    } });
-    const match = sent.find(message => isSupersededDraft(draft, message));
+    const match = history.find(message => isSupersededDraft(draft, message));
     if (match) matches.push({ draftId: draft.id, sentMessageId: match.id, companyName: draft.conversation.lead.companyName, subject: draft.subject, draftedAt: draft.createdAt, sentAt: match.sentAt! });
   }
-  return { examined: drafts.length, matches, unresolved: drafts.length - matches.length };
+  const matched = new Set(matches.map(m => m.draftId));
+  const review = drafts.filter(d => !matched.has(d.id)).map(draft => {
+    const conversation = draft.conversation;
+    const email = conversation.contact?.email?.trim().toLowerCase();
+    const leadHistory = history.filter(m => m.conversation.leadId === conversation.leadId);
+    const reasons = draftReviewReasons({
+      createdAt: draft.createdAt, sequenceKey: draft.sequenceKey, campaignStatus: campaign.status, sequenceEnabled: campaign.sequenceEnabled,
+      enrollment: enrollments.find(e => e.leadId === conversation.leadId) || null,
+      lead: conversation.lead, contact: conversation.contact,
+      sentCount: leadHistory.filter(m => m.direction === 'OUTBOUND' && m.sentAt).length,
+      hasInbound: leadHistory.some(m => m.direction === 'INBOUND'),
+      hasOtherPending: leadHistory.some(m => m.id !== draft.id && m.direction === 'OUTBOUND' && ['scheduled', 'sending', ...DRAFT_STATUSES].includes(m.status || '')),
+      sharedRecipient: !!email && recipientContacts.some(c => c.leadId !== conversation.leadId && c.email?.trim().toLowerCase() === email),
+      suppressed: !!email && suppressions.some(s => s.value.toLowerCase() === (s.kind === 'DOMAIN' ? email.split('@')[1] : email)),
+    });
+    return { draftId: draft.id, leadId: conversation.leadId, companyName: conversation.lead.companyName, subject: draft.subject, draftedAt: draft.createdAt, reasons };
+  });
+  const reviewCounts: Record<string, number> = {};
+  for (const row of review) for (const reason of row.reasons) reviewCounts[reason] = (reviewCounts[reason] || 0) + 1;
+  return { examined: drafts.length, matches, unresolved: review.length, review, reviewCounts };
 }
 
 /** Re-read both records in a transaction; only an unsent, unchanged draft can be cancelled. */
