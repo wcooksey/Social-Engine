@@ -39,15 +39,22 @@ export function contactableRefusal(lead: {
 
 /**
  * Org kill switch, lead-local quiet hours, and the org's daily send cap.
- * Returns a reason string when sending is blocked, else null.
+ * Structured blockers distinguish temporary limits from holds needing review.
  */
-export async function outboundBlockReason(
+export interface OutboundBlock { reason: string; retryAt: Date | null }
+
+export async function outboundBlockReason(organizationId: string, lead?: { timezone?: string | null; state?: string | null } | null): Promise<string | null> {
+  return (await outboundBlock(organizationId, lead))?.reason ?? null;
+}
+
+export async function outboundBlock(
   organizationId: string,
-  lead?: { timezone?: string | null; state?: string | null } | null
-): Promise<string | null> {
+  lead?: { timezone?: string | null; state?: string | null } | null,
+  now = new Date()
+): Promise<OutboundBlock | null> {
   const org = await prisma.organization.findUnique({ where: { id: organizationId } });
-  if (!org) return 'Organization not found';
-  if (org.paused) return 'Organization is paused (kill switch) — no outbound allowed. Save drafts instead.';
+  if (!org) return { reason: 'Organization not found', retryAt: null };
+  if (org.paused) return { reason: 'Organization is paused (kill switch) — no outbound allowed. Save drafts instead.', retryAt: null };
 
   // Every outbound email carries an unsubscribe link built from APP_PUBLIC_URL.
   // Pointed at localhost, that link is dead on arrival for every recipient — a
@@ -55,23 +62,28 @@ export async function outboundBlockReason(
   // complaints. Refuse rather than send mail nobody can unsubscribe from. Dev is
   // unaffected.
   if (config.isProduction && config.appPublicUrlIsUnreachable) {
-    return (
+    return { retryAt: null, reason: (
       `APP_PUBLIC_URL is ${config.appPublicUrl}, which no recipient can reach — every ` +
       'unsubscribe and booking link in this email would be dead on arrival. Set APP_PUBLIC_URL ' +
       "to this deployment's real public URL before sending."
-    );
+    ) };
   }
 
   // Quiet hours are evaluated in the LEAD's timezone when known, so we never
   // text/email someone in the middle of their night.
   const { quietHoursStart: start, quietHoursEnd: end } = org;
   const tz = lead ? resolveLeadTimezone(lead) : undefined;
-  const hour = tz ? localHourIn(tz) : new Date().getHours();
+  const hour = tz ? localHourIn(tz, now) : now.getHours();
   if (isWithinQuietHours(start, end, hour)) {
-    return `Inside the lead's quiet hours (${start}:00–${end}:00${tz ? ` ${tz}` : ''}) — schedule the send for later instead.`;
+    const retryAt = new Date(now);
+    retryAt.setSeconds(0, 0);
+    // Walk real time rather than adding local hours: this respects DST changes.
+    do { retryAt.setTime(retryAt.getTime() + 60_000); }
+    while (isWithinQuietHours(start, end, tz ? localHourIn(tz, retryAt) : retryAt.getHours()));
+    return { reason: `Inside the lead's quiet hours (${start}:00–${end}:00${tz ? ` ${tz}` : ''}) — scheduled for the next allowed time.`, retryAt };
   }
 
-  const since = new Date();
+  const since = new Date(now);
   since.setHours(0, 0, 0, 0);
   const sentToday = await prisma.activity.count({
     where: {
@@ -81,7 +93,9 @@ export async function outboundBlockReason(
     },
   });
   if (sentToday >= org.dailySendCap) {
-    return `Daily send cap reached (${org.dailySendCap}). Schedule remaining sends for tomorrow.`;
+    const retryAt = new Date(since);
+    retryAt.setDate(retryAt.getDate() + 1);
+    return { reason: `Daily send cap reached (${org.dailySendCap}). Scheduled for tomorrow; quiet hours will be rechecked.`, retryAt };
   }
   return null;
 }

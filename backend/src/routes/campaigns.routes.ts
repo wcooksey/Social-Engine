@@ -1,4 +1,5 @@
 import { transitionPreview } from '../services/sequence-transition.service';
+import { findSupersededDrafts, cancelSupersededDraft } from '../services/draft-lifecycle.service';
 import { automationSafetyReason, emailSafetyReason } from '../services/send-safety.service';
 import { outboundBlockReason } from '../services/outbound.service';
 import { resolveSenderIdentity, withSignature } from '../services/identity.service';
@@ -13,6 +14,25 @@ import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { campaignGroupWhere, requireGroup } from '../services/group-scope';
 
 const router = Router();
+
+router.get('/:id/superseded-drafts', asyncHandler(async (req, res) => {
+  const campaign = await prisma.campaign.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
+  if (!campaign) throw new AppError('Campaign not found', 404);
+  res.json({ success: true, data: await findSupersededDrafts(req.user!.organizationId, campaign.id) });
+}));
+router.post('/:id/superseded-drafts/cancel', asyncHandler(async (req, res) => {
+  const campaign = await prisma.campaign.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
+  if (!campaign) throw new AppError('Campaign not found', 404);
+  const pairs = req.body?.matches;
+  if (!Array.isArray(pairs) || pairs.length > 500 || pairs.some(p => typeof p?.draftId !== 'string' || typeof p?.sentMessageId !== 'string')) throw new AppError('Provide up to 500 reviewed draft/message pairs.');
+  let cancelled = 0;
+  for (const pair of pairs) {
+    const scoped = await prisma.message.findFirst({ where: { id: pair.draftId, campaignId: campaign.id, conversation: { organizationId: req.user!.organizationId } }, select: { id: true } });
+    if (scoped && await cancelSupersededDraft(req.user!.organizationId, pair.draftId, pair.sentMessageId)) cancelled++;
+  }
+  res.json({ success: true, data: { cancelled, skipped: pairs.length - cancelled } });
+}));
+
 router.get('/:id/preview', asyncHandler(async (req, res) => {
   const enrollment = await prisma.campaignLead.findFirst({ where: { campaignId: req.params.id, leadId: String(req.query.leadId || ''), campaign: { organizationId: req.user!.organizationId } }, include: { campaign: true, lead: { include: { contacts: true } } } });
   if (!enrollment) throw new AppError('Enrolled lead not found', 404);

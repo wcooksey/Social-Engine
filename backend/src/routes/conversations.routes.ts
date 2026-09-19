@@ -1,4 +1,5 @@
 import { isHumanReply } from '../services/reply-classification';
+import { supersedingMessage, cancelSupersededDraft } from '../services/draft-lifecycle.service';
 import { automationSafetyReason, emailSafetyReason } from '../services/send-safety.service';
 import { outboundBlockReason } from '../services/outbound.service';
 import { Router } from 'express';
@@ -325,6 +326,12 @@ router.post(
       throw new AppError('Only drafts can be approved and sent', 400);
     }
 
+    const superseding = await supersedingMessage(message);
+    if (superseding) {
+      await cancelSupersededDraft(req.user!.organizationId, message.id, superseding.id);
+      throw new AppError('This draft duplicates an email already sent. It has been cancelled; refresh the conversation.', 409);
+    }
+
     const body = String(req.body?.body ?? message.body).trim();
     if (!body) throw new AppError('body cannot be empty');
 
@@ -334,7 +341,7 @@ router.post(
       if (!conversation.contactId) throw new AppError('Choose a contact before approving this draft.');
       const verification = await emailSafetyReason(req.user!.organizationId, conversation.contactId);
       if (verification) throw new AppError(verification);
-      const updated = await prisma.message.updateMany({ where: { id: message.id, status: message.status }, data: { body, subject: req.body?.subject ?? message.subject, status: 'scheduled', approvedAt: new Date(), scheduledAt: new Date() } });
+      const updated = await prisma.message.updateMany({ where: { id: message.id, status: message.status }, data: { body, subject: req.body?.subject ?? message.subject, status: 'scheduled', blockedReason: null, retryable: true, approvedAt: new Date(), scheduledAt: new Date() } });
       if (!updated.count) throw new AppError('This draft changed. Refresh before approving again.');
       res.json({ success: true, data: await prisma.message.findUnique({ where: { id: message.id } }) });
       return;

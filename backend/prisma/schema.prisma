@@ -534,6 +534,8 @@ model Conversation {
 model Message {
   provenance Json?
   isConversationReply Boolean @default(false)
+  blockedReason String?
+  retryable Boolean @default(false)
   sequenceKey String? @unique
   approvedAt DateTime?
   id             String           @id @default(uuid())

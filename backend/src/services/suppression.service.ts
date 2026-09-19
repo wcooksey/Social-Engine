@@ -79,8 +79,7 @@ export async function suppress(input: SuppressInput): Promise<boolean> {
       // Keep the first record: the earliest opt-out is the one that matters,
       // and overwriting its reason would lose why the ban exists.
       update: {},
-    })
-    .catch(() => undefined);
+    });
   return true;
 }
 

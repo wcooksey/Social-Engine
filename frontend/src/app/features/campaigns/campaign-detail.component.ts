@@ -6,7 +6,7 @@ import { GroupContextService } from '../../core/services/group-context.service';
 import { Component, OnInit, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { CampaignsService } from '../../core/services/campaigns.service';
+import { CampaignsService, SupersededDraftReport } from '../../core/services/campaigns.service';
 import {
   Campaign,
   EmailSequenceStep,
@@ -95,6 +95,26 @@ export class CampaignDetailComponent implements OnInit {
     this.campaignsService.continueSequence(this.id, { eligibleIds: plan.eligible.map((r: any) => r.id), steps: this.continuationSteps }).subscribe({ next: () => { this.stepSaving.set(false); this.continuationPlan.set(null); this.load(); this.loadSchedule(); this.toast.success('Sequence saved. Campaign remains paused until resumed.'); }, error: e => { this.stepSaving.set(false); this.toast.error(e.error?.message || 'Could not continue sequence.'); } });
   }
 
+  draftReport = signal<SupersededDraftReport | null>(null);
+  checkingDrafts = signal(false);
+  cancellingDrafts = signal(false);
+  checkSupersededDrafts(): void {
+    this.checkingDrafts.set(true);
+    this.draftReport.set(null);
+    this.campaignsService.supersededDrafts(this.id).subscribe({
+      next: report => { this.draftReport.set(report); this.checkingDrafts.set(false); },
+      error: err => { this.checkingDrafts.set(false); this.toast.error(err.error?.message || 'Could not check drafts.'); }
+    });
+  }
+  cancelSupersededDrafts(): void {
+    const report = this.draftReport();
+    if (!report?.matches.length || this.cancellingDrafts()) return;
+    this.cancellingDrafts.set(true);
+    this.campaignsService.cancelSupersededDrafts(this.id, report.matches.map(({ draftId, sentMessageId }) => ({ draftId, sentMessageId }))).subscribe({
+      next: result => { this.cancellingDrafts.set(false); this.toast.success(`${result.cancelled} duplicate drafts cancelled; ${result.skipped} skipped. Nothing sent.`); this.checkSupersededDrafts(); this.loadActivity(); this.refreshSendingSummary(); },
+      error: err => { this.cancellingDrafts.set(false); this.toast.error(err.error?.message || 'Could not reconcile drafts. Recheck before retrying.'); }
+    });
+  }
   stepForm = { subject: '', body: '', delayDays: 3, approved: false };
   stepSaving = signal(false);
   editingStepId: string | null = null;
