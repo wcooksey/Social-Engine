@@ -67,6 +67,8 @@ export interface CampaignCycle {
 }
 
 export interface CampaignSchedule {
+  upcomingTotal: number;
+  page: number;
   days: number;
   reEngageAfterDays: number | null;
   maxCycles: number;
@@ -95,6 +97,8 @@ export interface Campaign {
   reEngageAfterDays?: number | null;
   maxCycles?: number;
   leadCount: number;
+  leadTotal: number;
+  leadPage: number;
   createdAt: string;
   autoEnrollGroup?: { id: string; name: string } | null;
   campaignLeads?: CampaignLeadEntry[];
