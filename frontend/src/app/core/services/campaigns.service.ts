@@ -18,6 +18,8 @@ export interface CampaignInput {
 export interface SupersededDraftReport {
   examined: number;
   unresolved: number;
+  reviewCounts?: Record<string, number>;
+  review?: { draftId: string; leadId: string; companyName: string; subject: string | null; draftedAt: string; reasons: string[] }[];
   matches: { draftId: string; sentMessageId: string; companyName: string; subject: string | null; draftedAt: string; sentAt: string }[];
 }
 
