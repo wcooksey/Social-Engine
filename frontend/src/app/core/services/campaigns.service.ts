@@ -15,9 +15,23 @@ export interface CampaignInput {
   maxTouches: number;
 }
 
+export interface SupersededDraftReport {
+  examined: number;
+  unresolved: number;
+  matches: { draftId: string; sentMessageId: string; companyName: string; subject: string | null; draftedAt: string; sentAt: string }[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class CampaignsService {
   private api = inject(ApiService);
+
+  supersededDrafts(id: string): Observable<SupersededDraftReport> {
+    return this.api.get<SupersededDraftReport>(`/api/campaigns/${id}/superseded-drafts`);
+  }
+  cancelSupersededDrafts(id: string, matches: { draftId: string; sentMessageId: string }[]): Observable<{ cancelled: number; skipped: number }> {
+    return this.api.post(`/api/campaigns/${id}/superseded-drafts/cancel`, { matches });
+  }
+
 
   /** The next fortnight of scheduled touches for one campaign. */
   schedule(id: string, days = 14, page = 1, pageSize = 200): Observable<CampaignSchedule> {

@@ -12,6 +12,8 @@ export interface Message {
   direction: MessageDirection;
   body: string;
   status?: string;
+  blockedReason?: string | null;
+  retryable?: boolean;
   externalId?: string;
   sentAt?: string;
   /** When a queued ('scheduled') message is due to go out. */

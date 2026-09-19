@@ -1,3 +1,5 @@
+import { retireSupersededDrafts, supersedingMessage } from './draft-lifecycle.service';
+import { outboundBlock } from './outbound.service';
 import { automationSafetyReason, emailSafetyReason } from './send-safety.service';
 import { prisma } from '../config/database';
 import {
@@ -8,7 +10,6 @@ import {
 import { leadService } from './lead.service';
 import {
   deferCampaignTouch,
-  outboundBlockReason,
   recordCampaignTouch,
   unsubscribeUrlFor,
 } from './outbound.service';
@@ -134,6 +135,12 @@ async function deliver(messageId: string, now: Date): Promise<Outcome> {
   const contact = conversation.contact;
   const organizationId = conversation.organizationId;
 
+  const superseding = await supersedingMessage(message);
+  if (superseding) {
+    await close(message.id, 'cancelled', organizationId, lead.id, `Superseded by sent message ${superseding.id}; duplicate cancelled without sending.`);
+    return 'cancelled';
+  }
+
   if (now.getTime() - message.createdAt.getTime() > MAX_QUEUE_AGE_MS) {
     await close(message.id, 'failed', organizationId, lead.id, `Queued email expired unsent after 3 days.`);
     return 'expired';
@@ -192,7 +199,7 @@ async function deliver(messageId: string, now: Date): Promise<Outcome> {
     if (campaign?.mode === 'APPROVAL_REQUIRED' && !message.approvedAt) {
       await prisma.message.updateMany({
         where: { id: message.id, status: 'sending' },
-        data: { status: 'draft_pending_approval', scheduledAt: null },
+        data: { status: 'draft_pending_approval', scheduledAt: null, blockedReason: 'Campaign requires approval before sending.', retryable: false },
       });
       return 'cancelled';
     }
@@ -203,9 +210,13 @@ async function deliver(messageId: string, now: Date): Promise<Outcome> {
 
   // Org guardrails too: quiet hours in particular, since the whole point of the
   // queue is that time has passed since the message was written.
-  const blocked = await outboundBlockReason(organizationId, lead);
+  const blocked = await outboundBlock(organizationId, lead, now);
   if (blocked) {
-    return (await reschedule(message.id, now, blocked, undefined, message.campaignId, lead.id)) as Outcome;
+    if (!blocked.retryAt) {
+      await prisma.message.updateMany({ where: { id: message.id, status: 'sending' }, data: { status: 'draft_blocked', scheduledAt: null, blockedReason: blocked.reason, retryable: false } });
+      return 'cancelled';
+    }
+    return await reschedule(message.id, now, blocked.reason, blocked.retryAt, message.campaignId, lead.id);
   }
 
   const orgConfig = await getOrgConfig(organizationId);
@@ -288,12 +299,15 @@ async function deliver(messageId: string, now: Date): Promise<Outcome> {
     where: { id: message.id },
     data: {
       status: 'sent',
+      blockedReason: null,
+      retryable: false,
       sentAt: now,
       scheduledAt: null,
       externalId: delivery.externalId?.replace(/^<|>$/g, ''),
       mailboxId: sender.mailboxId,
     },
   });
+  await retireSupersededDrafts(organizationId, message.id).catch(err => console.error('Failed to retire duplicate drafts:', err instanceof Error ? err.message : err));
   await anchorThread(conversation.id, message.id, sender, delivery).catch(() => undefined);
   await recordDelivery(message, conversation, lead, contact.email, sender, organizationId, now).catch(
     (err) => {
@@ -369,7 +383,7 @@ async function reschedule(
   const at = retryAt && retryAt > now ? retryAt : new Date(now.getTime() + RESCHEDULE_MS);
   const moved = await prisma.message.updateMany({
     where: { id: messageId, status: 'sending' },
-    data: { status: 'scheduled', scheduledAt: at },
+    data: { status: 'scheduled', scheduledAt: at, blockedReason: reason, retryable: true },
   });
   // Push the cadence hold out with it. A message that keeps being deferred while
   // its campaign clock runs out would otherwise let the sweep compose a second
@@ -377,7 +391,6 @@ async function reschedule(
   if (moved.count > 0 && campaignId && leadId) {
     await deferCampaignTouch(campaignId, leadId, new Date(at.getTime() + 60 * 60 * 1000));
   }
-  void reason; // surfaced through the mailbox/domain health UI, not per message
   return 'rescheduled';
 }
 
@@ -391,7 +404,7 @@ async function close(
 ): Promise<void> {
   const closed = await prisma.message.updateMany({
     where: { id: messageId, status: 'sending' },
-    data: { status, scheduledAt: null },
+    data: { status, scheduledAt: null, blockedReason: summary, retryable: false },
   });
   if (closed.count === 0) return; // already terminal — nothing to record
   await leadService.logActivity({

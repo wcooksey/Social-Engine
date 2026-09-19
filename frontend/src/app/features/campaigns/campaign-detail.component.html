@@ -96,6 +96,27 @@
     </app-card>
 
     <app-card padding="lg" class="section-card">
+      <h3>Older drafts</h3>
+      <p>Check this campaign across all enrolled groups for drafts whose exact email was already sent in the same recipient conversation. Uncertain matches stay untouched.</p>
+      <app-button variant="ghost" [loading]="checkingDrafts()" [disabled]="cancellingDrafts()" (clicked)="checkSupersededDrafts()">Check duplicate drafts</app-button>
+      @if (draftReport(); as report) {
+        <p>{{ report.examined }} drafts checked · {{ report.matches.length }} confirmed duplicates · {{ report.unresolved }} left for review.</p>
+        @if (report.matches.length) {
+          <details>
+            <summary>Review matched messages</summary>
+            <ul>
+              @for (match of report.matches; track match.draftId) {
+                <li>{{ match.companyName }} — {{ match.subject }}. Draft {{ match.draftedAt | date:'short' }}; sent {{ match.sentAt | date:'short' }}.</li>
+              }
+            </ul>
+          </details>
+          <p>Cancel these duplicate drafts while keeping their history. This sends no email.</p>
+          <app-button variant="ghost" [loading]="cancellingDrafts()" [disabled]="checkingDrafts()" (clicked)="cancelSupersededDrafts()">Cancel {{ report.matches.length }} confirmed duplicate drafts</app-button>
+        }
+      }
+    </app-card>
+
+    <app-card padding="lg" class="section-card">
       <h3>Email sequence</h3>
       <p>{{ c.sequenceEnabled ? 'Approved steps send in order. At the end, leads wait for the next approved step. Replies stop prospecting across channels.' : 'This campaign currently uses AI cadence. Start a fixed sequence before sending, or use the reviewed continuation below for a paused one-touch campaign.' }}</p>
       @if (!c.sequenceEnabled && c.status === 'PAUSED' && c.maxTouches === 1) {

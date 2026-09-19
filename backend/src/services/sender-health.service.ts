@@ -158,14 +158,8 @@ export interface SweepResult {
 }
 
 /**
- * One pass of the breaker: return cooled-off mailboxes to service, then pause
- * whatever has since gone bad, then pull any domain that is losing several
- * mailboxes at once.
- *
- * Resuming first is deliberate. A mailbox coming back starts a fresh warm-up,
- * so it has no sends in its window and cannot be re-paused by the same numbers
- * that paused it — the evaluation below simply passes over it until it has sent
- * enough for a new verdict.
+ * Pause unhealthy mailboxes, then pull any domain losing several mailboxes.
+ * Health pauses remain in place until an operator reviews and resumes them.
  */
 export async function runSenderHealthSweep(now: Date = new Date()): Promise<SweepResult> {
   const result: SweepResult = { mailboxesPaused: 0, mailboxesResumed: 0, domainsPaused: 0 };
@@ -177,7 +171,10 @@ export async function runSenderHealthSweep(now: Date = new Date()): Promise<Swee
     where: { status: { in: ['WARMING', 'ACTIVE'] } },
     include: { emailDomain: { select: { id: true, domain: true, purpose: true } } },
   });
-  if (live.length === 0) return result;
+  if (live.length === 0) {
+    result.domainsPaused = await pauseFailingDomains(now);
+    return result;
+  }
 
   const verdicts = await healthByMailbox(
     now,
@@ -223,7 +220,7 @@ export async function runSenderHealthSweep(now: Date = new Date()): Promise<Swee
 async function pauseFailingDomains(now: Date): Promise<number> {
   const domains = await prisma.emailDomain.findMany({
     where: { status: { in: ['WARMING', 'ACTIVE'] } },
-    include: { mailboxes: { select: { id: true, status: true, pausedUntil: true } } },
+    include: { mailboxes: { select: { id: true, status: true, pausedUntil: true, pausedReason: true } } },
   });
 
   let paused = 0;
@@ -234,10 +231,12 @@ async function pauseFailingDomains(now: Date): Promise<number> {
     const fleet = domain.mailboxes.filter((m) => m.status !== 'RETIRED');
     if (fleet.length === 0) continue;
 
-    // Health pauses carry a cooldown; ones a human set do not, and must not
-    // count toward pulling the whole domain.
+    // Current health pauses are indefinite. Recognize their generated reason,
+    // while retaining support for legacy timed pauses and excluding manual ones.
     const healthPaused = fleet.filter(
-      (m) => m.status === 'PAUSED' && m.pausedUntil !== null
+      (m) => m.status === 'PAUSED' && (
+        m.pausedUntil !== null || /^(hard bounce rate|spam complaint rate) /.test(m.pausedReason || '')
+      )
     ).length;
     const live = fleet.filter((m) => m.status === 'WARMING' || m.status === 'ACTIVE');
 

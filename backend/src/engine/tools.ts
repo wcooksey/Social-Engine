@@ -1,4 +1,6 @@
 import { messageProvenance } from '../services/message-provenance';
+import { prepareCampaignEmail } from '../services/campaign-email.service';
+import { outboundBlock } from '../services/outbound.service';
 import { getPlaybookReadiness } from '../services/playbook-readiness.service';
 import { automationSafetyReason, emailSafetyReason } from '../services/send-safety.service';
 import Anthropic from '@anthropic-ai/sdk';
@@ -1321,6 +1323,8 @@ async function recordOutbound(opts: {
   body: string;
   campaignId?: string;
   status: string;
+  blockedReason?: string | null;
+  retryable?: boolean;
   /** The type to log WHEN THE MESSAGE ACTUALLY SENT. Anything not sent is
    *  downgraded to a non-counting type automatically — EMAIL_SENT/SMS_SENT
    *  count toward the org daily cap (see outboundBlockReason), the funnel and
@@ -1361,6 +1365,8 @@ async function recordOutbound(opts: {
       body: opts.body,
       subject: opts.subject,
       status: opts.status,
+      blockedReason: opts.blockedReason,
+      retryable: opts.retryable ?? opts.status === 'scheduled',
       sentAt: opts.status === 'sent' ? new Date() : null,
       scheduledAt: opts.scheduledAt,
       senderName: opts.senderName,
@@ -2078,6 +2084,9 @@ const executors: Record<string, ToolExecutor> = {
     });
     if (!identity.postalAddress) return { sent: false, reason: 'Sender postal footer is missing. Set it on the organization or matching playbook.' };
     const body = withSignature(input.body, identity);
+    if (input.campaignId) {
+      return prepareCampaignEmail({ organizationId: ctx.organizationId, campaignId: input.campaignId, leadId: lead.id, contactId: contact.id, subject: input.subject, body, senderName: identityFromName(identity), runId: ctx.runId, experimentVariantId: input.experimentVariantId, provenance: await messageProvenance({ organizationId: ctx.organizationId, leadId: lead.id, source: 'engine', runId: ctx.runId, playbookId: ctx.playbookId, routingPlaybookId: identity.routingPlaybookId, variantId: input.experimentVariantId }) });
+    }
 
     // Which address this actually leaves from. Looked up before the draft
     // decision because "no mailbox has capacity" is itself a reason to draft.
@@ -2094,7 +2103,14 @@ const executors: Record<string, ToolExecutor> = {
     });
     const sender = decision.sender;
 
-    const blocked = await outboundBlockReason(ctx.organizationId, lead);
+    const block = await outboundBlock(ctx.organizationId, lead);
+    const blocked = block?.reason ?? null;
+    const safety = await automationSafetyReason(ctx.organizationId, lead.id, 'EMAIL', undefined, !lead.coldOutreachHeldAt);
+    if (safety) return { sent: false, reason: safety };
+    if (block?.retryAt) {
+      const queued = await recordOutbound({ ctx, isConversationReply: !!lead.coldOutreachHeldAt, leadId: lead.id, contactId: contact.id, channel: 'EMAIL', subject: input.subject, body, conversationId: thread?.id, routingPlaybookId: identity.routingPlaybookId, status: 'scheduled', scheduledAt: block.retryAt, blockedReason: block.reason, retryable: true, senderName: identityFromName(identity), activityType: 'FOLLOW_UP_SCHEDULED', activitySummary: `Email queued: ${block.reason}` });
+      return { sent: false, queued: true, scheduledFor: block.retryAt.toISOString(), reason: block.reason, ...queued };
+    }
     const draft = await draftOnlyReason(
       input.campaignId,
       ctx.organizationId,
@@ -2172,6 +2188,7 @@ const executors: Record<string, ToolExecutor> = {
         body,
         campaignId: input.campaignId,
         status: blocked ? 'draft_blocked' : 'draft_pending_approval',
+        blockedReason: draftReason,
         activityType: 'EMAIL_SENT',
         activitySummary: `Email drafted to ${contact.email}: "${input.subject}"`,
       });

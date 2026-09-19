@@ -148,6 +148,14 @@
                     <app-badge variant="info" size="xs" icon="bi-clock-history">{{ queuedLabel(m) }}</app-badge>
                   </div>
                 }
+                @if (m.blockedReason) {
+                  <p class="message-block-reason">{{ m.blockedReason }}
+                    @if (m.status === 'scheduled' && m.retryable) { <span>Retries automatically; sending checks still apply.</span> }
+                    @else if (isDraft(m)) { <span>Does not retry automatically.</span> }
+                  </p>
+                } @else if (m.status === 'draft_blocked') {
+                  <p class="message-block-reason">Historical draft: the original blocking reason was not recorded. Review before approving.</p>
+                }
                 <div class="bubble-content">{{ m.body }}</div>
                 <div class="bubble-footer">
                   @if (m.status && !isDraft(m) && !isQueued(m)) { <span class="bubble-status">{{ m.status }}</span> }
