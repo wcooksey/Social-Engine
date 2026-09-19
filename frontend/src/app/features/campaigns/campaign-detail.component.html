@@ -32,18 +32,41 @@
     </div>
 
     <app-card padding="lg" class="section-card">
-      <h2>Sending status</h2>
-      <app-button variant="secondary" (clicked)="refreshSendingSummary()">Refresh sending status</app-button>
+      <div class="card-head">
+        <div><h2>Sending status</h2><p class="section-description">Today's delivery progress and messages that need attention.</p></div>
+        <app-button variant="secondary" (clicked)="refreshSendingSummary()">Refresh sending status</app-button>
+      </div>
       @if (sendingSummary(); as summary) {
-        <p>{{ summary.day }} (UTC): <strong>{{ summary.introductionsSent }} introductions sent</strong> · <strong>{{ summary.followupsSent }} follow-ups sent</strong></p>
-        <p>{{ summary.remainingCapacity }} sends remain across available outreach mailboxes today, shared with all campaigns. Sender routing and hourly limits still apply.</p>
-        <p>Due sequence follow-ups are queued before introductions. All mailboxes keep their current capacity and quiet-hour limits.</p>
-        @for (reason of summary.reasons | keyvalue; track reason.key) { <p>{{ reason.key }}: {{ reason.value }}</p> }
-        <h3>Messages waiting or stopped</h3>
-        @for (message of summary.messages; track message.status) { <p>{{ message.status }}: {{ message.count }}</p> }
-        <app-button variant="secondary" link="/sending">Mailbox capacity and warm-up</app-button>
-        <app-button variant="secondary" link="/scheduled">Queued messages and reasons</app-button>
-      } @else { <p>Sending summary unavailable. Refresh to try again.</p> }
+        <p class="section-description">{{ summary.day }} (UTC)</p>
+        <dl class="sending-metrics">
+          <div><dt>Introductions sent</dt><dd>{{ summary.introductionsSent }}</dd></div>
+          <div><dt>Follow-ups sent</dt><dd>{{ summary.followupsSent }}</dd></div>
+          <div><dt>Remaining mailbox capacity</dt><dd>{{ summary.remainingCapacity }}</dd></div>
+        </dl>
+        <p class="section-description">Capacity is shared across campaigns. Sender routing, hourly limits and quiet hours still apply. Due sequence follow-ups are queued before introductions.</p>
+        @if ((summary.reasons | keyvalue).length) {
+          <section class="detail-panel">
+            <h3>Sending checks</h3>
+            <dl class="status-counts">
+              @for (reason of summary.reasons | keyvalue; track reason.key) {
+                <div><dt>{{ reason.key }}</dt><dd>{{ reason.value }}</dd></div>
+              }
+            </dl>
+          </section>
+        }
+        <section class="detail-panel">
+          <h3>Messages waiting or stopped</h3>
+          <dl class="status-counts">
+            @for (message of summary.messages; track message.status) {
+              <div><dt>{{ message.status.replaceAll('_', ' ') | titlecase }}</dt><dd>{{ message.count }}</dd></div>
+            } @empty { <p class="empty-text">No messages waiting or stopped.</p> }
+          </dl>
+        </section>
+        <div class="section-actions">
+          <app-button variant="secondary" link="/sending">Mailbox capacity and warm-up</app-button>
+          <app-button variant="secondary" link="/scheduled">Queued messages and reasons</app-button>
+        </div>
+      } @else { <p class="empty-text">Sending summary unavailable. Refresh to try again.</p> }
     </app-card>
 
     <app-card padding="lg" class="section-card">
@@ -65,15 +88,18 @@
           <div class="header-actions"><app-button type="submit" [loading]="savingSettings()" [disabled]="!settingsForm.name.trim()">Save campaign settings</app-button><app-button variant="ghost" [disabled]="savingSettings()" (clicked)="editingSettings.set(false)">Cancel</app-button></div>
         </form>
       }
+      <section class="detail-panel">
       <h3>Organization quiet hours</h3>
       <p>{{ quietHoursLabel() }} These hours apply across every group and campaign in the organization.</p>
       <app-button variant="secondary" size="sm" link="/settings" [queryParams]="{ returnTo: returnTo }" fragment="quiet-hours">View / edit organization quiet hours</app-button>
+      </section>
     </app-card>
 
     <app-card padding="lg" class="section-card">
       <h3>Email sequence</h3>
       <p>{{ c.sequenceEnabled ? 'Approved steps send in order. At the end, leads wait for the next approved step. Replies stop prospecting across channels.' : 'This campaign currently uses AI cadence. Start a fixed sequence before sending, or use the reviewed continuation below for a paused one-touch campaign.' }}</p>
       @if (!c.sequenceEnabled && c.status === 'PAUSED' && c.maxTouches === 1) {
+        <section class="detail-panel">
         <h4>Continue with two follow-ups</h4>
         <p>Preserve the original send. Add a follow-up after 2 days, then a final follow-up 3 days later. Removed, held, replied and ambiguous records stay excluded.</p>
         <app-button variant="secondary" (clicked)="inspectContinuation()">Preview eligible leads</app-button>
@@ -88,7 +114,9 @@
           <app-button [loading]="stepSaving()" (clicked)="applyContinuation()">Approve sequence and preserve progress</app-button>
           <p>Saving keeps the campaign paused. Review the sequence before resuming.</p>
         }
+        </section>
       }
+      <div class="sequence-list">
       @for (step of c.sequenceSteps; track step.id; let i = $index) {
         <div class="sequence-step">
           <strong>{{ i + 1 }}. {{ step.subject }}</strong>
@@ -97,23 +125,30 @@
           @if (!step.approved) { <app-button variant="secondary" size="sm" (clicked)="editStep(step)">Edit / approve</app-button> }
         </div>
       }
+      </div>
+      <section class="detail-panel sequence-editor">
       <h4>{{ editingStepId ? 'Edit draft step' : 'Append an email' }}</h4>
       <p>New approved steps apply to existing, unreplied leads at their next position. Nothing already sent is replayed. Approved copy is fixed; Use <code ngNonBindable>{{companyName}}</code> for the dealership name; replace other placeholders before saving.</p>
       <label>Subject <input class="sequence-field" [(ngModel)]="stepForm.subject" /></label>
       <label>Message <textarea class="sequence-field" rows="5" [(ngModel)]="stepForm.body"></textarea></label>
       <label>Days after previous send <input class="sequence-field" type="number" min="1" max="365" [(ngModel)]="stepForm.delayDays" /></label>
-      <label><input type="checkbox" [(ngModel)]="stepForm.approved" /> Approve this exact copy for the sequence</label>
+      <label class="approval-field"><input type="checkbox" [(ngModel)]="stepForm.approved" /> Approve this exact copy for the sequence</label>
       <p>In approval-required campaigns, each generated message still needs approval in Inbox. Appending an approved step to an active autonomous campaign makes it eligible to send.</p>
       <app-button variant="primary" [loading]="stepSaving()" (clicked)="saveStep()">{{ editingStepId ? 'Save step' : 'Append step' }}</app-button>
+      </section>
+      <section class="detail-panel sequence-preview">
       <h4>Preview without sending</h4>
-      <label>Lead <select class="sequence-field" [(ngModel)]="previewLeadId"><option value="">Choose an enrolled lead</option>@for (row of c.campaignLeads || []; track row.id) { <option [value]="row.lead.id">{{ row.lead.companyName }}</option> }</select></label>
+      <label>Lead <select class="sequence-field" [(ngModel)]="previewLeadId"><option value="">Choose a lead from the current table page</option>@for (row of c.campaignLeads || []; track row.id) { <option [value]="row.lead.id">{{ row.lead.companyName }}</option> }</select></label>
       <app-button variant="secondary" [disabled]="!previewLeadId" [loading]="previewLoading()" (clicked)="preview()">Check next email</app-button>
       @if (previewResult(); as preview) {
+        <div class="preview-result">
         <p><strong>Sender:</strong> {{ preview.sender || 'Unavailable' }} · <strong>Next capacity:</strong> {{ preview.nextEligibleAt ? (preview.nextEligibleAt | date:'medium') : 'See checks below' }}</p>
         @for (reason of preview.blockers; track reason) { <p>{{ reason }}</p> }
         <strong>{{ preview.subject }}</strong><p class="sequence-copy">{{ preview.body }}</p>
         <p>No message was created, validated externally, or sent. Delivery, reply and unsubscribe tests remain separate.</p>
+        </div>
       }
+      </section>
     </app-card>
 
     @if (c.offer) {
@@ -124,7 +159,7 @@
     }
 
     <app-card padding="lg" class="section-card">
-      <h3>Enrolled Leads ({{ c.leadCount }})</h3>
+      <h3>Enrolled Leads ({{ c.leadTotal }})</h3>
       @if (c.status !== 'ACTIVE') {
         <p class="section-subtitle warn">
           <i class="bi bi-exclamation-triangle"></i>
@@ -134,6 +169,11 @@
       <app-data-table
         [columns]="leadColumns"
         [rows]="c.campaignLeads || []"
+        [loading]="loadingLeads()"
+        [total]="c.leadTotal"
+        [page]="leadPage"
+        [pageSize]="leadPageSize"
+        (pageChange)="goToLeadPage($event)"
         [clickableRows]="true"
         emptyText="No leads enrolled yet — add them from the Leads page or ask the Engine."
         (rowClick)="goToLead($event)">
@@ -220,7 +260,7 @@
       }
     </app-card>
 
-    <app-card class="schedule-card">
+    <app-card padding="lg" class="schedule-card">
       <div class="card-head">
         <div>
           <h2>Coming up</h2>
@@ -284,6 +324,13 @@
               </div>
             }
           </div>
+          @if (upcomingTotalPages > 1) {
+            <nav class="list-pager" aria-label="Upcoming touches pagination">
+              <button type="button" class="list-pager__btn" [disabled]="upcomingPage <= 1" (click)="goToUpcomingPage(upcomingPage - 1)" aria-label="Previous upcoming page"><i class="bi bi-chevron-left"></i></button>
+              <span class="list-pager__label" aria-live="polite">Page {{ upcomingPage }} of {{ upcomingTotalPages }} · {{ s.upcomingTotal }} upcoming</span>
+              <button type="button" class="list-pager__btn" [disabled]="upcomingPage >= upcomingTotalPages" (click)="goToUpcomingPage(upcomingPage + 1)" aria-label="Next upcoming page"><i class="bi bi-chevron-right"></i></button>
+            </nav>
+          }
         } @else {
           <p class="empty-text">
             Nothing scheduled in the next {{ s.days }} days.

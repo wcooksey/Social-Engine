@@ -216,8 +216,6 @@
 // --- upcoming touches -------------------------------------------------------
 
 .schedule-card {
-  margin-top: $spacing-lg;
-
   .card-head {
     display: flex;
     align-items: flex-start;
@@ -332,9 +330,119 @@
   .cycle-input { flex: 1; min-width: 260px; }
 }
 
-.sequence-field { display: block; width: 100%; box-sizing: border-box; margin: 6px 0 16px; padding: 10px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--border-primary); border-radius: var(--control-radius, 8px); }
-.sequence-copy { white-space: pre-wrap; overflow-wrap: anywhere; }
-.sequence-step { padding: 16px 0; border-bottom: 1px solid var(--border-primary); }
 
-input.sequence-field, select.sequence-field { height:34px; padding:4px 10px; }
-.campaign-settings-form { display:grid; gap:16px; margin:18px 0; } .settings-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:16px; }
+// Shared rhythm for campaign controls and grouped information.
+.card-head, .section-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: $spacing-md;
+  margin-bottom: $spacing-md;
+}
+.section-actions {
+  justify-content: flex-start;
+  margin: $spacing-lg 0 0;
+}
+.header-actions { flex-wrap: wrap; }
+.section-card {
+  h2 { margin: 0; font-size: $font-size-lg; }
+  h3, h4 { margin: 0 0 $spacing-sm; }
+  p { line-height: 1.6; margin-bottom: $spacing-md; }
+  label { display: block; font-size: $font-size-sm; }
+}
+.section-description {
+  color: var(--text-secondary);
+  font-size: $font-size-sm;
+  max-width: 85ch;
+  margin-top: $spacing-xs;
+}
+.sending-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: $spacing-md;
+  margin: $spacing-md 0;
+  > div {
+    padding: $spacing-lg;
+    border: 1px solid var(--border-primary);
+    border-radius: $border-radius-md;
+    background: var(--bg-secondary);
+  }
+  dt { font-size: $font-size-sm; color: var(--text-secondary); }
+  dd { margin: $spacing-sm 0 0; font-size: 1.75rem; font-weight: $font-weight-semibold; }
+}
+.detail-panel {
+  padding: $spacing-lg;
+  margin-top: $spacing-lg;
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+  background: var(--bg-secondary);
+  > :last-child { margin-bottom: 0; }
+}
+.status-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: $spacing-sm;
+  margin: $spacing-md 0 0;
+  > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $spacing-md;
+    padding: $spacing-md;
+    border: 1px solid var(--border-primary);
+    border-radius: $border-radius-md;
+    background: var(--bg-primary);
+  }
+  dt { color: var(--text-secondary); font-size: $font-size-sm; overflow-wrap: anywhere; }
+  dd { margin: 0; font-weight: $font-weight-semibold; font-variant-numeric: tabular-nums; }
+}
+.sequence-list { display: grid; gap: $spacing-md; margin-top: $spacing-lg; }
+.sequence-list:empty { display: none; }
+.sequence-step {
+  display: grid;
+  gap: $spacing-sm;
+  padding: $spacing-lg;
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+  min-width: 0;
+  strong { overflow-wrap: anywhere; }
+  p { margin: 0; color: var(--text-secondary); font-size: $font-size-sm; }
+  .sequence-copy { margin-top: $spacing-sm; color: var(--text-primary); }
+}
+.sequence-field {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: $spacing-sm 0 $spacing-md;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: $border-radius-md;
+  &:focus-visible { outline: 2px solid $primary-blue; outline-offset: 2px; }
+}
+textarea.sequence-field { resize: vertical; }
+.sequence-copy { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.section-card .approval-field {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-sm;
+  margin: $spacing-sm 0 $spacing-md;
+  input { margin-top: 3px; }
+}
+.preview-result { margin-top: $spacing-lg; padding-top: $spacing-lg; border-top: 1px solid var(--border-primary); }
+.campaign-settings-form { display: grid; gap: $spacing-md; margin-top: $spacing-lg; }
+.settings-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: $spacing-md; }
+.touch { padding: $spacing-md 0; }
+.list-pager { flex-wrap: wrap; }
+.list-pager__btn { min-width: 36px; min-height: 36px; }
+@include responsive($breakpoint-md) {
+  .sending-metrics, .settings-fields { grid-template-columns: 1fr; }
+  .detail-panel, .sequence-step { padding: $spacing-md; }
+  .touch .touch-who { min-width: 0; overflow-wrap: anywhere; }
+  .touch .touch-when { flex-wrap: wrap; }
+  .touch .due { text-align: left; }
+  .card-head > *, .section-actions > * { min-width: 0; max-width: 100%; }
+}

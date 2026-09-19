@@ -20,8 +20,8 @@ export class CampaignsService {
   private api = inject(ApiService);
 
   /** The next fortnight of scheduled touches for one campaign. */
-  schedule(id: string, days = 14): Observable<CampaignSchedule> {
-    return this.api.get<CampaignSchedule>(`/api/campaigns/${id}/schedule`, { days });
+  schedule(id: string, days = 14, page = 1, pageSize = 200): Observable<CampaignSchedule> {
+    return this.api.get<CampaignSchedule>(`/api/campaigns/${id}/schedule`, { days, page, pageSize });
   }
 
   /** Move or drop one lead's next touch. */
@@ -52,8 +52,8 @@ export class CampaignsService {
     return this.api.get<Campaign[]>('/api/campaigns', { groupId });
   }
 
-  get(id: string, groupId?: string): Observable<Campaign> {
-    return this.api.get<Campaign>(`/api/campaigns/${id}`, { groupId });
+  get(id: string, groupId?: string, leadPage = 1, leadPageSize = 200): Observable<Campaign> {
+    return this.api.get<Campaign>(`/api/campaigns/${id}`, { groupId, leadPage, leadPageSize });
   }
 
   create(input: CampaignInput): Observable<Campaign> {

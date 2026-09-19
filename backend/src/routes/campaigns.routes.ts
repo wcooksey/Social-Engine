@@ -89,6 +89,12 @@ router.get(
   '/:id',
   asyncHandler(async (req, res) => {
     const groupId = await requireGroup(req.user!.organizationId, req.query.groupId);
+    const leadPageSize = Math.min(200, Math.max(1, parseInt(String(req.query.leadPageSize ?? '200'), 10) || 200));
+    const requestedLeadPage = Math.max(1, parseInt(String(req.query.leadPage ?? '1'), 10) || 1);
+    const leadTotal = await prisma.campaignLead.count({
+      where: { campaignId: req.params.id, campaign: { organizationId: req.user!.organizationId }, ...(groupId ? { lead: { groupId } } : {}) },
+    });
+    const leadPage = Math.min(requestedLeadPage, Math.max(1, Math.ceil(leadTotal / leadPageSize)));
     const campaign = await prisma.campaign.findFirst({
       where: { id: req.params.id, organizationId: req.user!.organizationId, ...(groupId ? campaignGroupWhere(groupId) : {}) },
       include: {
@@ -108,13 +114,14 @@ router.get(
               },
             },
           },
-          orderBy: { createdAt: 'desc' },
-          take: 200,
+          orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+          take: leadPageSize,
+          skip: (leadPage - 1) * leadPageSize,
         },
       },
     });
     if (!campaign) throw new AppError('Campaign not found', 404);
-    res.json({ success: true, data: serialize(campaign as never) });
+    res.json({ success: true, data: { ...serialize(campaign as never), leadTotal, leadPage } });
   })
 );
 
@@ -308,15 +315,22 @@ router.get(
     const days = Math.min(Math.max(parseInt(String(req.query.days ?? '14'), 10) || 14, 1), 90);
     const horizon = new Date(Date.now() + days * 24 * 3600 * 1000);
 
+    const pageSize = Math.min(200, Math.max(1, parseInt(String(req.query.pageSize ?? '200'), 10) || 200));
+    const requestedPage = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
+    const upcomingWhere = {
+      campaignId: campaign.id,
+      status: { in: ['PENDING', 'IN_SEQUENCE'] as ('PENDING' | 'IN_SEQUENCE')[] },
+      OR: [{ nextTouchAt: null }, { nextTouchAt: { lte: horizon } }],
+    };
+    const upcomingTotal = await prisma.campaignLead.count({ where: upcomingWhere });
+    const page = Math.min(requestedPage, Math.max(1, Math.ceil(upcomingTotal / pageSize)));
+
     const [upcoming, cycles, dormantCount] = await Promise.all([
       prisma.campaignLead.findMany({
-        where: {
-          campaignId: campaign.id,
-          status: { in: ['PENDING', 'IN_SEQUENCE'] },
-          OR: [{ nextTouchAt: null }, { nextTouchAt: { lte: horizon } }],
-        },
-        orderBy: [{ nextTouchAt: 'asc' }, { createdAt: 'asc' }],
-        take: 200,
+        where: upcomingWhere,
+        orderBy: [{ nextTouchAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        take: pageSize,
+        skip: (page - 1) * pageSize,
         include: {
           lead: {
             select: {
@@ -344,6 +358,8 @@ router.get(
         maxTouches: campaign.maxTouches,
         // Leads resting between passes — the pool re-engagement will draw from.
         dormantCount,
+        upcomingTotal,
+        page,
         cycles,
         upcoming: upcoming.map((cl) => ({
           id: cl.id,

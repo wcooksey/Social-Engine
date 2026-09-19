@@ -121,6 +121,41 @@ export class CampaignDetailComponent implements OnInit {
   readonly activityPageSize = 25;
   loadingActivity = signal(true);
 
+  leadPage = 1;
+  readonly leadPageSize = 25;
+  upcomingPage = 1;
+  readonly upcomingPageSize = 10;
+
+  loadingLeads = signal(false);
+
+  get upcomingTotalPages(): number {
+    return Math.max(1, Math.ceil((this.schedule()?.upcomingTotal || 0) / this.upcomingPageSize));
+  }
+
+  goToLeadPage(page: number): void {
+    if (this.loadingLeads()) return;
+    const previousPage = this.leadPage;
+    this.leadPage = page;
+    this.loadingLeads.set(true);
+    this.campaignsService.get(this.id, this.workspaceGroupId || undefined, page, this.leadPageSize).subscribe({
+      next: campaign => {
+        this.campaign.set(campaign);
+        this.leadPage = campaign.leadPage;
+        this.loadingLeads.set(false);
+      },
+      error: () => {
+        this.loadingLeads.set(false);
+        this.leadPage = previousPage;
+        this.toast.error('Could not load enrolled leads');
+      }
+    });
+  }
+
+  goToUpcomingPage(page: number): void {
+    if (this.loadingSchedule()) return;
+    this.loadSchedule(Math.min(Math.max(1, page), this.upcomingTotalPages));
+  }
+
   leadColumns: DataTableColumn[] = [
     { key: 'companyName', header: 'Company' },
     { key: 'pipeline', header: 'Pipeline' },
@@ -167,11 +202,12 @@ export class CampaignDetailComponent implements OnInit {
 
   // --- schedule -----------------------------------------------------------
 
-  loadSchedule(): void {
+  loadSchedule(page = this.upcomingPage): void {
     this.loadingSchedule.set(true);
-    this.campaignsService.schedule(this.id).subscribe({
+    this.campaignsService.schedule(this.id, 14, page, this.upcomingPageSize).subscribe({
       next: (s) => {
         this.schedule.set(s);
+        this.upcomingPage = s.page;
         this.loadingSchedule.set(false);
       },
       error: () => this.loadingSchedule.set(false)
@@ -261,9 +297,10 @@ export class CampaignDetailComponent implements OnInit {
   load(): void {
     this.refreshSendingSummary();
     this.loading.set(true);
-    this.campaignsService.get(this.id, this.workspaceGroupId || undefined).subscribe({
+    this.campaignsService.get(this.id, this.workspaceGroupId || undefined, this.leadPage, this.leadPageSize).subscribe({
       next: (campaign) => {
         this.campaign.set(campaign);
+        this.leadPage = campaign.leadPage;
         this.loading.set(false);
       },
       error: () => {
