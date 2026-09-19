@@ -255,13 +255,14 @@ export async function verifyEmail(
     }
     const body = (await res.json()) as { result?: string; risk?: string };
     const result = (body.result || '').toLowerCase();
-    if (result === 'deliverable') return { verdict: 'deliverable' };
     if (result === 'undeliverable' || result === 'do_not_send') {
       return { verdict: 'undeliverable', detail: body.result };
     }
     if (result === 'catch_all' || body.risk === 'high' || body.risk === 'medium') {
       return { verdict: 'risky', detail: `${body.result || ''} risk=${body.risk || ''}`.trim() };
     }
+    // A positive mailbox result must not override Mailgun's risk assessment.
+    if (result === 'deliverable') return { verdict: 'deliverable' };
     return { verdict: 'unknown', detail: body.result };
   } catch (err) {
     // Network/timeout: the check never ran, so this is 'unavailable', not a
