@@ -50,6 +50,7 @@
             </div>
           }
 
+          <app-button *ngIf="auth.currentUser()?.role === 'OWNER' || auth.currentUser()?.role === 'ADMIN'" variant="secondary" size="sm" [link]="['/crm/groups', group.id]" (click)="$event.stopPropagation()">Calling CRM · CSV & access</app-button>
           <div class="group-footer">
             <span class="lead-count"><i class="bi bi-building"></i> {{ group.leadCount }} leads</span><app-button variant="secondary" size="sm" [link]="['/groups', group.id]" (click)="$event.stopPropagation()">Open group</app-button>
           </div>

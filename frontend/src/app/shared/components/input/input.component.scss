@@ -77,17 +77,25 @@
     padding-right: 2.5rem;
   }
 
+  &--textarea {
+    height: auto;
+    min-height: 100px;
+    resize: vertical;
+  }
+
   // Let native date/time pickers pick light or dark glyphs to match the app theme
   // instead of always rendering dark icons on a dark background.
   &[type="date"],
-  &[type="time"] {
+  &[type="time"],
+  &[type="datetime-local"] {
     color-scheme: light;
   }
 }
 
 :host-context([data-theme="dark"]) {
   .input[type="date"],
-  .input[type="time"] {
+  .input[type="time"],
+  .input[type="datetime-local"] {
     color-scheme: dark;
   }
 }
@@ -145,4 +153,3 @@
   color: var(--text-tertiary, $gray-500);
   margin-top: -$spacing-xs;
 }
-

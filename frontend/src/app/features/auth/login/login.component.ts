@@ -13,6 +13,7 @@ import { ButtonComponent } from '../../../shared/components/button/button.compon
   styleUrl: './login.component.scss'
 })
 export class LoginComponent {
+  get callerLogin() { return this.router.url.startsWith('/crm'); }
   loginForm: FormGroup;
   isLoading = false;
   error: string | null = null;
@@ -41,10 +42,10 @@ export class LoginComponent {
 
     this.authService.login({ email, password }).subscribe({
       next: () => {
-        this.router.navigate(['/groups']);
+        this.router.navigate([this.authService.currentUser()?.role === 'CALLER' || this.router.url.startsWith('/crm') ? '/crm' : '/groups']);
       },
       error: (err) => {
-        this.error = err.error?.error?.message || 'Login failed. Please try again.';
+        this.error = typeof err.error?.error === 'string' ? err.error.error : 'Login failed. Please try again.';
         this.isLoading = false;
       }
     });

@@ -5,6 +5,7 @@
       <span class="brand-text">Neuralnetics</span>
     </div>
 
+    <h1 *ngIf="callerLogin">Calling CRM</h1>
     <form [formGroup]="loginForm" (ngSubmit)="onSubmit()" class="auth-form">
       @if (error) {
         <div class="auth-error">{{ error }}</div>
@@ -13,6 +14,8 @@
       <input
         type="email"
         placeholder="Email"
+        aria-label="Email"
+        autocomplete="username"
         formControlName="email"
         class="auth-input"
         [class.input-error]="emailError"
@@ -24,6 +27,8 @@
       <input
         type="password"
         placeholder="Password"
+        aria-label="Password"
+        autocomplete="current-password"
         formControlName="password"
         class="auth-input"
         [class.input-error]="passwordError"
@@ -41,7 +46,8 @@
         Sign In
       </app-button>
 
-      <a routerLink="/register" class="switch-link">Don't have an account? Create one</a>
+      <p *ngIf="callerLogin">Use the login created from your group invitation.</p>
+      <a *ngIf="!callerLogin" routerLink="/register" class="switch-link">Don't have an account? Create one</a>
     </form>
   </div>
 </div>

@@ -19,6 +19,7 @@
     </a>
   </nav>
 
+  <a class="top-nav-item" routerLink="/crm" (click)="handleNavClick()" *ngIf="currentUser()?.role === 'OWNER' || currentUser()?.role === 'ADMIN'"><i class="bi bi-telephone nav-icon"></i><span>Calling CRM</span></a>
   <details class="global-tools">
     <summary class="top-nav-item"><i class="bi bi-grid nav-icon" aria-hidden="true"></i><span class="nav-label">Global tools</span><i class="bi bi-chevron-down expand-arrow" aria-hidden="true"></i><i class="bi bi-chevron-up collapse-arrow" aria-hidden="true"></i></summary>
     <nav class="top-nav" aria-label="Global tools">

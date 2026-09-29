@@ -50,7 +50,7 @@ async function sendAlertEmail(
 
   const org = await prisma.organization.findUnique({ where: { id: organizationId } });
   const recipients = await prisma.user.findMany({
-    where: { organizationId, isActive: true, notifyByEmail: true },
+    where: { organizationId, isActive: true, notifyByEmail: true, role: { not: 'CALLER' } },
     select: { email: true },
   });
   if (recipients.length === 0) return;
@@ -119,7 +119,7 @@ export async function sendDailyDigest(organizationId: string): Promise<boolean> 
 
   const org = await prisma.organization.findUnique({ where: { id: organizationId } });
   const recipients = await prisma.user.findMany({
-    where: { organizationId, isActive: true, notifyByEmail: true },
+    where: { organizationId, isActive: true, notifyByEmail: true, role: { not: 'CALLER' } },
     select: { email: true, firstName: true },
   });
   if (recipients.length === 0) return false;

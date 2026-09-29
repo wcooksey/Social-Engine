@@ -39,8 +39,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       : req;
 
   const endSession = (error: unknown) => {
+    const loginPath = authService.currentUser()?.role === 'CALLER' || router.url.startsWith('/crm') ? '/crm/login' : '/login';
     authService.logout();
-    void router.navigate(['/login']);
+    void router.navigate([loginPath]);
     return throwError(() => error);
   };
 

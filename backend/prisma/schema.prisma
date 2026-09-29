@@ -12,6 +12,7 @@ datasource db {
 // ============================================
 
 enum Role {
+  CALLER
   OWNER
   ADMIN
   MEMBER
@@ -100,6 +101,8 @@ model User {
   // Whether this user receives notification emails (alerts + daily digest).
   notifyByEmail  Boolean      @default(true)
 
+  crmGrants CrmGrant[]
+  crmEvents CrmEvent[]
   engineChats EngineChat[]
   agentRuns   AgentRun[]
   notifications Notification[]
@@ -124,6 +127,8 @@ enum LeadStatus {
 }
 
 model LeadGroup {
+  crmGrants CrmGrant[]
+  crmInvites CrmInvite[]
   engineChats EngineChat[]
   id             String       @id @default(uuid())
   organizationId String
@@ -194,6 +199,8 @@ enum EnrichmentTier {
 }
 
 model Lead {
+  crmRecord CrmRecord?
+  crmEvents CrmEvent[]
   engagementChannel String?
   coldOutreachHeldAt DateTime?
   id             String       @id @default(uuid())
@@ -1472,4 +1479,61 @@ model EmailEventReceipt {
   event String
   receivedAt DateTime @default(now())
   @@index([organizationId, receivedAt])
+}
+
+// Caller workspace: independent of Engine stages, messages and internal notes.
+model CrmGrant {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId   String
+  group     LeadGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  canExport Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  @@unique([userId, groupId])
+  @@index([groupId])
+}
+
+model CrmInvite {
+  id        String    @id @default(uuid())
+  groupId   String
+  group     LeadGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  email     String
+  tokenHash String    @unique
+  canExport Boolean   @default(false)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([groupId])
+}
+
+model CrmRecord {
+  leadId       String    @id
+  lead         Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  stage        String    @default("NEW")
+  callCount    Int       @default(0)
+  lastCalledAt DateTime?
+  followUpAt   DateTime?
+  updatedAt    DateTime  @updatedAt
+}
+
+model CrmEvent {
+  id         String    @id @default(uuid())
+  leadId     String
+  lead       Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  authorName String
+  requestId  String
+  kind       String
+  outcome    String?
+  note       String
+  stage      String?
+  followUpAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@unique([userId, requestId])
+  @@index([leadId, createdAt])
 }

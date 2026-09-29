@@ -1,6 +1,7 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { AuthService } from '../../core/services/auth.service';
 import { Router } from '@angular/router';
 import { LeadGroupsService } from '../../core/services/lead-groups.service';
 import { ENRICHMENT_TIERS, ENRICHMENT_TIER_LABEL, EnrichmentTier, LeadGroup, UNGROUPED_ID } from '../../core/models/lead.model';
@@ -30,6 +31,7 @@ export class GroupsComponent implements OnInit {
   form = { name: '', goal: '' };
 
   constructor(
+    public auth: AuthService,
     private leadGroupsService: LeadGroupsService,
     private router: Router,
     private toast: ToastService

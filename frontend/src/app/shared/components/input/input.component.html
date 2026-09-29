@@ -11,18 +11,39 @@
     @if (icon && iconPosition === 'left') {
       <span class="input-icon input-icon--left"><i [class]="icon"></i></span>
     }
-    <input
-      [type]="getInputType()"
-      [attr.aria-label]="label || placeholder"
-      [placeholder]="placeholder"
-      [required]="required"
-      [disabled]="disabled"
-      [value]="value"
-      (input)="onInput($event)"
-      (blur)="onBlur()"
-      class="input"
-      [class.input--with-icon-left]="icon && iconPosition === 'left'"
-      [class.input--with-icon-right]="icon && iconPosition === 'right' || type === 'password'">
+    @if (type === 'textarea') {
+      <textarea
+        class="input input--textarea"
+        [attr.aria-label]="label || placeholder"
+        [placeholder]="placeholder"
+        [required]="required"
+        [disabled]="disabled"
+        [readOnly]="readonly"
+        [attr.minlength]="minlength"
+        [attr.maxlength]="maxlength"
+        [rows]="rows"
+        [value]="value"
+        (input)="onInput($event)"
+        (blur)="onBlur()"></textarea>
+    } @else {
+      <input
+        [type]="getInputType()"
+        [attr.aria-label]="label || placeholder"
+        [placeholder]="placeholder"
+        [required]="required"
+        [disabled]="disabled"
+        [readOnly]="readonly"
+        [attr.minlength]="minlength"
+        [attr.maxlength]="maxlength"
+        [attr.autocomplete]="autocomplete"
+        [value]="value"
+        (focus)="selectOnFocus && $any($event.target).select()"
+        (input)="onInput($event)"
+        (blur)="onBlur()"
+        class="input"
+        [class.input--with-icon-left]="icon && iconPosition === 'left'"
+        [class.input--with-icon-right]="icon && iconPosition === 'right' || type === 'password'">
+    }
     @if (type === 'password') {
       <button
         type="button"
@@ -43,4 +64,3 @@
     <span class="input-helper">{{ helperText }}</span>
   }
 </div>
-

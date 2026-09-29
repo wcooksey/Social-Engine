@@ -1,8 +1,12 @@
 import { Routes } from '@angular/router';
-import { authGuard, guestGuard, superAdminGuard } from './core/guards/auth.guard';
+import { authGuard, guestGuard, superAdminGuard, workspaceGuard } from './core/guards/auth.guard';
 import { LayoutComponent } from './shared/components/layout/layout.component';
 
 export const routes: Routes = [
+  { path: 'crm/login', canActivate: [guestGuard], loadComponent: () => import('./features/auth/login/login.component').then(m => m.LoginComponent) },
+  { path: 'crm/accept', loadComponent: () => import('./features/crm/crm-accept.component').then(m => m.CrmAcceptComponent) },
+  { path: 'crm', canActivate: [authGuard], loadComponent: () => import('./features/crm/crm.component').then(m => m.CrmComponent) },
+  { path: 'crm/groups/:groupId', canActivate: [authGuard], loadComponent: () => import('./features/crm/crm.component').then(m => m.CrmComponent) },
   {
     path: 'login',
     canActivate: [guestGuard],
@@ -21,7 +25,8 @@ export const routes: Routes = [
   {
     path: '',
     component: LayoutComponent,
-    canActivate: [authGuard],
+    canActivate: [authGuard, workspaceGuard],
+    canActivateChild: [workspaceGuard],
     children: [
       {
         path: 'dashboard',
