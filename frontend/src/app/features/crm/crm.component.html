@@ -9,8 +9,8 @@
     </nav>
   </header>
   <main>
-    <p class="message message--error" role="alert" *ngIf="error">{{error}}</p>
-    <p class="message message--success" role="status" *ngIf="notice">{{notice}}</p>
+    <p class="message message--error" role="alert" *ngIf="error && !detailOpen">{{error}}</p>
+    <p class="message message--success" role="status" *ngIf="notice && !detailOpen">{{notice}}</p>
     <ng-container *ngIf="!group">
       <div class="page-header"><div><h1>Your contact groups</h1><p>Open a group to review contacts, log calls and plan follow-ups.</p></div></div>
       <div class="cards">
@@ -26,6 +26,7 @@
         <div><h1>{{group.name}}</h1><p>Shared call history · {{total}} matching leads</p></div>
         <app-button *ngIf="group.canExport" variant="secondary" icon="bi-download" (clicked)="exportCsv()" [loading]="exporting">Download group CSV</app-button>
       </div>
+      <div class="group-tools">
       <app-card *ngIf="manager" class="panel">
         <details><summary>Upload contacts from CSV</summary><div class="disclosure-content">
           <p>Import into <strong>{{group.name}}</strong>. Up to 1,000 rows / 1 MB. Company is required; use one row per contact.</p>
@@ -71,6 +72,7 @@
           <div class="team-row" *ngFor="let s of stats"><strong>{{s.firstName}} {{s.lastName}} · {{s.calls}} calls</strong><div class="badges"><app-badge *ngFor="let o of s.outcomes" variant="neutral" size="sm">{{label(o.outcome)}}: {{o.count}}</app-badge></div></div>
         </div></details>
       </app-card>
+      </div>
       <app-card class="panel">
         <form class="form-row" (ngSubmit)="load(true)">
           <app-input class="grow" label="Search" [(ngModel)]="search" name="search" placeholder="Company, city or phone" icon="bi bi-search"></app-input>
@@ -79,24 +81,35 @@
           <app-button variant="secondary" type="submit">Apply filters</app-button>
         </form>
       </app-card>
-      <div class="workbench">
-        <app-card class="list"><section aria-label="Lead list">
-          <p class="empty-state" *ngIf="loading">Loading contacts…</p>
-          <button type="button" class="lead" *ngFor="let l of leads" (click)="open(l)" [disabled]="saving || retryPending" [class.selected]="selected?.id === l.id" [attr.aria-pressed]="selected?.id === l.id">
-            <app-card padding="sm" [selected]="selected?.id === l.id">
-              <div class="lead-content"><strong>{{l.companyName}}</strong><span>{{locationLabel(l)}} · {{l.phone || 'No company phone'}}</span>
-                <div class="badges"><app-badge [variant]="stageVariant(l.doNotContact ? 'DO_NOT_CONTACT' : l.crmRecord?.stage || 'NEW')" size="sm">{{l.doNotContact ? 'Do not contact' : label(l.crmRecord?.stage || 'NEW')}}</app-badge><small>{{l.crmRecord?.callCount || 0}} {{l.crmRecord?.callCount === 1 ? 'call' : 'calls'}}</small></div>
-                <small *ngIf="l.crmRecord?.followUpAt">Follow-up {{l.crmRecord.followUpAt | date:'short'}}</small>
-              </div>
-            </app-card>
-          </button>
-          <p class="empty-state" *ngIf="!loading && !leads.length">No leads match these filters.</p>
-          <div class="pagination"><app-button variant="secondary" size="sm" (clicked)="page=page-1;load()" [disabled]="page<=1 || loading">Previous</app-button><span>Page {{page}}</span><app-button variant="secondary" size="sm" (clicked)="page=page+1;load()" [disabled]="page*50>=total || loading">Next</app-button></div>
-        </section></app-card>
-        <app-card class="detail"><section aria-label="Lead details">
-          <p class="empty-state" *ngIf="detailLoading">Loading lead history…</p><p class="empty-state" *ngIf="!selected && !detailLoading">Choose a lead to view contacts and call history.</p>
+      <section class="leads-table" aria-label="Lead list">
+        <app-data-table [rows]="leads" [columns]="leadColumns" [loading]="loading"
+          [clickableRows]="!saving && !retryPending" (rowClick)="open($event)"
+          [total]="total" [page]="page" [pageSize]="50" (pageChange)="page=$event;load()"
+          emptyText="No leads match these filters." minWidth="1180px">
+          <ng-template appDataCell="companyName" let-row="row">
+            <button type="button" class="company-button" aria-haspopup="dialog" [disabled]="saving || retryPending"
+              (click)="$event.stopPropagation();open(row)">{{row.companyName}}</button>
+          </ng-template>
+          <ng-template appDataCell="location" let-row="row">{{locationLabel(row)}}</ng-template>
+          <ng-template appDataCell="contact" let-row="row">
+            <span *ngIf="tableContact(row) as contact; else noContact">{{contact.firstName}} {{contact.lastName}}<small *ngIf="row.contacts.length > 1"> +{{row.contacts.length - 1}}</small></span>
+            <ng-template #noContact><span class="muted">—</span></ng-template>
+          </ng-template>
+          <ng-template appDataCell="phone" let-row="row">{{row.phone || tableContact(row)?.phone || '—'}}</ng-template>
+          <ng-template appDataCell="email" let-row="row">{{tableContact(row)?.email || '—'}}</ng-template>
+          <ng-template appDataCell="stage" let-row="row"><app-badge [variant]="stageVariant(row.doNotContact ? 'DO_NOT_CONTACT' : row.crmRecord?.stage || 'NEW')" size="sm">{{row.doNotContact ? 'Do not contact' : label(row.crmRecord?.stage || 'NEW')}}</app-badge></ng-template>
+          <ng-template appDataCell="calls" let-row="row">{{row.crmRecord?.callCount || 0}}</ng-template>
+          <ng-template appDataCell="lastCalled" let-row="row"><span *ngIf="row.crmRecord?.lastCalledAt; else neverCalled">{{row.crmRecord.lastCalledAt | date:'MMM d, y, h:mm a'}}</span><ng-template #neverCalled><span class="muted">Never</span></ng-template></ng-template>
+          <ng-template appDataCell="followUp" let-row="row"><span *ngIf="row.crmRecord?.followUpAt; else noFollowUp">{{row.crmRecord.followUpAt | date:'MMM d, y, h:mm a'}}</span><ng-template #noFollowUp><span class="muted">—</span></ng-template></ng-template>
+        </app-data-table>
+      </section>
+      <app-dialog [show]="detailOpen" [title]="selected?.companyName || 'Lead details'" size="lg" [closable]="!saving && !retryPending" (close)="closeLead()">
+        <section class="detail" aria-label="Lead details">
+          <p class="message message--error" role="alert" *ngIf="error">{{error}}</p>
+          <p class="message message--success" role="status" *ngIf="notice">{{notice}}</p>
+          <p class="empty-state" *ngIf="detailLoading">Loading lead history…</p>
           <ng-container *ngIf="selected as l">
-            <h2>{{l.companyName}}</h2><p>{{l.address}} {{l.city}} {{l.state}} {{l.postalCode}}</p>
+            <p>{{l.address}} {{l.city}} {{l.state}} {{l.postalCode}}</p>
             <p><span *ngIf="website(l.website)"><a [href]="website(l.website)" target="_blank" rel="noopener noreferrer">Open website ↗</a> · </span>{{l.phone || 'No company phone'}}</p>
             <p class="message message--error" *ngIf="l.doNotContact">Do not contact. Calling is blocked for this lead.</p>
             <p class="message message--info" *ngIf="l.contactReviewReason">Review before contacting: {{l.contactReviewReason}}</p>
@@ -121,8 +134,9 @@
             <article class="event" *ngFor="let e of l.crmEvents"><strong>{{e.authorName}} · {{label(e.outcome || e.kind)}}</strong><small>{{e.createdAt | date:'medium'}}</small><p class="note">{{e.note}}</p><app-badge *ngIf="e.stage" [variant]="stageVariant(e.stage)" size="sm">{{label(e.stage)}}</app-badge><small *ngIf="e.followUpAt">Follow-up: {{e.followUpAt | date:'short'}}</small></article>
             <small *ngIf="l.crmEvents.length===200">Showing the most recent 200 entries.</small>
           </ng-container>
-        </section></app-card>
-      </div>
+        </section>
+        <div dialog-footer><app-button variant="secondary" [disabled]="saving || retryPending" (clicked)="closeLead()">Back to leads</app-button></div>
+      </app-dialog>
     </ng-container>
   </main>
 </div>

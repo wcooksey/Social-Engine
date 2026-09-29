@@ -13,9 +13,10 @@ import { SelectComponent, SelectOption } from '../../shared/components/select/se
 import { CardComponent } from '../../shared/components/card/card.component';
 import { BadgeComponent, BadgeVariant } from '../../shared/components/badge/badge.component';
 import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme-toggle.component';
+import { DialogComponent } from '../../shared/components/dialog/dialog.component';
 import { DataTableComponent, DataTableCellDirective, DataTableColumn } from '../../shared/components/data-table';
 
-@Component({ selector: 'app-crm', standalone: true, imports: [CommonModule, FormsModule, RouterLink, ButtonComponent, InputComponent, SelectComponent, CardComponent, BadgeComponent, ThemeToggleComponent, DataTableComponent, DataTableCellDirective], templateUrl: './crm.component.html', styleUrl: './crm.component.scss' })
+@Component({ selector: 'app-crm', standalone: true, imports: [CommonModule, FormsModule, RouterLink, ButtonComponent, InputComponent, SelectComponent, CardComponent, BadgeComponent, ThemeToggleComponent, DataTableComponent, DataTableCellDirective, DialogComponent], templateUrl: './crm.component.html', styleUrl: './crm.component.scss' })
 export class CrmComponent implements OnInit {
   api = inject(ApiService); auth = inject(AuthService); http = inject(HttpClient); router = inject(Router); route = inject(ActivatedRoute);
   private destroyRef = inject(DestroyRef);
@@ -23,8 +24,10 @@ export class CrmComponent implements OnInit {
   private detailRequest?: Subscription;
   private context = 0;
   private initialFollowUp = '';
+  private listScrollY = 0;
   groups: any[] = []; group: any = null; leads: any[] = []; selected: any = null;
   stats: any[] = []; members: any[] = []; invites: any[] = []; total = 0; page = 1; search = ''; stage = ''; due = false;
+  detailOpen = false;
   loading = false; detailLoading = false; saving = false; inviting = false; exporting = false;
   error = ''; notice = ''; invitation = ''; inviteEmail = ''; canExport = false;
   importing = false; importPreview: any = null; importCsv = ''; importFile = '';
@@ -35,6 +38,13 @@ export class CrmComponent implements OnInit {
   outcomes = ['NO_ANSWER','VOICEMAIL','ANSWERED','WRONG_NUMBER','INTERESTED','NOT_INTERESTED','CALLBACK','DO_NOT_CONTACT'];
   readonly stageOptions: SelectOption[] = this.stages.map(value => ({ value, label: this.label(value) }));
   readonly outcomeOptions: SelectOption[] = this.outcomes.map(value => ({ value, label: this.label(value) }));
+  readonly leadColumns: DataTableColumn[] = [
+    { key: 'companyName', header: 'Company' }, { key: 'location', header: 'Location' },
+    { key: 'contact', header: 'Contact' }, { key: 'phone', header: 'Phone' },
+    { key: 'email', header: 'Email' }, { key: 'stage', header: 'Status' },
+    { key: 'calls', header: 'Calls', align: 'right' },
+    { key: 'lastCalled', header: 'Last called' }, { key: 'followUp', header: 'Follow-up' },
+  ];
   readonly importColumns: DataTableColumn[] = [
     { key: 'companyName', header: 'Company' }, { key: 'contactName', header: 'Contact' },
     { key: 'email', header: 'Email' }, { key: 'contactPhone', header: 'Direct phone' },
@@ -50,6 +60,7 @@ export class CrmComponent implements OnInit {
     return 'neutral';
   }
   get manager() { return ['OWNER','ADMIN'].includes(this.auth.currentUser()?.role || ''); }
+  tableContact(lead: any) { return lead.contacts?.find((contact: any) => !contact.optedOut) || lead.contacts?.[0]; }
   locationLabel(lead: any) { return [lead.city, lead.state].filter(Boolean).join(', ') || 'Location not provided'; }
   label(s: string) { return s.replace(/_/g, ' ').toLowerCase(); }
 
@@ -61,7 +72,7 @@ export class CrmComponent implements OnInit {
           this.context++;
           this.listRequest?.unsubscribe(); this.detailRequest?.unsubscribe();
           this.group = groups.find(g => g.id === params.get('groupId'));
-          this.selected = null; this.leads = []; this.members = []; this.invites = []; this.stats = [];
+          this.detailOpen = false; this.selected = null; this.leads = []; this.members = []; this.invites = []; this.stats = [];
           this.invitation = ''; this.notice = ''; this.error = ''; this.page = 1; this.total = 0;
           this.search = ''; this.stage = ''; this.due = false; this.inviteEmail = ''; this.canExport = false;
           this.importPreview = null; this.importCsv = ''; this.importFile = ''; this.pendingSave = null;
@@ -85,7 +96,8 @@ export class CrmComponent implements OnInit {
   }
   open(lead: any) {
     if (this.saving || this.retryPending) return;
-    this.detailRequest?.unsubscribe(); this.error = ''; this.selected = null; this.detailLoading = true;
+    if (!this.detailOpen) this.listScrollY = window.scrollY;
+    this.detailRequest?.unsubscribe(); this.error = ''; this.selected = null; this.detailLoading = true; this.detailOpen = true;
     this.detailRequest = this.api.get<any>(this.path() + '/leads/' + lead.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: r => {
         this.selected = r; this.detailLoading = false; this.kind = r.doNotContact ? 'NOTE' : 'CALL';
@@ -94,6 +106,12 @@ export class CrmComponent implements OnInit {
         this.initialFollowUp = this.followUp; this.requestId = crypto.randomUUID();
       }, error: e => { this.detailLoading = false; this.fail(e); }
     });
+  }
+  closeLead() {
+    if (this.saving || this.retryPending) return;
+    this.detailRequest?.unsubscribe();
+    this.detailOpen = false; this.detailLoading = false; this.selected = null;
+    requestAnimationFrame(() => window.scrollTo({ top: this.listScrollY, behavior: 'instant' }));
   }
   localDate(value: string) { const d = new Date(value); return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,16); }
   save() {

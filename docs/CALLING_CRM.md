@@ -13,7 +13,7 @@ Remove access per group at any time. Revocation is checked on every request. Own
 
 ## Calling workflow
 
-Source contacts are read-only in the CRM. Select a lead, log a call outcome or note, update the pipeline stage, and set a follow-up date. A call records the signed-in person and timestamp, increments the shared count, and appears in the history. Notes do not increment calls. Team totals show counts and outcomes per caller. Filters include pipeline, company/city/phone search and due follow-ups. No calls, messages, campaigns or Engine jobs are initiated by the CRM.
+Source contacts are read-only in the CRM. Each group uses the shared admin-style lead table with company, location, contact, phone, email, status, call count, last-call time, and follow-up columns, plus server pagination. Open a row (or its company button) to view the lead in the shared dialog; closing it returns to the current table page and filters. Select a lead, log a call outcome or note, update the pipeline stage, and set a follow-up date. A call records the signed-in person and timestamp, increments the shared count, and appears in the history. Notes do not increment calls. Team totals show counts and outcomes per caller. Filters include pipeline, company/city/phone search and due follow-ups. No calls, messages, campaigns or Engine jobs are initiated by the CRM.
 
 Do-not-contact records cannot have more calls logged. Recording a do-not-contact outcome also sets the existing global lead opt-out flag. CRM stages otherwise remain separate from Engine lead stages. History entries retain author names even if an account is later deleted. The detail screen displays the most recent 200 history entries; all entries remain stored.
 
