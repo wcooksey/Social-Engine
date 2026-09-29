@@ -1,0 +1,43 @@
+<app-button variant="secondary" size="sm" icon="bi-people" (clicked)="open()">Caller accounts</app-button>
+<app-dialog [show]="show" [title]="title" size="lg" [closable]="!saving" (close)="close()">
+  <p class="message error" role="alert" *ngIf="error">{{error}}</p>
+  <p class="message success" role="status" *ngIf="notice">{{notice}}</p>
+  <ng-container *ngIf="mode === 'list'">
+    <div class="intro"><p>Create a login for each caller, then choose the contact groups they can access.</p><app-button icon="bi-person-plus" (clicked)="create()" [disabled]="loading">Create caller account</app-button></div>
+    <p *ngIf="loading" role="status">Loading caller accounts…</p>
+    <p *ngIf="!loading && !accounts.length">No caller accounts yet.</p>
+    <article class="account" *ngFor="let account of accounts">
+      <div><strong>{{account.firstName}} {{account.lastName}}</strong><p>{{account.email}}</p>
+        <div class="badges"><app-badge *ngIf="!account.isActive" variant="neutral" size="sm">Inactive</app-badge><app-badge *ngFor="let grant of account.crmGrants" variant="info" size="sm">{{grant.group.name}}</app-badge><span *ngIf="!account.crmGrants.length" class="muted">No groups assigned</span></div>
+      </div>
+      <app-button variant="secondary" size="sm" [disabled]="!account.isActive" (clicked)="edit(account)" [attr.aria-label]="'Edit groups for ' + account.email">Edit groups</app-button>
+    </article>
+  </ng-container>
+  <form *ngIf="mode === 'create' || mode === 'edit'" #accountForm="ngForm" (ngSubmit)="accountForm.valid && save()" class="account-form">
+    <fieldset [disabled]="saving">
+      <div *ngIf="mode === 'create'" class="fields">
+        <app-input label="First name" name="firstName" [(ngModel)]="firstName" [required]="true" [maxlength]="100" autocomplete="off"></app-input>
+        <app-input label="Last name" name="lastName" [(ngModel)]="lastName" [maxlength]="100" autocomplete="off"></app-input>
+        <app-input class="wide" label="Email (sign-in username)" type="email" name="email" [(ngModel)]="email" email [required]="true" [maxlength]="254" autocomplete="off"></app-input>
+        <app-input class="wide" label="Password" type="password" name="password" [(ngModel)]="password" [required]="true" [minlength]="12" [maxlength]="72" autocomplete="new-password" helperText="Use the generated password or enter your own (at least 12 characters)."></app-input>
+        <app-button variant="secondary" size="sm" (clicked)="generatePassword()">Generate password</app-button>
+      </div>
+      <p *ngIf="mode === 'edit'"><strong>{{editing?.firstName}} {{editing?.lastName}}</strong> · {{editing?.email}}</p>
+      <h3>Group access</h3><p>Callers can view contacts and log calls and notes in checked groups. CSV export is optional per group.</p>
+      <div class="group-option" *ngFor="let group of groups">
+        <label><input type="checkbox" [name]="'group-' + group.id" [(ngModel)]="selected[group.id]"> <span>{{group.name}}</span></label>
+        <label class="export"><input type="checkbox" [name]="'export-' + group.id" [(ngModel)]="exports[group.id]" [disabled]="!selected[group.id]"> Allow CSV export<span class="sr-only"> for {{group.name}}</span></label>
+      </div>
+      <p *ngIf="!groups.length">Create a contact group in the workspace first.</p>
+      <p *ngIf="mode === 'edit' && !selectedCount" class="message warning">This account will have no group access. Its existing call history will be preserved.</p>
+    </fieldset>
+    <div class="actions"><app-button variant="secondary" [disabled]="saving" (clicked)="open()">Back to accounts</app-button><app-button type="submit" [loading]="saving" [disabled]="!!accountForm.invalid || (mode === 'create' && !selectedCount)">{{mode === 'create' ? 'Create account' : 'Save group access'}}</app-button></div>
+  </form>
+  <div *ngIf="mode === 'credentials'" class="credentials">
+    <p>The account is ready. Copy these details and send them to your caller. They can sign in immediately and see their assigned groups.</p>
+    <app-input label="Sign-in details" type="textarea" [rows]="4" [readonly]="true" [selectOnFocus]="true" [ngModel]="credentials"></app-input>
+    <p class="muted">Save these details before closing. The password cannot be viewed again here. No email has been sent.</p>
+    <div class="actions"><app-button variant="secondary" (clicked)="copyCredentials()" icon="bi-copy">Copy sign-in details</app-button><app-button (clicked)="open()">Back to accounts</app-button></div>
+  </div>
+  <div dialog-footer><app-button variant="secondary" [disabled]="saving" (clicked)="close()">Done</app-button></div>
+</app-dialog>

@@ -8,6 +8,7 @@ import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { authMiddleware, roleMiddleware } from '../middleware/auth.middleware';
 import { JwtPayload } from '../utils/jwt';
 import { crmCsv, crmInput, crmLeadSelect } from '../services/crm.service';
+import { createCrmAccount, listCrmAccounts, updateCrmAccountGroups } from '../services/crm-accounts.service';
 import { importCrmCsv, previewCrmImport } from '../services/crm-import.service';
 
 const router = Router();
@@ -46,6 +47,15 @@ router.use((req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
+router.get('/accounts', manager, asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await listCrmAccounts(req.user!.organizationId) });
+}));
+router.post('/accounts', manager, asyncHandler(async (req, res) => {
+  res.status(201).json({ success: true, data: await createCrmAccount(req.user!.organizationId, req.body) });
+}));
+router.patch('/accounts/:userId/groups', manager, asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await updateCrmAccountGroups(req.user!.organizationId, req.params.userId, req.body) });
+}));
 router.get('/groups', asyncHandler(async (req, res) => {
   const u = req.user!;
   const groups = await prisma.leadGroup.findMany({ where: { organizationId: u.organizationId, ...(!isManager(u) ? { crmGrants: { some: { userId: u.userId } } } : {}) }, select: { id: true, name: true, _count: { select: { leads: true } }, crmGrants: { where: { userId: u.userId }, select: { canExport: true } } }, orderBy: { name: 'asc' } });

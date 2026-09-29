@@ -1,13 +1,19 @@
 # Calling CRM
 
 A caller workspace at `/crm`, with a dedicated login entry at `/crm/login`.
-Owner/admin users open **Calling CRM** from the sidebar or a group's **Calling CRM · CSV & access** button. Choose a group, then **Manage caller access**.
+Owner/admin users open **Calling CRM** from the sidebar or a group's **Calling CRM · CSV & access** button. Open **Caller accounts** in the CRM header, or choose a group and expand **Manage caller access**.
 
 The CRM and invitation screens reuse the application’s shared buttons, inputs, selects, cards, badges, CSV preview table, typography, and light/dark theme. Caller navigation remains separate from the workspace.
 
-## Inviting callers
+## Creating caller accounts
 
-Enter an email and choose whether this caller may export the group's CSV. A new caller receives a one-use invitation URL to copy and share manually; the app does not send invitation email. Links expire after seven days and can be revoked. The caller chooses their own password. To grant another group to an existing caller in the same organization, enter that caller's email again in the new group. This also updates their CSV permission. Existing workspace accounts are never converted to callers. An email already used in another organization cannot be reused (existing global email uniqueness).
+Choose **Create caller account**, enter their name and email (their sign-in username), and use the generated password or enter one with at least 12 characters (maximum 72 bytes). Check every group this caller may access; CSV export is optional per group. The current group is preselected when creating an account from a group. At least one group is required at creation.
+
+After creation, copy the sign-in URL, email and password and share them manually. The caller signs in immediately at `/crm/login`; no registration or invitation acceptance is needed. The app does not send an email. Credentials are shown only in the creation dialog and cleared when leaving it; the API never returns passwords or password hashes, and the database stores only a bcrypt hash.
+
+Open **Caller accounts → Edit groups** to change an existing caller's full set of groups and export permissions. Uncheck every group to remove all CRM data access while retaining their account and call history. Callers with no groups remain visible in the account list so access can be restored. Existing workspace accounts are never converted to callers or assigned new passwords by this flow. An email already used by any account cannot be reused (global email uniqueness).
+
+Older one-use invitation links remain valid until expiry or revocation. Pending invitations still appear under the group's access panel, but new accounts use the direct creation flow. Creating an account clears that email's unused invitations within the organization.
 
 Remove access per group at any time. Revocation is checked on every request. Owners and admins can see all groups and manage grants; callers only see explicitly granted groups. Members do not gain CRM management access.
 

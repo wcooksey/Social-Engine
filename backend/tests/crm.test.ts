@@ -156,6 +156,62 @@ it('expired and revoked invitations cannot create accounts',async()=>{
     assert.equal((await request('/api/crm/accept-invite','',{token,firstName:'Test',password:'LocalPassword123!'})).status,410);
   }
 });
+it('admins create caller credentials with multiple groups and safely edit access',async()=>{
+  const email='managed-'+randomUUID()+'@example.test', password='CallerLocalPassword123!';
+  const body={email:'  '+email.toUpperCase()+'  ',password,firstName:'Alex',lastName:'Caller',role:'OWNER',notifyByEmail:true,grants:[{groupId:group.id,canExport:false},{groupId:denied.id,canExport:true}]};
+  const created=await request('/api/crm/accounts',ownerToken,body);
+  assert.equal(created.status,201);assert.equal(created.data.email,email);assert.equal(created.data.crmGrants.length,2);
+  assert.equal(created.data.passwordHash,undefined);assert.equal(created.data.password,undefined);
+  const stored=await prisma.user.findUniqueOrThrow({where:{email}});
+  assert.equal(stored.role,'CALLER');assert.equal(stored.notifyByEmail,false);assert.notEqual(stored.passwordHash,password);
+  const login=await request('/api/auth/login','',{email,password});assert.equal(login.status,200);
+  const auth=login.data.token;
+  assert.equal((await request('/api/crm/groups',auth)).data.length,2);
+  assert.equal((await request(`/api/crm/groups/${group.id}/export`,auth)).status,403);
+  assert.equal((await request(`/api/crm/groups/${denied.id}/export`,auth)).status,200);
+  assert.equal((await request('/api/engine',auth)).status,403);
+  assert.equal((await request('/api/crm/accounts',auth)).status,403);
+  assert.equal((await request('/api/crm/accounts',auth,body)).status,403);
+  const path=`/api/crm/accounts/${stored.id}/groups`;
+  assert.equal((await request(path,auth,{grants:[]},'PATCH')).status,403);
+  assert.equal((await request(path,ownerToken,{grants:[{groupId:foreign.id,canExport:false}]},'PATCH')).status,403);
+  assert.equal((await request('/api/crm/groups',auth)).data.length,2);
+  assert.equal((await request(path,ownerToken,{grants:[{groupId:denied.id,canExport:false}]},'PATCH')).status,200);
+  assert.deepEqual((await request('/api/crm/groups',auth)).data.map((g:any)=>g.id),[denied.id]);
+  assert.equal((await request(`/api/crm/groups/${group.id}/leads`,auth)).status,403);
+  assert.equal((await request(`/api/crm/groups/${denied.id}/export`,auth)).status,403);
+  assert.equal((await request(path,ownerToken,{grants:[]},'PATCH')).status,200);
+  assert.equal((await request('/api/crm/groups',auth)).data.length,0);
+  const accounts=(await request('/api/crm/accounts',ownerToken)).data;
+  assert.ok(accounts.some((a:any)=>a.id===stored.id && a.crmGrants.length===0));
+  assert.ok(accounts.every((a:any)=>a.passwordHash===undefined && a.password===undefined && a.id!==owner.id));
+});
+it('caller account provisioning rejects invalid input, collisions and foreign accounts without mutations',async()=>{
+  const email='invalid-'+randomUUID()+'@example.test';
+  const body={email,password:'LocalTestPassword123!',firstName:'Test',grants:[{groupId:group.id,canExport:false}]};
+  for(const changes of [{password:'short'},{password:'é'.repeat(37)},{firstName:' '},{email:'invalid'},{grants:[]},{grants:[{groupId:group.id,canExport:'yes'}]},{grants:[...body.grants,...body.grants]}]) {
+    assert.equal((await request('/api/crm/accounts',ownerToken,{...body,...changes})).status,400);
+  }
+  assert.equal((await request('/api/crm/accounts',ownerToken,{...body,grants:[{groupId:foreign.id,canExport:false}]})).status,403);
+  assert.equal(await prisma.user.findUnique({where:{email}}),null);
+  const hash=owner.passwordHash;
+  assert.equal((await request('/api/crm/accounts',ownerToken,{...body,email:owner.email})).status,409);
+  assert.equal((await prisma.user.findUniqueOrThrow({where:{id:owner.id}})).passwordHash,hash);
+  assert.equal((await request(`/api/crm/accounts/${owner.id}/groups`,ownerToken,{grants:[]},'PATCH')).status,404);
+  const foreignCaller=await prisma.user.create({data:{organizationId:other.id,email:'foreign-'+randomUUID()+'@example.test',firstName:'Other',lastName:'Caller',role:'CALLER',passwordHash:'unchanged'}});
+  assert.equal((await request('/api/crm/accounts',ownerToken,{...body,email:foreignCaller.email})).status,409);
+  assert.equal((await request(`/api/crm/accounts/${foreignCaller.id}/groups`,ownerToken,{grants:body.grants},'PATCH')).status,404);
+  assert.ok(!(await request('/api/crm/accounts',ownerToken)).data.some((a:any)=>a.id===foreignCaller.id));
+  const concurrent=await Promise.all([request('/api/crm/accounts',ownerToken,body),request('/api/crm/accounts',ownerToken,body)]);
+  assert.deepEqual(concurrent.map(r=>r.status).sort(),[201,409]);
+  assert.equal(await prisma.user.count({where:{email}}),1);
+  const created=concurrent.find(r=>r.status===201)!.data;
+  await Promise.all([
+    request(`/api/crm/accounts/${created.id}/groups`,ownerToken,{grants:[{groupId:group.id,canExport:false}]},'PATCH'),
+    request(`/api/crm/accounts/${created.id}/groups`,ownerToken,{grants:[{groupId:denied.id,canExport:true}]},'PATCH'),
+  ]);
+  assert.equal(await prisma.crmGrant.count({where:{userId:created.id}}),1);
+});
 it('revocation takes effect with an already-issued token',async()=>{
   const grant=await prisma.crmGrant.findUniqueOrThrow({where:{userId_groupId:{userId:caller.id,groupId:group.id}}});
   assert.equal((await request(`/api/crm/groups/${group.id}/members/${grant.id}`,ownerToken,undefined,'DELETE')).status,200);

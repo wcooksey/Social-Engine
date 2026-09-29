@@ -3,6 +3,7 @@
     <a routerLink="/crm" class="brand"><img src="assets/brand/neuralnetics-mark-256.png" alt=""><span>Neuralnetics</span><span class="brand-context">Calling CRM</span></a>
     <nav aria-label="CRM account">
       <app-button *ngIf="manager" variant="ghost" size="sm" link="/groups">Workspace</app-button>
+      <app-crm-accounts *ngIf="manager" [groups]="groups" [defaultGroupId]="group?.id" (changed)="group && loadMembers()"></app-crm-accounts>
       <app-theme-toggle></app-theme-toggle>
       <span class="account-name">{{auth.currentUser()?.firstName}}</span>
       <app-button variant="secondary" size="sm" (clicked)="logout()">Sign out</app-button>
@@ -50,15 +51,10 @@
       <app-card *ngIf="manager" class="panel">
         <details><summary>Manage caller access</summary><div class="disclosure-content">
           <p>Callers can read this group and add call history. They cannot access the Engine or change source contacts.</p>
-          <form class="form-row" #inviteForm="ngForm" (ngSubmit)="inviteForm.valid && invite()">
-            <app-input class="grow" label="Email" type="email" email [required]="true" [(ngModel)]="inviteEmail" name="email"></app-input>
-            <label class="checkbox-field"><input type="checkbox" [(ngModel)]="canExport" name="export"> Allow CSV export</label>
-            <app-button type="submit" [disabled]="inviteForm.invalid || false" [loading]="inviting">Invite or update access</app-button>
-          </form>
-          <app-input *ngIf="invitation" label="Invitation link (copy and share)" [readonly]="true" [selectOnFocus]="true" [ngModel]="invitation"></app-input>
+          <div class="form-row"><app-button (clicked)="accounts?.create()" icon="bi-person-plus">Create caller account</app-button><app-button variant="secondary" (clicked)="accounts?.open()">Manage existing accounts</app-button></div>
           <div class="access-row" *ngFor="let m of members">
             <div><strong>{{m.user.firstName}} {{m.user.lastName}}</strong><p>{{m.user.email}} · Export {{m.canExport ? 'allowed' : 'off'}}</p></div>
-            <app-button variant="ghost" size="sm" (clicked)="revoke('members',m.id)">Remove access</app-button>
+            <div class="badges"><app-button variant="secondary" size="sm" (clicked)="accounts?.open(m.user.id)">Edit groups</app-button><app-button variant="ghost" size="sm" (clicked)="revoke('members',m.id)">Remove access</app-button></div>
           </div>
           <div class="access-row" *ngFor="let i of invites">
             <div><strong>{{i.email}}</strong><p>Pending until {{i.expiresAt | date}}</p></div>

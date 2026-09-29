@@ -1,4 +1,4 @@
-import { Component, DestroyRef, inject, OnInit } from '@angular/core';
+import { Component, DestroyRef, inject, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -15,10 +15,12 @@ import { CardComponent } from '../../shared/components/card/card.component';
 import { BadgeComponent, BadgeVariant } from '../../shared/components/badge/badge.component';
 import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme-toggle.component';
 import { DialogComponent } from '../../shared/components/dialog/dialog.component';
+import { CrmAccountsComponent } from './crm-accounts.component';
 import { DataTableComponent, DataTableCellDirective, DataTableColumn } from '../../shared/components/data-table';
 
-@Component({ selector: 'app-crm', standalone: true, imports: [CommonModule, FormsModule, RouterLink, ButtonComponent, InputComponent, SelectComponent, CardComponent, BadgeComponent, ThemeToggleComponent, DataTableComponent, DataTableCellDirective, DialogComponent], templateUrl: './crm.component.html', styleUrl: './crm.component.scss' })
+@Component({ selector: 'app-crm', standalone: true, imports: [CommonModule, FormsModule, RouterLink, ButtonComponent, InputComponent, SelectComponent, CardComponent, BadgeComponent, ThemeToggleComponent, DataTableComponent, DataTableCellDirective, DialogComponent, CrmAccountsComponent], templateUrl: './crm.component.html', styleUrl: './crm.component.scss' })
 export class CrmComponent implements OnInit {
+  @ViewChild(CrmAccountsComponent) accounts?: CrmAccountsComponent;
   api = inject(ApiService); auth = inject(AuthService); http = inject(HttpClient); router = inject(Router); route = inject(ActivatedRoute);
   private destroyRef = inject(DestroyRef);
   private listRequest?: Subscription;
@@ -32,8 +34,8 @@ export class CrmComponent implements OnInit {
   tier: EnrichmentTier | '' = '';
   readonly tierLabels = ENRICHMENT_TIER_LABEL;
   readonly tierOptions: SelectOption[] = ENRICHMENT_TIERS.map(value => ({ value, label: ENRICHMENT_TIER_LABEL[value] }));
-  loading = false; detailLoading = false; saving = false; inviting = false; exporting = false;
-  error = ''; notice = ''; invitation = ''; inviteEmail = ''; canExport = false;
+  loading = false; detailLoading = false; saving = false; exporting = false;
+  error = ''; notice = '';
   importing = false; importPreview: any = null; importCsv = ''; importFile = '';
   kind = 'CALL'; outcome = 'NO_ANSWER'; note = ''; nextStage = ''; followUp = ''; requestId = crypto.randomUUID();
   private pendingSave: { path: string; body: any } | null = null;
@@ -90,10 +92,10 @@ export class CrmComponent implements OnInit {
           this.listRequest?.unsubscribe(); this.detailRequest?.unsubscribe();
           this.group = groups.find(g => g.id === params.get('groupId'));
           this.detailOpen = false; this.selected = null; this.leads = []; this.members = []; this.invites = []; this.stats = [];
-          this.invitation = ''; this.notice = ''; this.error = ''; this.page = 1; this.total = 0;
-          this.search = ''; this.stage = ''; this.tier = ''; this.due = false; this.inviteEmail = ''; this.canExport = false;
+          this.notice = ''; this.error = ''; this.page = 1; this.total = 0;
+          this.search = ''; this.stage = ''; this.tier = ''; this.due = false;
           this.importPreview = null; this.importCsv = ''; this.importFile = ''; this.pendingSave = null;
-          this.loading = this.detailLoading = this.saving = this.inviting = this.importing = false;
+          this.loading = this.detailLoading = this.saving = this.importing = false;
           if (this.group) { this.load(); this.loadStats(); if (this.manager) this.loadMembers(); }
           else if (params.get('groupId')) this.error = 'This group is not available to your account.';
         });
@@ -206,17 +208,6 @@ export class CrmComponent implements OnInit {
   loadMembers() {
     const context = this.context;
     this.api.get<any>(this.path() + '/members').pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: r => { if (context === this.context) { this.members = r.members; this.invites = r.invites; } }, error: e => { if (context === this.context) this.fail(e); } });
-  }
-  invite() {
-    if (this.inviting) return;
-    this.inviting = true; this.error = ''; this.invitation = ''; const context = this.context;
-    this.api.post<any>(this.path() + '/invites', { email: this.inviteEmail, canExport: this.canExport }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: r => {
-        if (context !== this.context) return;
-        this.inviting = false; this.invitation = r.inviteUrl || '';
-        this.notice = r.granted ? 'Existing caller access updated' : 'Invitation created. Share the link with this person; it expires in seven days.'; this.loadMembers();
-      }, error: e => { if (context !== this.context) return; this.inviting = false; this.fail(e); }
-    });
   }
   revoke(type: string, id: string) {
     const context = this.context;
