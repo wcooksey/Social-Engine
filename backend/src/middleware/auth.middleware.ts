@@ -12,37 +12,20 @@ declare global {
   }
 }
 
-/**
- * Access tokens carry a snapshot of the user's tokenVersion, bumped server-side
- * on logout and password change. That was checked when refreshing but not when
- * USING a token, so signing out, changing a password or suspending an account
- * left the already-issued access token working until it expired — a suspended
- * user kept full API access for the remainder of its life.
- *
- * The check costs one indexed lookup per request. Cached briefly so a burst of
- * calls from one client doesn't become a burst of queries; the window is short
- * enough that a revocation still takes effect within seconds.
- */
-const REVOCATION_CACHE_MS = 10_000;
-const userState = new Map<string, { at: number; tv: number; active: boolean }>();
-
-async function currentUserState(userId: string): Promise<{ tv: number; active: boolean } | null> {
-  const cached = userState.get(userId);
-  if (cached && Date.now() - cached.at < REVOCATION_CACHE_MS) {
-    return { tv: cached.tv, active: cached.active };
-  }
+/** Read current authorization on every request so role changes apply immediately. */
+async function currentUserState(userId: string): Promise<{ tv: number; active: boolean; role: string; organizationId: string } | null> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { tokenVersion: true, isActive: true },
+    select: { tokenVersion: true, isActive: true, role: true, organizationId: true },
   });
   if (!user) return null;
-  userState.set(userId, { at: Date.now(), tv: user.tokenVersion, active: user.isActive });
-  return { tv: user.tokenVersion, active: user.isActive };
+  return { tv: user.tokenVersion, active: user.isActive, role: user.role, organizationId: user.organizationId };
 }
 
 /** Drop a user's cached state so a revocation takes effect immediately. */
 export function forgetUserState(userId: string): void {
-  userState.delete(userId);
+  // No authorization cache; revocations are checked on every request.
+  void userId;
 }
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -75,7 +58,12 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
         res.status(401).json({ success: false, error: 'Session ended — please sign in again' });
         return;
       }
-      req.user = payload;
+      const apiPath = req.originalUrl.split('?')[0];
+      if (state.role === 'CALLER' && !apiPath.startsWith('/api/crm/') && apiPath !== '/api/crm' && !apiPath.startsWith('/api/auth/')) {
+        res.status(403).json({ success: false, error: 'Caller accounts can only access the calling CRM' });
+        return;
+      }
+      req.user = { ...payload, role: state.role, organizationId: state.organizationId };
       next();
     })
     .catch(() => {

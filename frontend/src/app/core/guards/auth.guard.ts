@@ -10,7 +10,7 @@ export const authGuard: CanActivateFn = (route, state) => {
     return true;
   }
 
-  router.navigate(['/login'], { queryParams: { returnUrl: state.url } });
+  router.navigate([state.url.startsWith('/crm') ? '/crm/login' : '/login'], { queryParams: { returnUrl: state.url } });
   return false;
 };
 
@@ -38,6 +38,11 @@ export const guestGuard: CanActivateFn = () => {
     return true;
   }
 
-  router.navigate(['/groups']);
+  router.navigate([authService.currentUser()?.role === 'CALLER' ? '/crm' : '/groups']);
   return false;
+};
+
+export const workspaceGuard: CanActivateFn = () => {
+  const auth = inject(AuthService), router = inject(Router);
+  return auth.currentUser()?.role === 'CALLER' ? router.parseUrl('/crm') : true;
 };

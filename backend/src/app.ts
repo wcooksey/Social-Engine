@@ -11,6 +11,7 @@ import { errorMiddleware } from './middleware/error.middleware';
 import adminRoutes from './routes/admin.routes';
 import agentRoutes from './routes/agent.routes';
 import authRoutes from './routes/auth.routes';
+import crmRoutes from './routes/crm.routes';
 import bookingLinksRoutes from './routes/booking-links.routes';
 import calendarRoutes from './routes/calendar.routes';
 import campaignsRoutes from './routes/campaigns.routes';
@@ -118,6 +119,8 @@ const publicRateLimit = rateLimit({ windowMs: 60 * 1000, max: 120 });
 app.use('/api/public', publicRateLimit, publicRoutes);
 
 app.use('/api/auth', authRateLimit, authRoutes);
+app.use('/api/crm/accept-invite', authRateLimit);
+app.use('/api/crm', apiRateLimit, crmRoutes);
 app.use('/api/dashboard', apiRateLimit, authMiddleware, dashboardRoutes);
 app.use('/api/lead-groups', apiRateLimit, authMiddleware, leadGroupsRoutes);
 app.use('/api/leads', apiRateLimit, authMiddleware, leadsRoutes);

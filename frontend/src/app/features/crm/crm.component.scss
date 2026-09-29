@@ -1,0 +1,125 @@
+@import '../../../assets/styles/variables';
+@import '../../../assets/styles/mixins';
+
+:host {
+  display: block;
+  min-height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: $font-family-primary;
+}
+
+.crm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-lg;
+  padding: $spacing-md $spacing-xl;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+  font-size: $font-size-xl;
+  font-weight: $font-weight-semibold;
+  color: var(--text-primary);
+  text-decoration: none;
+
+  img { width: 32px; height: 32px; object-fit: contain; }
+  .brand-context { font-size: $font-size-sm; font-weight: $font-weight-regular; color: var(--text-secondary); margin-left: $spacing-sm; }
+}
+
+nav, .badges { display: flex; align-items: center; flex-wrap: wrap; gap: $spacing-sm; }
+app-theme-toggle { display: block; flex: 0 0 40px; width: 40px; }
+.account-name { font-size: $font-size-sm; color: var(--text-secondary); }
+main { max-width: 1440px; margin: auto; padding: $spacing-xl; }
+h1 { font-size: $font-size-3xl; }
+h2 { font-size: $font-size-xl; }
+h3 { font-size: $font-size-lg; }
+p { color: var(--text-secondary); }
+small { color: var(--text-tertiary); font-size: $font-size-xs; }
+a { color: var(--primary-color); }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 3px; border-radius: $border-radius-sm; }
+
+.page-header, .section-header, .access-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-md;
+}
+.page-header { margin: $spacing-md 0 $spacing-lg; p { margin-top: $spacing-xs; } }
+.section-header, .section-title { margin: $spacing-xl 0 $spacing-md; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: $spacing-lg; }
+.group-link { text-decoration: none; min-width: 0; h2 { overflow-wrap: anywhere; } p { margin: $spacing-sm 0 $spacing-lg; } }
+.group-action { font-size: $font-size-sm; }
+.panel { margin-bottom: $spacing-lg; }
+summary { cursor: pointer; font-size: $font-size-sm; font-weight: $font-weight-semibold; }
+.disclosure-content { display: flex; flex-direction: column; gap: $spacing-md; padding-top: $spacing-md; overflow-wrap: anywhere; }
+.import-preview { display: flex; flex-direction: column; gap: $spacing-md; min-width: 0; }
+.form-row { display: flex; flex-wrap: wrap; gap: $spacing-md; align-items: end; }
+.grow { flex: 1 1 200px; min-width: 0; }
+.checkbox-field { display: flex; gap: $spacing-sm; align-items: center; min-height: var(--control-height); font-size: $font-size-sm; }
+input[type=checkbox] { accent-color: var(--primary-color); }
+.file-field { display: flex; flex-direction: column; gap: $spacing-sm; font-size: $font-size-sm; min-width: 0; }
+input[type=file] { max-width: 100%; font: inherit; color: var(--text-secondary); }
+input[type=file]::file-selector-button {
+  font: inherit;
+  padding: $spacing-sm $spacing-md;
+  margin-right: $spacing-sm;
+  border: 1px solid var(--border-secondary);
+  border-radius: $border-radius-md;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.access-row { padding-top: $spacing-md; border-top: 1px solid var(--border-primary); font-size: $font-size-sm; }
+.team-row .badges { margin-top: $spacing-sm; }
+.workbench { display: grid; grid-template-columns: minmax(260px, .8fr) minmax(340px, 1.3fr); gap: $spacing-lg; align-items: start; }
+.list, .detail { min-width: 0; overflow-wrap: anywhere; }
+.lead {
+  display: block;
+  width: 100%;
+  margin-bottom: $spacing-sm;
+  padding: 0;
+  border: 0;
+  border-radius: $border-radius-lg;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  &:disabled { opacity: .6; cursor: not-allowed; }
+  &:hover:not(:disabled), &.selected { --bg-card: color-mix(in srgb, var(--primary-color) 8%, var(--bg-secondary)); }
+}
+.lead-content { display: flex; flex-direction: column; gap: $spacing-sm; strong { font-size: $font-size-sm; } > span { color: var(--text-secondary); font-size: $font-size-xs; } }
+.pagination { display: flex; justify-content: space-between; align-items: center; gap: $spacing-sm; margin-top: $spacing-lg; font-size: $font-size-sm; color: var(--text-secondary); }
+.contact, .event { padding: $spacing-md 0; border-bottom: 1px solid var(--border-primary); }
+.contact p { margin: $spacing-xs 0; font-size: $font-size-sm; }
+.event small { display: block; }
+.event .note { margin: $spacing-sm 0; }
+.note { white-space: pre-wrap; overflow-wrap: anywhere; }
+.activity-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: $spacing-md; padding: 0; margin: 0 0 $spacing-md; border: 0; min-width: 0; }
+.notes-field { grid-column: 1 / -1; }
+.empty-state { padding: $spacing-lg 0; color: var(--text-secondary); font-size: $font-size-sm; }
+.message { padding: $spacing-md; margin-bottom: $spacing-md; border: 1px solid; border-radius: $border-radius-md; font-size: $font-size-sm; color: var(--text-primary); }
+.message--error { border-color: var(--error-color); background: color-mix(in srgb, var(--error-color) 10%, var(--bg-card)); }
+.message--success { border-color: var(--success-color); background: color-mix(in srgb, var(--success-color) 10%, var(--bg-card)); }
+.message--info { border-color: var(--info-color); background: color-mix(in srgb, var(--info-color) 10%, var(--bg-card)); }
+
+.accept-page { max-width: 560px; padding-top: $spacing-2xl; }
+.accept-form { display: flex; flex-direction: column; gap: $spacing-lg; margin-top: $spacing-lg; }
+.accept-intro { margin-top: $spacing-sm; }
+
+@include responsive($breakpoint-md) {
+  main { padding: $spacing-md; }
+  .crm-header { padding: $spacing-md; gap: $spacing-md; }
+  .workbench { grid-template-columns: 1fr; }
+  .page-header { align-items: flex-start; }
+  .brand-context { flex-basis: 100%; }
+  .accept-page { padding-top: $spacing-xl; }
+}

@@ -1,0 +1,128 @@
+<div class="crm">
+  <header class="crm-header">
+    <a routerLink="/crm" class="brand"><img src="assets/brand/neuralnetics-mark-256.png" alt=""><span>Neuralnetics</span><span class="brand-context">Calling CRM</span></a>
+    <nav aria-label="CRM account">
+      <app-button *ngIf="manager" variant="ghost" size="sm" link="/groups">Workspace</app-button>
+      <app-theme-toggle></app-theme-toggle>
+      <span class="account-name">{{auth.currentUser()?.firstName}}</span>
+      <app-button variant="secondary" size="sm" (clicked)="logout()">Sign out</app-button>
+    </nav>
+  </header>
+  <main>
+    <p class="message message--error" role="alert" *ngIf="error">{{error}}</p>
+    <p class="message message--success" role="status" *ngIf="notice">{{notice}}</p>
+    <ng-container *ngIf="!group">
+      <div class="page-header"><div><h1>Your contact groups</h1><p>Open a group to review contacts, log calls and plan follow-ups.</p></div></div>
+      <div class="cards">
+        <a class="group-link" *ngFor="let g of groups" [routerLink]="['/crm/groups',g.id]">
+          <app-card [hoverable]="true" padding="lg"><h2>{{g.name}}</h2><p>{{g.leadCount}} leads</p><span class="group-action">Open calling list <i class="bi bi-arrow-right" aria-hidden="true"></i></span></app-card>
+        </a>
+      </div>
+      <app-card *ngIf="!groups.length"><p class="empty-state">No groups assigned yet. Ask your administrator for access.</p></app-card>
+    </ng-container>
+    <ng-container *ngIf="group">
+      <app-button variant="text" size="sm" icon="bi-arrow-left" link="/crm">All assigned groups</app-button>
+      <div class="page-header">
+        <div><h1>{{group.name}}</h1><p>Shared call history · {{total}} matching leads</p></div>
+        <app-button *ngIf="group.canExport" variant="secondary" icon="bi-download" (clicked)="exportCsv()" [loading]="exporting">Download group CSV</app-button>
+      </div>
+      <app-card *ngIf="manager" class="panel">
+        <details><summary>Upload contacts from CSV</summary><div class="disclosure-content">
+          <p>Import into <strong>{{group.name}}</strong>. Up to 1,000 rows / 1 MB. Company is required; use one row per contact.</p>
+          <p>Matching leads and contacts in this group are updated. Blank cells preserve existing values. Calls, notes, stages, and verification history are preserved; opt-outs cannot be cleared by uploading a file.</p>
+          <div class="form-row">
+            <app-button variant="secondary" icon="bi-file-earmark-spreadsheet" (clicked)="downloadTemplate()">Download CSV template</app-button>
+            <label class="file-field">Choose CSV<input type="file" accept=".csv,text/csv" [disabled]="importing" (change)="chooseCsv($event)"></label>
+          </div>
+          <p role="status" *ngIf="importing">Processing CSV…</p>
+          <div *ngIf="importPreview as preview" class="import-preview">
+            <h3>{{importFile}} · {{preview.total}} rows</h3><p>Recognized columns: {{preview.columns.join(', ')}}</p>
+            <p *ngIf="preview.ignoredColumns.length">Columns not imported: {{preview.ignoredColumns.join(', ')}}</p>
+            <app-data-table [rows]="preview.records" [columns]="importColumns" minWidth="560px">
+              <ng-template appDataCell="contactName" let-row="row">{{row.contactName || [row.firstName, row.lastName].join(' ')}}</ng-template>
+            </app-data-table>
+            <p>Showing the first {{preview.records.length}} rows. Nothing is saved until you import.</p>
+            <app-button [loading]="importing" (clicked)="importContacts()">Import {{preview.total}} rows into this group</app-button>
+          </div>
+        </div></details>
+      </app-card>
+      <app-card *ngIf="manager" class="panel">
+        <details><summary>Manage caller access</summary><div class="disclosure-content">
+          <p>Callers can read this group and add call history. They cannot access the Engine or change source contacts.</p>
+          <form class="form-row" #inviteForm="ngForm" (ngSubmit)="inviteForm.valid && invite()">
+            <app-input class="grow" label="Email" type="email" email [required]="true" [(ngModel)]="inviteEmail" name="email"></app-input>
+            <label class="checkbox-field"><input type="checkbox" [(ngModel)]="canExport" name="export"> Allow CSV export</label>
+            <app-button type="submit" [disabled]="inviteForm.invalid || false" [loading]="inviting">Invite or update access</app-button>
+          </form>
+          <app-input *ngIf="invitation" label="Invitation link (copy and share)" [readonly]="true" [selectOnFocus]="true" [ngModel]="invitation"></app-input>
+          <div class="access-row" *ngFor="let m of members">
+            <div><strong>{{m.user.firstName}} {{m.user.lastName}}</strong><p>{{m.user.email}} · Export {{m.canExport ? 'allowed' : 'off'}}</p></div>
+            <app-button variant="ghost" size="sm" (clicked)="revoke('members',m.id)">Remove access</app-button>
+          </div>
+          <div class="access-row" *ngFor="let i of invites">
+            <div><strong>{{i.email}}</strong><p>Pending until {{i.expiresAt | date}}</p></div>
+            <app-button variant="ghost" size="sm" (clicked)="revoke('invites',i.id)">Revoke invitation</app-button>
+          </div>
+        </div></details>
+      </app-card>
+      <app-card class="panel">
+        <details><summary>Team call totals</summary><div class="disclosure-content">
+          <p *ngIf="!stats.length">No calls logged yet.</p>
+          <div class="team-row" *ngFor="let s of stats"><strong>{{s.firstName}} {{s.lastName}} · {{s.calls}} calls</strong><div class="badges"><app-badge *ngFor="let o of s.outcomes" variant="neutral" size="sm">{{label(o.outcome)}}: {{o.count}}</app-badge></div></div>
+        </div></details>
+      </app-card>
+      <app-card class="panel">
+        <form class="form-row" (ngSubmit)="load(true)">
+          <app-input class="grow" label="Search" [(ngModel)]="search" name="search" placeholder="Company, city or phone" icon="bi bi-search"></app-input>
+          <app-select class="grow" label="Pipeline" [(ngModel)]="stage" name="stage" [options]="stageOptions" placeholder="All stages"></app-select>
+          <label class="checkbox-field"><input type="checkbox" [(ngModel)]="due" name="due"> Follow-up due</label>
+          <app-button variant="secondary" type="submit">Apply filters</app-button>
+        </form>
+      </app-card>
+      <div class="workbench">
+        <app-card class="list"><section aria-label="Lead list">
+          <p class="empty-state" *ngIf="loading">Loading contacts…</p>
+          <button type="button" class="lead" *ngFor="let l of leads" (click)="open(l)" [disabled]="saving || retryPending" [class.selected]="selected?.id === l.id" [attr.aria-pressed]="selected?.id === l.id">
+            <app-card padding="sm" [selected]="selected?.id === l.id">
+              <div class="lead-content"><strong>{{l.companyName}}</strong><span>{{locationLabel(l)}} · {{l.phone || 'No company phone'}}</span>
+                <div class="badges"><app-badge [variant]="stageVariant(l.doNotContact ? 'DO_NOT_CONTACT' : l.crmRecord?.stage || 'NEW')" size="sm">{{l.doNotContact ? 'Do not contact' : label(l.crmRecord?.stage || 'NEW')}}</app-badge><small>{{l.crmRecord?.callCount || 0}} {{l.crmRecord?.callCount === 1 ? 'call' : 'calls'}}</small></div>
+                <small *ngIf="l.crmRecord?.followUpAt">Follow-up {{l.crmRecord.followUpAt | date:'short'}}</small>
+              </div>
+            </app-card>
+          </button>
+          <p class="empty-state" *ngIf="!loading && !leads.length">No leads match these filters.</p>
+          <div class="pagination"><app-button variant="secondary" size="sm" (clicked)="page=page-1;load()" [disabled]="page<=1 || loading">Previous</app-button><span>Page {{page}}</span><app-button variant="secondary" size="sm" (clicked)="page=page+1;load()" [disabled]="page*50>=total || loading">Next</app-button></div>
+        </section></app-card>
+        <app-card class="detail"><section aria-label="Lead details">
+          <p class="empty-state" *ngIf="detailLoading">Loading lead history…</p><p class="empty-state" *ngIf="!selected && !detailLoading">Choose a lead to view contacts and call history.</p>
+          <ng-container *ngIf="selected as l">
+            <h2>{{l.companyName}}</h2><p>{{l.address}} {{l.city}} {{l.state}} {{l.postalCode}}</p>
+            <p><span *ngIf="website(l.website)"><a [href]="website(l.website)" target="_blank" rel="noopener noreferrer">Open website ↗</a> · </span>{{l.phone || 'No company phone'}}</p>
+            <p class="message message--error" *ngIf="l.doNotContact">Do not contact. Calling is blocked for this lead.</p>
+            <p class="message message--info" *ngIf="l.contactReviewReason">Review before contacting: {{l.contactReviewReason}}</p>
+            <article class="contact" *ngFor="let c of l.contacts">
+              <strong>{{c.firstName}} {{c.lastName}}</strong><p>{{c.title || 'Title not confirmed'}}</p><p>{{c.phone || 'No direct phone'}} · {{c.email || 'No email'}}</p>
+              <small>{{c.optedOut ? 'OPTED OUT' : verified(c) ? 'Email verification current' : 'Email not verified for sending'}}<span *ngIf="c.emailStatus"> · {{c.emailStatus}}</span></small>
+            </article>
+            <h3 class="section-title">Log activity</h3>
+            <p class="message message--info" *ngIf="retryPending">The save could not be confirmed. Retry the same activity to check its status without counting the call twice.</p>
+            <form #activityForm="ngForm" (ngSubmit)="activityForm.valid && save()">
+              <fieldset [disabled]="saving || retryPending" class="activity-fields">
+                <app-select label="Activity" [(ngModel)]="kind" name="kind" [options]="activityOptions" [showPlaceholderOption]="false"></app-select>
+                <app-select *ngIf="kind==='CALL'" label="Outcome" [(ngModel)]="outcome" name="outcome" [options]="outcomeOptions" [showPlaceholderOption]="false"></app-select>
+                <app-select *ngIf="kind==='UPDATE'" label="Stage" [(ngModel)]="nextStage" name="nextStage" [options]="stageOptions" [showPlaceholderOption]="false"></app-select>
+                <app-input *ngIf="kind!=='NOTE'" label="Follow-up" type="datetime-local" [(ngModel)]="followUp" name="followUp"></app-input>
+                <app-input class="notes-field" label="Notes" type="textarea" [(ngModel)]="note" name="note" [rows]="4" [maxlength]="10000" [required]="kind==='NOTE'" placeholder="Who you spoke to, what happened, next step"></app-input>
+              </fieldset>
+              <app-button type="submit" [loading]="saving" [disabled]="!!activityForm.invalid || (kind==='CALL' && l.doNotContact)">{{retryPending ? 'Retry activity save' : 'Save activity'}}</app-button>
+            </form>
+            <div class="section-header"><h3>History · {{l.crmRecord?.callCount || 0}} {{l.crmRecord?.callCount === 1 ? 'call' : 'calls'}}</h3><app-button variant="ghost" size="sm" icon="bi-arrow-clockwise" [disabled]="saving || retryPending" (clicked)="open(l);loadStats()">Refresh lead</app-button></div>
+            <p *ngIf="!l.crmEvents.length">No activity yet.</p>
+            <article class="event" *ngFor="let e of l.crmEvents"><strong>{{e.authorName}} · {{label(e.outcome || e.kind)}}</strong><small>{{e.createdAt | date:'medium'}}</small><p class="note">{{e.note}}</p><app-badge *ngIf="e.stage" [variant]="stageVariant(e.stage)" size="sm">{{label(e.stage)}}</app-badge><small *ngIf="e.followUpAt">Follow-up: {{e.followUpAt | date:'short'}}</small></article>
+            <small *ngIf="l.crmEvents.length===200">Showing the most recent 200 entries.</small>
+          </ng-container>
+        </section></app-card>
+      </div>
+    </ng-container>
+  </main>
+</div>

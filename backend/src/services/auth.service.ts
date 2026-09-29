@@ -257,6 +257,8 @@ class AuthService {
   }
 
   async setNotifyByEmail(userId: string, enabled: boolean) {
+    const current = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    if (current?.role === 'CALLER') throw new AppError('Caller accounts cannot subscribe to workspace notifications', 403);
     const user = await prisma.user.update({
       where: { id: userId },
       data: { notifyByEmail: enabled },
