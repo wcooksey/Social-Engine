@@ -7,6 +7,7 @@ import { Subscription } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
+import { ENRICHMENT_TIERS, ENRICHMENT_TIER_LABEL, EnrichmentTier } from '../../core/models/lead.model';
 import { ButtonComponent } from '../../shared/components/button/button.component';
 import { InputComponent } from '../../shared/components/input/input.component';
 import { SelectComponent, SelectOption } from '../../shared/components/select/select.component';
@@ -28,6 +29,9 @@ export class CrmComponent implements OnInit {
   groups: any[] = []; group: any = null; leads: any[] = []; selected: any = null;
   stats: any[] = []; members: any[] = []; invites: any[] = []; total = 0; page = 1; search = ''; stage = ''; due = false;
   detailOpen = false;
+  tier: EnrichmentTier | '' = '';
+  readonly tierLabels = ENRICHMENT_TIER_LABEL;
+  readonly tierOptions: SelectOption[] = ENRICHMENT_TIERS.map(value => ({ value, label: ENRICHMENT_TIER_LABEL[value] }));
   loading = false; detailLoading = false; saving = false; inviting = false; exporting = false;
   error = ''; notice = ''; invitation = ''; inviteEmail = ''; canExport = false;
   importing = false; importPreview: any = null; importCsv = ''; importFile = '';
@@ -40,6 +44,7 @@ export class CrmComponent implements OnInit {
   readonly outcomeOptions: SelectOption[] = this.outcomes.map(value => ({ value, label: this.label(value) }));
   readonly leadColumns: DataTableColumn[] = [
     { key: 'companyName', header: 'Company' }, { key: 'location', header: 'Location' },
+    { key: 'enrichment', header: 'Enrichment' },
     { key: 'contact', header: 'Contact' }, { key: 'phone', header: 'Phone' },
     { key: 'email', header: 'Email' }, { key: 'stage', header: 'Status' },
     { key: 'calls', header: 'Calls', align: 'right' },
@@ -54,12 +59,24 @@ export class CrmComponent implements OnInit {
   }
   stageVariant(stage: string): BadgeVariant {
     if (['INTERESTED', 'WON'].includes(stage)) return 'success';
-    if (stage === 'DO_NOT_CONTACT') return 'error';
+    if (['DO_NOT_CONTACT', 'NOT_INTERESTED'].includes(stage)) return 'error';
     if (stage === 'FOLLOW_UP') return 'warning';
-    if (stage === 'CONTACTED') return 'info';
+    if (stage === 'NEW') return 'info';
+    if (stage === 'CONTACTED') return 'default';
     return 'neutral';
   }
   get manager() { return ['OWNER','ADMIN'].includes(this.auth.currentUser()?.role || ''); }
+  enrichmentLabel(tier?: EnrichmentTier) { return tier ? this.tierLabels[tier] : '—'; }
+  enrichmentVariant(tier?: EnrichmentTier): BadgeVariant {
+    switch (tier) {
+      case 'RICH': return 'success';
+      case 'GOOD': return 'info';
+      case 'PARTIAL': return 'warning';
+      case 'MINIMAL': return 'orange';
+      case 'NONE': return 'error';
+      default: return 'neutral';
+    }
+  }
   tableContact(lead: any) { return lead.contacts?.find((contact: any) => !contact.optedOut) || lead.contacts?.[0]; }
   locationLabel(lead: any) { return [lead.city, lead.state].filter(Boolean).join(', ') || 'Location not provided'; }
   label(s: string) { return s.replace(/_/g, ' ').toLowerCase(); }
@@ -74,7 +91,7 @@ export class CrmComponent implements OnInit {
           this.group = groups.find(g => g.id === params.get('groupId'));
           this.detailOpen = false; this.selected = null; this.leads = []; this.members = []; this.invites = []; this.stats = [];
           this.invitation = ''; this.notice = ''; this.error = ''; this.page = 1; this.total = 0;
-          this.search = ''; this.stage = ''; this.due = false; this.inviteEmail = ''; this.canExport = false;
+          this.search = ''; this.stage = ''; this.tier = ''; this.due = false; this.inviteEmail = ''; this.canExport = false;
           this.importPreview = null; this.importCsv = ''; this.importFile = ''; this.pendingSave = null;
           this.loading = this.detailLoading = this.saving = this.inviting = this.importing = false;
           if (this.group) { this.load(); this.loadStats(); if (this.manager) this.loadMembers(); }
@@ -88,7 +105,7 @@ export class CrmComponent implements OnInit {
   load(reset = false) {
     if (reset) this.page = 1;
     this.listRequest?.unsubscribe(); this.loading = true; this.error = '';
-    this.listRequest = this.api.get<any>(this.path() + '/leads', { page: this.page, search: this.search, stage: this.stage, due: this.due })
+    this.listRequest = this.api.get<any>(this.path() + '/leads', { page: this.page, search: this.search, stage: this.stage, tier: this.tier, due: this.due })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: r => { this.leads = r.leads; this.total = r.total; this.loading = false; },
         error: e => { this.loading = false; this.fail(e); }

@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { AppError } from '../middleware/error.middleware';
 
 export const crmLeadSelect = {
+  enrichmentTier: true,
   id: true, companyName: true, website: true, phone: true, address: true, city: true, state: true, postalCode: true, doNotContact: true, contactReviewReason: true,
   contacts: { select: { id: true, firstName: true, lastName: true, title: true, email: true, phone: true, optedOut: true, emailStatus: true, emailVerifiedAt: true, emailVerifiedAddress: true, source: true } },
   crmRecord: true,

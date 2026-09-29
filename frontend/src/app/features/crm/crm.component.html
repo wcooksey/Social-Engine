@@ -77,6 +77,7 @@
         <form class="form-row" (ngSubmit)="load(true)">
           <app-input class="grow" label="Search" [(ngModel)]="search" name="search" placeholder="Company, city or phone" icon="bi bi-search"></app-input>
           <app-select class="grow" label="Pipeline" [(ngModel)]="stage" name="stage" [options]="stageOptions" placeholder="All stages"></app-select>
+          <app-select class="grow" label="Enrichment" [(ngModel)]="tier" name="tier" [options]="tierOptions" placeholder="Any enrichment" (ngModelChange)="load(true)"></app-select>
           <label class="checkbox-field"><input type="checkbox" [(ngModel)]="due" name="due"> Follow-up due</label>
           <app-button variant="secondary" type="submit">Apply filters</app-button>
         </form>
@@ -91,6 +92,7 @@
               (click)="$event.stopPropagation();open(row)">{{row.companyName}}</button>
           </ng-template>
           <ng-template appDataCell="location" let-row="row">{{locationLabel(row)}}</ng-template>
+          <ng-template appDataCell="enrichment" let-row="row"><app-badge [variant]="enrichmentVariant(row.enrichmentTier)" size="sm">{{enrichmentLabel(row.enrichmentTier)}}</app-badge></ng-template>
           <ng-template appDataCell="contact" let-row="row">
             <span *ngIf="tableContact(row) as contact; else noContact">{{contact.firstName}} {{contact.lastName}}<small *ngIf="row.contacts.length > 1"> +{{row.contacts.length - 1}}</small></span>
             <ng-template #noContact><span class="muted">—</span></ng-template>

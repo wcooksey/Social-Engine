@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { EnrichmentTier } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import bcrypt from 'bcrypt';
 import { prisma } from '../config/database';
@@ -115,7 +116,10 @@ router.get('/groups/:groupId/leads', asyncHandler(async (req, res) => {
   const page = Math.max(1, Math.min(100000, Number(req.query.page) || 1));
   const search = typeof req.query.search === 'string' ? req.query.search.slice(0, 200) : '';
   const stage = typeof req.query.stage === 'string' ? req.query.stage : '';
+  const tier = req.query.tier;
+  if (tier !== undefined && tier !== '' && (typeof tier !== 'string' || !Object.values(EnrichmentTier).includes(tier as EnrichmentTier))) throw new AppError('Invalid enrichment tier');
   const where: any = { organizationId: req.user!.organizationId, groupId: req.params.groupId };
+  if (tier) where.enrichmentTier = tier;
   if (search) where.OR = ['companyName', 'city', 'phone'].map(k => ({ [k]: { contains: search, mode: 'insensitive' } }));
   if (stage === 'NEW') where.AND = [{ OR: [{ crmRecord: null }, { crmRecord: { stage: 'NEW' } }] }];
   else if (stage) where.crmRecord = { stage };

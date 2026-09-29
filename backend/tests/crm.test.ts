@@ -82,6 +82,38 @@ it('calls have immutable attribution, retries do not double-count, notes do not 
   assert.ok(detail.crmEvents.some((e:any)=>e.userId===caller2.id));
   const stats=(await request(`/api/crm/groups/${group.id}/stats`)).data;assert.equal(stats.length,2);
 });
+it('enrichment filters apply before pagination, combine with CRM filters, and preserve group access',async()=>{
+  const prefix='Enrichment test '+randomUUID();
+  const tiers=['NONE','MINIMAL','PARTIAL','GOOD','RICH'] as const;
+  try {
+    await prisma.lead.createMany({data:[
+      ...Array.from({length:55},(_,i)=>({organizationId:org.id,groupId:group.id,companyName:prefix+' Rich '+i,enrichmentTier:'RICH' as const})),
+      ...tiers.filter(t=>t!=='RICH').map(enrichmentTier=>({organizationId:org.id,groupId:group.id,companyName:prefix+' '+enrichmentTier,enrichmentTier})),
+      {organizationId:org.id,groupId:denied.id,companyName:prefix+' Denied',enrichmentTier:'RICH'},
+      {organizationId:other.id,groupId:foreign.id,companyName:prefix+' Foreign',enrichmentTier:'RICH'},
+    ]});
+    const path=`/api/crm/groups/${group.id}/leads?search=${encodeURIComponent(prefix)}`;
+    for(const tier of tiers) {
+      const result=await request(path+'&tier='+tier);
+      assert.equal(result.status,200);assert.equal(result.data.total,tier==='RICH'?55:1);
+      assert.ok(result.data.leads.every((l:any)=>l.enrichmentTier===tier));
+    }
+    const first=(await request(path+'&tier=RICH')).data;
+    const second=(await request(path+'&tier=RICH&page=2')).data;
+    assert.equal(first.leads.length,50);assert.equal(second.leads.length,5);assert.equal(second.total,55);
+    assert.equal(new Set([...first.leads,...second.leads].map(l=>l.id)).size,55);
+    await prisma.crmRecord.create({data:{leadId:first.leads[0].id,stage:'FOLLOW_UP',followUpAt:new Date(0)}});
+    assert.equal((await request(path+'&tier=RICH&stage=NEW')).data.total,54);
+    const due=(await request(path+'&tier=RICH&stage=FOLLOW_UP&due=true')).data;
+    assert.equal(due.total,1);assert.equal(due.leads[0].id,first.leads[0].id);
+    assert.equal((await request(path+'&tier=')).data.total,59);
+    assert.equal((await request(path+'&tier=INVALID')).status,400);
+    assert.equal((await request(`/api/crm/groups/${denied.id}/leads?tier=RICH`)).status,403);
+    assert.equal((await request(`/api/crm/groups/${foreign.id}/leads?tier=RICH`)).status,404);
+  } finally {
+    await prisma.lead.deleteMany({where:{organizationId:{in:[org.id,other.id]},companyName:{startsWith:prefix}}});
+  }
+});
 it('concurrent retries save one call and concurrent callers keep both calls',async()=>{
   const path=`/api/crm/groups/${group.id}/leads/${lead.id}/events`;
   const payload={kind:'CALL',outcome:'NO_ANSWER',note:'',requestId:randomUUID()};
