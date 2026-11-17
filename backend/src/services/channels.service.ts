@@ -32,6 +32,24 @@ export interface VoiceCreds {
   voiceId: string;
 }
 
+/**
+ * Format a stored phone number the way the carriers require: E.164
+ * ("+18135550100"). Leads arrive as "(813) 555-0100", "813.555.0100 x12" and
+ * the like. A number without a country code is taken to be US/Canada; one that
+ * cannot be made into a plausible number returns null so the caller can say so
+ * instead of forwarding a provider's formatting error.
+ */
+export function toE164(input?: string | null): string | null {
+  if (!input) return null;
+  // Drop an extension: an outbound call cannot dial one anyway.
+  const main = input.split(/(?:ext\.?|extension|x|#)\s*\d+\s*$/i)[0].trim();
+  const digits = main.replace(/\D/g, '');
+  if (main.startsWith('+')) return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Email — Mailgun
 // ---------------------------------------------------------------------------
@@ -197,7 +215,7 @@ export function isSmsConfigured(creds: SmsCreds): boolean {
 export async function sendSms(opts: { to: string; body: string }, creds: SmsCreds): Promise<SendResult> {
   if (!isSmsConfigured(creds)) return { sent: false, error: 'SMS channel not configured' };
 
-  const form = new URLSearchParams({ From: creds.fromNumber, To: opts.to, Body: opts.body });
+  const form = new URLSearchParams({ From: creds.fromNumber, To: toE164(opts.to) ?? opts.to, Body: opts.body });
 
   try {
     const res = await fetch(
@@ -295,6 +313,13 @@ export async function placeVapiCall(
   creds: VoiceCreds
 ): Promise<SendResult> {
   if (!isVoiceConfigured(creds)) return { sent: false, error: 'Voice channel not configured' };
+  const number = toE164(opts.toNumber);
+  if (!number) {
+    return {
+      sent: false,
+      error: `"${opts.toNumber}" is not a dialable phone number — fix it on the lead or contact (include the country code for non-US numbers).`,
+    };
+  }
 
   try {
     const res = await fetch('https://api.vapi.ai/call', {
@@ -305,7 +330,7 @@ export async function placeVapiCall(
       },
       body: JSON.stringify({
         phoneNumberId: creds.phoneNumberId,
-        customer: { number: opts.toNumber },
+        customer: { number },
         metadata: opts.metadata,
         ...(creds.assistantId ? savedAssistantBody(opts, creds.assistantId) : {
           assistant: {

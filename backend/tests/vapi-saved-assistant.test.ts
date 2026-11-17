@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { placeVapiCall } from '../src/services/channels.service';
+import { placeVapiCall, toE164 } from '../src/services/channels.service';
 import { buildCallVariables } from '../src/engine/prompts';
 
 const baseCreds = { apiKey: 'k', phoneNumberId: 'pn', assistantModel: 'gpt-4o', voiceProvider: '11labs', voiceId: 'burt' };
 const opts = {
-  toNumber: '+15550100',
+  toNumber: '(813) 555-0100',
   systemPrompt: 'SYSTEM',
   firstMessage: 'Hi',
   voicemailMessage: 'VM',
@@ -33,6 +33,7 @@ async function capture(creds: typeof baseCreds & { assistantId?: string }) {
 test('a saved assistant is called by id with lead variables, our webhook and appended tools', async () => {
   const { body, result } = await capture({ ...baseCreds, assistantId: 'asst_123' });
   assert.equal(result.sent, true);
+  assert.equal(body.customer.number, '+18135550100');
   assert.equal(body.assistantId, 'asst_123');
   assert.equal(body.assistant, undefined, 'must not also send an inline assistant');
   assert.deepEqual(body.assistantOverrides.variableValues, { companyName: 'Acme Motors' });
@@ -70,4 +71,16 @@ test('call variables always define every key and summarise the lead', () => {
   const bare = buildCallVariables({ organizationName: 'D', objective: 'o', lead: { companyName: 'X', status: 'NEW', recentTimeline: [] } });
   assert.deepEqual(Object.keys(bare).sort(), Object.keys(vars).sort());
   assert.equal(bare.contactFirstName, '');
+});
+
+test('numbers are dialled in E.164, and undialable ones are refused before reaching Vapi', async () => {
+  assert.equal(toE164('(813) 555-0100'), '+18135550100');
+  assert.equal(toE164('813.555.0100 x12'), '+18135550100');
+  assert.equal(toE164('1-813-555-0100'), '+18135550100');
+  assert.equal(toE164('+44 20 7946 0958'), '+442079460958');
+  assert.equal(toE164('555-0100'), null);
+  assert.equal(toE164(''), null);
+  const result = await placeVapiCall({ ...opts, toNumber: '555-0100' }, baseCreds);
+  assert.equal(result.sent, false);
+  assert.match(result.error || '', /not a dialable phone number/);
 });
