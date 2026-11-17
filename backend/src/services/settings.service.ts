@@ -61,6 +61,10 @@ export const ORG_SETTING_DEFS: OrgSettingDef[] = [
   { key: 'VAPI_API_KEY', label: 'Vapi API key', group: 'voice', secret: true },
   { key: 'VAPI_PHONE_NUMBER_ID', label: 'Vapi phone number ID', group: 'voice', secret: false },
   { key: 'VAPI_WEBHOOK_SECRET', label: 'Vapi webhook secret', group: 'voice', secret: true },
+  // A saved assistant from the Vapi dashboard. When set, calls run THAT
+  // assistant (its prompt, voice and tools) and receive the lead's details as
+  // template variables, instead of an assistant built inline per call.
+  { key: 'VAPI_ASSISTANT_ID', label: 'Vapi assistant ID (saved assistant)', group: 'voice', secret: false, placeholder: 'blank = built-in calling assistant' },
   { key: 'VAPI_ASSISTANT_MODEL', label: 'Vapi assistant model', group: 'voice', secret: false, placeholder: 'gpt-4o' },
   { key: 'VAPI_VOICE_PROVIDER', label: 'Vapi voice provider', group: 'voice', secret: false, placeholder: '11labs' },
   { key: 'VAPI_VOICE_ID', label: 'Vapi voice ID', group: 'voice', secret: false, placeholder: 'burt' },
@@ -137,6 +141,8 @@ export interface ResolvedOrgConfig {
     apiKey: string;
     phoneNumberId: string;
     webhookSecret: string;
+    /** Saved Vapi assistant to run calls with; blank = inline assistant. */
+    assistantId: string;
     assistantModel: string;
     voiceProvider: string;
     voiceId: string;
@@ -152,7 +158,7 @@ export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgC
     mgKey, mgDomain, mgFrom, googleClientId, googleClientSecret,
     senderName, senderPhone, demoUrl,
     twSid, twToken, twFrom,
-    vpKey, vpPhone, vpSecret, vpModel, vpVoiceProvider, vpVoiceId,
+    vpKey, vpPhone, vpSecret, vpAssistantId, vpModel, vpVoiceProvider, vpVoiceId,
     elKey, elVoiceId, elLlm,
   ] = await Promise.all([
     g('ANTHROPIC_API_KEY'), g('OPENAI_API_KEY'), g('GEMINI_API_KEY'), g('XAI_API_KEY'), g('DEEPSEEK_API_KEY'),
@@ -162,7 +168,7 @@ export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgC
     g('GOOGLE_OAUTH_CLIENT_ID'), g('GOOGLE_OAUTH_CLIENT_SECRET'),
     g('OUTREACH_SENDER_NAME'), g('OUTREACH_SENDER_PHONE'), g('DEMO_VIDEO_URL'),
     g('TWILIO_ACCOUNT_SID'), g('TWILIO_AUTH_TOKEN'), g('TWILIO_FROM_NUMBER'),
-    g('VAPI_API_KEY'), g('VAPI_PHONE_NUMBER_ID'), g('VAPI_WEBHOOK_SECRET'),
+    g('VAPI_API_KEY'), g('VAPI_PHONE_NUMBER_ID'), g('VAPI_WEBHOOK_SECRET'), g('VAPI_ASSISTANT_ID'),
     g('VAPI_ASSISTANT_MODEL'), g('VAPI_VOICE_PROVIDER'), g('VAPI_VOICE_ID'),
     g('ELEVENLABS_API_KEY'), g('ELEVENLABS_VOICE_ID'), g('ELEVENLABS_LLM'),
   ]);
@@ -178,6 +184,7 @@ export async function getOrgConfig(organizationId: string): Promise<ResolvedOrgC
       apiKey: vpKey,
       phoneNumberId: vpPhone,
       webhookSecret: vpSecret,
+      assistantId: vpAssistantId,
       assistantModel: vpModel || 'gpt-4o',
       voiceProvider: vpVoiceProvider || '11labs',
       voiceId: vpVoiceId || 'burt',

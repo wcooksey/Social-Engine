@@ -516,6 +516,10 @@ async function topGaps(where: Prisma.LeadWhereInput): Promise<{ gap: EnrichmentS
 
 export interface EnrichmentTargetOptions {
   groupId?: string;
+  /** Work known sites directly when search is unavailable. */
+  requireWebsite?: boolean;
+  /** Exclude IDs already visited by this finite recovery pass. */
+  excludeLeadIds?: string[];
   /** Only leads at or below this tier. Default GOOD is excluded (PARTIAL and down). */
   maxTier?: EnrichmentTier;
   limit?: number;
@@ -567,6 +571,11 @@ export async function findEnrichmentTargets(
     status: { notIn: ['NOT_INTERESTED', 'ARCHIVED', 'CUSTOMER'] },
     enrichmentTier: { in: tiersUpTo(options.maxTier || 'PARTIAL') },
     ...(options.groupId ? { groupId: options.groupId } : {}),
+    ...(options.excludeLeadIds?.length ? { id: { notIn: options.excludeLeadIds.slice(0, 5000) } } : {}),
+    ...(options.requireWebsite ? { AND: [{ OR: [
+      { website: { not: null }, NOT: { website: '' } },
+      { domain: { not: null }, NOT: { domain: '' } },
+    ] }] } : {}),
     ...(skipCurrent ? { enrichmentVersion: { lt: ENRICHMENT_CAPABILITY_VERSION } } : {}),
     ...(cooldownHours > 0
       ? {
@@ -649,7 +658,9 @@ export async function recordEnrichmentAttempt(
     data: {
       enrichmentAttempts: { increment: 1 },
       lastEnrichmentAttemptAt: new Date(),
-      enrichmentVersion: ENRICHMENT_CAPABILITY_VERSION,
+      // A blocked provider/site did not complete a research pass. Keep it
+      // retryable after cooldown (or immediately in an explicitly forced pass).
+      enrichmentVersion: outcome === 'blocked' ? 0 : ENRICHMENT_CAPABILITY_VERSION,
       ...(outcome === 'improved' ? { lastEnrichedAt: new Date() } : {}),
     },
   });

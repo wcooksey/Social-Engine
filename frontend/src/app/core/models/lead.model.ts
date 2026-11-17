@@ -112,6 +112,14 @@ export interface Activity {
   createdAt: string;
   leadId?: string;
   campaignId?: string;
+  /** Type-specific detail. Calls carry the recording link and transcript here. */
+  payload?: {
+    recordingUrl?: string;
+    transcript?: string;
+    summary?: string;
+    durationSeconds?: number;
+    [key: string]: unknown;
+  } | null;
 }
 
 export interface Lead {

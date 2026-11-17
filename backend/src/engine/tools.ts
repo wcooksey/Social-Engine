@@ -92,7 +92,7 @@ import {
 import { runBrowserAgent } from './browser/browser-agent.service';
 import { AgentRole, defaultRoleForJobType } from './roles';
 import { evaluateGoalProgress } from '../services/autopilot.service';
-import { buildCallSystemPrompt } from './prompts';
+import { buildCallSystemPrompt, buildCallVariables } from './prompts';
 import { buildCallTools } from '../services/call-tools.service';
 import { experimentScopeError } from '../services/experiment-scope';
 import { requireCampaign } from '../services/group-scope';
@@ -299,15 +299,17 @@ export const engineTools: Anthropic.Tool[] = [
           enum: ['NONE', 'MINIMAL', 'PARTIAL', 'GOOD'],
           description: 'Work leads at or below this tier. Default PARTIAL.',
         },
-        limit: { type: 'number', description: 'How many leads to take on (default 25, max 200).' },
+        limit: { type: 'number', description: 'How many leads to return (default 25, max 200). total can exceed the returned page; it is NOT a count of website-less leads.' },
+        requireWebsite: { type: 'boolean', description: 'Only return leads with a website OR domain. Use for direct-site enrichment when search is unavailable.' },
+        excludeLeadIds: { type: 'array', items: { type: 'string' }, maxItems: 5000, description: 'IDs already visited in this finite recovery pass; prevents repeating the same first page with cooldown disabled.' },
         cooldownHours: {
           type: 'number',
-          description: 'Skip leads attempted within this many hours (default 24). 0 disables.',
+          description: 'Per-lead retry cooldown, NOT a delay between different leads (default 24). Set 0 for a user-authorized recovery after provider credits/access are restored.',
         },
         includeAlreadyAttempted: {
           type: 'boolean',
           description:
-            'Default false. Set true ONLY when told to re-sweep everything — it returns leads already worked with the current capability set, which usually finds nothing new.',
+            'Default false. Set true when the user requests a re-sweep or recovery after provider failure — it returns leads already worked with the current capability set, which usually finds nothing new.',
         },
       },
     },
@@ -315,7 +317,7 @@ export const engineTools: Anthropic.Tool[] = [
   {
     name: 'record_enrichment_attempt',
     description:
-      "Record that you finished an enrichment pass on a lead — call this after trying the enrichment tools on it, whether or not you found anything. This stamps the lead with the capability generation you used so future runs skip it until the platform gains new abilities. Skipping this call means the same dead-end lead gets re-worked forever.",
+      "Record that you finished an enrichment pass on a lead — call this after trying the enrichment tools on it, whether or not you found anything. Completed passes stamp the capability generation; blocked attempts remain retryable after cooldown or an authorized recovery. Skipping this call means the same dead-end lead gets re-worked forever.",
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -324,7 +326,7 @@ export const engineTools: Anthropic.Tool[] = [
           type: 'string',
           enum: ['improved', 'no_new_data', 'blocked'],
           description:
-            "'improved' = you saved new contact detail; 'no_new_data' = tried everything, found nothing; 'blocked' = couldn't work it (site down, no domain, missing API key).",
+            "'improved' = you saved new contact detail; 'no_new_data' = tried everything, found nothing; 'blocked' = could not complete research (site down, missing API key, quota or billing failure); this does NOT exhaust the lead's capability version.",
         },
         notes: { type: 'string', description: 'Short note for the lead timeline (what you tried).' },
       },
@@ -1616,17 +1618,21 @@ const executors: Record<string, ToolExecutor> = {
     const result = await findEnrichmentTargets(ctx.organizationId, {
       groupId,
       maxTier: input.maxTier,
+      requireWebsite: input.requireWebsite === true,
+      excludeLeadIds: Array.isArray(input.excludeLeadIds) ? input.excludeLeadIds.filter((id: unknown): id is string => typeof id === 'string') : undefined,
       limit: Number(input.limit) || undefined,
       cooldownHours: input.cooldownHours != null ? Number(input.cooldownHours) : undefined,
       skipCurrentCapability: input.includeAlreadyAttempted !== true,
     });
     return {
       ...result,
+      returned: result.targets.length,
+      hasMore: result.total > result.targets.length,
       note: result.targets.length
         ? `${result.total} lead(s) need enrichment; showing the ${result.targets.length} weakest. Work each one (find_contacts_on_website → enrich_contacts_apollo → verify_email), save what you find with upsert_contact/upsert_lead, then ALWAYS call record_enrichment_attempt so it isn't re-worked next run.`
         : 'Nothing to enrich under these filters — either everything is already well enriched, or every weak lead was already worked with the current capabilities (capability v' +
           result.capabilityVersion +
-          '). Do not re-research them; move to outreach.',
+          '). Check cooldown/provider blockers and report the reason. Never start outreach unless authorized.',
     };
   },
 
@@ -1658,7 +1664,9 @@ const executors: Record<string, ToolExecutor> = {
       stillMissing: result.gaps,
       capabilityVersion: ENRICHMENT_CAPABILITY_VERSION,
       note:
-        result.tier === 'GOOD' || result.tier === 'RICH'
+        outcome === 'blocked'
+          ? 'Blocked, not exhausted. Eligible after the per-lead cooldown; use cooldownHours: 0 for a user-authorized provider recovery. Continue with other workable leads now.'
+          : result.tier === 'GOOD' || result.tier === 'RICH'
           ? 'This lead is now well enriched — hand it to outreach and do not research it again.'
           : `Recorded at capability v${ENRICHMENT_CAPABILITY_VERSION}. It will stay off the enrichment work list until the platform gains new enrichment abilities.`,
     };
@@ -2404,7 +2412,7 @@ const executors: Record<string, ToolExecutor> = {
         summary: `AI call intent recorded (voice channel not configured): ${input.objective}`,
         payload: { objective: input.objective, status: 'pending_channel_setup' },
         campaignId: input.campaignId,
-        agentRunId: ctx.runId,
+        agentRunId: ctx.runId || undefined,
       });
       return {
         called: false,
@@ -2468,16 +2476,38 @@ const executors: Record<string, ToolExecutor> = {
     const voicemailMessage =
       input.voicemailMessage ||
       `Hi, this is ${caller} calling from ${identity.orgName} for ${lead.companyName}. Sorry we missed you — we'll follow up by text or email shortly. Have a great day!`;
+    // A call started by a person from the lead page has no agent run behind it.
+    const runId = ctx.runId || undefined;
     const delivery = await channels.placeVapiCall(
       {
         toNumber,
         systemPrompt,
         firstMessage,
         voicemailMessage,
+        // Used when the org runs calls through a saved Vapi assistant: the same
+        // lead facts, as variables its dashboard prompt can reference.
+        variableValues: buildCallVariables({
+          organizationName: identity.orgName,
+          callerName: identity.personName || undefined,
+          objective: input.objective,
+          lead: {
+            companyName: lead.companyName,
+            contactName,
+            contactTitle: contact?.title,
+            status: lead.status,
+            aiSummary: lead.aiSummary,
+            recentTimeline: recentActivities.map((a) => `${a.type}: ${a.summary}`),
+            website: lead.website,
+            industry: lead.industry,
+            city: lead.city,
+            state: lead.state,
+          },
+        }),
         metadata: {
           organizationId: ctx.organizationId,
           leadId: lead.id,
-          agentRunId: ctx.runId,
+          ...(runId ? { agentRunId: runId } : {}),
+          ...(contact ? { contactId: contact.id } : {}),
           // Recorded so a mid-call text can only ever go to the dialled number.
           toNumber,
           ...(input.campaignId ? { campaignId: input.campaignId } : {}),
@@ -2500,17 +2530,23 @@ const executors: Record<string, ToolExecutor> = {
       leadId: lead.id,
       type: 'CALL_PLACED',
       summary: `AI call placed to ${toNumber}: ${input.objective}`,
-      payload: { objective: input.objective, vapiCallId: delivery.externalId, to: toNumber },
+      payload: {
+        objective: input.objective,
+        vapiCallId: delivery.externalId,
+        to: toNumber,
+        ...(contact ? { contactId: contact.id, contactName } : {}),
+      },
       campaignId: input.campaignId,
-      agentRunId: ctx.runId,
+      agentRunId: runId,
     });
-    await leadService.advanceStatusOnTouch(lead.id, 'Call', ctx.runId);
+    await leadService.advanceStatusOnTouch(lead.id, 'Call', runId);
     if (input.campaignId) {
       await recordCampaignTouch(input.campaignId, lead.id);
     }
     return {
       called: true,
       to: toNumber,
+      ...(contactName ? { contactName } : {}),
       vapiCallId: delivery.externalId,
       midCallActions: callTools.length
         ? `The assistant can act during this call: ${capabilities.canText ? 'text a demo/booking link, ' : ''}${capabilities.canBook ? 'read the calendar and book a meeting, ' : ''}record a callback time.`

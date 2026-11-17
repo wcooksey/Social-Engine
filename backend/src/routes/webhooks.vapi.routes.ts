@@ -73,7 +73,12 @@ router.post(
       return;
     }
 
-    const metadata = (message.call?.metadata ?? {}) as Record<string, string>;
+    // Inline-assistant calls carry our metadata on the call; calls run by a saved
+    // assistant carry it in the assistant overrides. Accept either.
+    const metadata = (message.call?.metadata ??
+      message.call?.assistantOverrides?.metadata ??
+      message.assistant?.metadata ??
+      {}) as Record<string, string>;
     const { organizationId, leadId, campaignId } = metadata;
 
     if (message.type === 'tool-calls') {
@@ -135,6 +140,18 @@ router.post(
     const transcript: string = message.artifact?.transcript || message.transcript || '';
     const endedReason: string = message.endedReason || 'unknown';
     const durationSeconds: number | undefined = message.durationSeconds;
+    // Vapi has reported the recording in a few places over time.
+    const recordingCandidate: unknown =
+      message.artifact?.recordingUrl ||
+      message.recordingUrl ||
+      message.artifact?.recording?.mono?.combinedUrl ||
+      message.artifact?.stereoRecordingUrl ||
+      message.stereoRecordingUrl;
+    // Only ever store an https link: this is rendered as an audio source.
+    const recordingUrl =
+      typeof recordingCandidate === 'string' && /^https:\/\//i.test(recordingCandidate)
+        ? recordingCandidate
+        : undefined;
 
     // Classify before handing off, so the follow-up job gets a decision to act
     // on rather than prose to interpret — and so outcomes are countable.
@@ -151,6 +168,8 @@ router.post(
         outcome: classified.outcome,
         endedReason,
         durationSeconds,
+        ...(recordingUrl ? { recordingUrl } : {}),
+        ...(metadata.contactId ? { contactId: metadata.contactId } : {}),
         summary,
         transcript: transcript.slice(0, 15000),
       },

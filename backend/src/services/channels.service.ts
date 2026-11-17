@@ -25,6 +25,8 @@ export interface SmsCreds {
 export interface VoiceCreds {
   apiKey: string;
   phoneNumberId: string;
+  /** Saved Vapi assistant (dashboard). When set, calls use it instead of an inline one. */
+  assistantId?: string;
   assistantModel: string;
   voiceProvider: string;
   voiceId: string;
@@ -229,6 +231,41 @@ export function isVoiceConfigured(creds: VoiceCreds): boolean {
   return !!(creds.apiKey && creds.phoneNumberId);
 }
 
+/**
+ * Request fields for a call run by a saved (dashboard) assistant. Its own
+ * prompt, voice, first message and tools are left alone — the dashboard is
+ * where that assistant is tuned. We only add what ties the call back to the
+ * lead: the lead's details as template variables, our webhook so the outcome
+ * lands on the timeline, and our mid-call tools appended to whatever tools the
+ * assistant already has.
+ */
+function savedAssistantBody(
+  opts: {
+    metadata: Record<string, string>;
+    server?: { url: string; secret: string };
+    tools?: unknown[];
+    variableValues?: Record<string, string>;
+  },
+  assistantId: string
+) {
+  return {
+    assistantId,
+    assistantOverrides: {
+      ...(opts.variableValues ? { variableValues: opts.variableValues } : {}),
+      metadata: opts.metadata,
+      ...(opts.tools?.length ? { 'tools:append': opts.tools } : {}),
+      ...(opts.server
+        ? {
+            server: { url: opts.server.url, secret: opts.server.secret },
+            serverMessages: opts.tools?.length
+              ? ['end-of-call-report', 'tool-calls']
+              : ['end-of-call-report'],
+          }
+        : {}),
+    },
+  };
+}
+
 export async function placeVapiCall(
   opts: {
     toNumber: string;
@@ -248,6 +285,12 @@ export async function placeVapiCall(
      * right now" actually happens while they're still on the line.
      */
     tools?: unknown[];
+    /**
+     * Lead details for a SAVED assistant, substituted into its prompt wherever
+     * it references them as {{name}}. Ignored for the inline assistant, which
+     * gets the same facts through systemPrompt.
+     */
+    variableValues?: Record<string, string>;
   },
   creds: VoiceCreds
 ): Promise<SendResult> {
@@ -264,32 +307,34 @@ export async function placeVapiCall(
         phoneNumberId: creds.phoneNumberId,
         customer: { number: opts.toNumber },
         metadata: opts.metadata,
-        assistant: {
-          firstMessage: opts.firstMessage,
-          model: {
-            provider: 'openai',
-            model: creds.assistantModel,
-            messages: [{ role: 'system', content: opts.systemPrompt }],
+        ...(creds.assistantId ? savedAssistantBody(opts, creds.assistantId) : {
+          assistant: {
+            firstMessage: opts.firstMessage,
+            model: {
+              provider: 'openai',
+              model: creds.assistantModel,
+              messages: [{ role: 'system', content: opts.systemPrompt }],
+            },
+            voice: { provider: creds.voiceProvider, voiceId: creds.voiceId },
+            ...(opts.tools?.length ? { tools: opts.tools } : {}),
+            ...(opts.server
+              ? {
+                  server: { url: opts.server.url, secret: opts.server.secret },
+                  // tool-calls must be delivered too, or mid-call actions never
+                  // reach us and the assistant only *claims* it sent the text.
+                  serverMessages: opts.tools?.length
+                    ? ['end-of-call-report', 'tool-calls']
+                    : ['end-of-call-report'],
+                }
+              : {}),
+            ...(opts.voicemailMessage
+              ? {
+                  voicemailMessage: opts.voicemailMessage,
+                  voicemailDetection: { provider: 'twilio' },
+                }
+              : {}),
           },
-          voice: { provider: creds.voiceProvider, voiceId: creds.voiceId },
-          ...(opts.tools?.length ? { tools: opts.tools } : {}),
-          ...(opts.server
-            ? {
-                server: { url: opts.server.url, secret: opts.server.secret },
-                // tool-calls must be delivered too, or mid-call actions never
-                // reach us and the assistant only *claims* it sent the text.
-                serverMessages: opts.tools?.length
-                  ? ['end-of-call-report', 'tool-calls']
-                  : ['end-of-call-report'],
-              }
-            : {}),
-          ...(opts.voicemailMessage
-            ? {
-                voicemailMessage: opts.voicemailMessage,
-                voicemailDetection: { provider: 'twilio' },
-              }
-            : {}),
-        },
+        }),
       }),
       signal: AbortSignal.timeout(20000),
     });

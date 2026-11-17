@@ -11,6 +11,9 @@ import {
   recomputeOrganizationEnrichment,
 } from '../services/lead-enrichment.service';
 import { EnrichmentTier } from '@prisma/client';
+import { executeTool } from '../engine/tools';
+import { getOrgConfig } from '../services/settings.service';
+import { isVoiceConfigured } from '../services/channels.service';
 
 const router = Router();
 
@@ -234,6 +237,60 @@ router.post(
       groupName: req.body?.groupName,
     });
     res.json({ success: true, data: result });
+  })
+);
+
+/**
+ * Call a lead from the lead page. Body: { contactId?, objective? }. With a
+ * contactId the call goes to that contact's own number; without one it goes to
+ * the best contact with a phone, else the company line. Runs through the same
+ * place_call path the Engine uses, so opt-outs, suppression, quiet hours and
+ * the daily cap all apply, and the assistant gets everything on the lead.
+ */
+router.post(
+  '/:id/call',
+  asyncHandler(async (req, res) => {
+    const organizationId = req.user!.organizationId;
+    const lead = await prisma.lead.findFirst({ where: { id: req.params.id, organizationId } });
+    if (!lead) throw new AppError('Lead not found', 404);
+
+    const contactId = req.body?.contactId ? String(req.body.contactId) : undefined;
+    if (contactId) {
+      const contact = await prisma.contact.findFirst({ where: { id: contactId, leadId: lead.id } });
+      if (!contact) throw new AppError('Contact not found on this lead', 404);
+      // place_call would quietly fall back to the company line; someone who
+      // clicked a person's name expects that person's phone to ring.
+      if (!contact.phone) throw new AppError('This contact has no phone number', 400);
+    }
+
+    const cfg = await getOrgConfig(organizationId);
+    if (!isVoiceConfigured(cfg.vapi)) {
+      throw new AppError('Voice (Vapi) is not configured — add the API key and phone number ID in Settings → Integrations', 400);
+    }
+
+    const objective =
+      String(req.body?.objective || '').trim().slice(0, 2000) ||
+      'Introduce yourself, find out whether they are the right person to speak with, and book a short appointment if there is interest.';
+
+    let result: Record<string, any>;
+    try {
+      result = (await executeTool(
+        'place_call',
+        { leadId: lead.id, objective, ...(contactId ? { contactId } : {}) },
+        // No agent run: a person started this call.
+        { organizationId, runId: '' }
+      )) as Record<string, any>;
+    } catch (err) {
+      // Refusals (opted out, on hold) are thrown with a readable reason.
+      throw new AppError(err instanceof Error ? err.message : 'Call could not be placed', 409);
+    }
+    if (!result?.called) {
+      throw new AppError(result?.reason || result?.note || 'Call could not be placed', 409);
+    }
+    res.json({
+      success: true,
+      data: { placed: true, to: result.to, contactName: result.contactName ?? null, vapiCallId: result.vapiCallId },
+    });
   })
 );
 

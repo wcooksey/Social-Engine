@@ -30,6 +30,9 @@
           </div>
         </div>
         <div class="status-control">
+          @if (canCallLead(l)) {
+            <app-button variant="primary" size="sm" icon="bi-telephone-outbound" (clicked)="openCall(null)">Call</app-button>
+          }
           <app-select
             size="sm"
             [showPlaceholderOption]="false"
@@ -121,6 +124,9 @@
                   </div>
                 </div>
                 <div class="contact-actions">
+                  @if (contact.phone && !contact.optedOut && !l.doNotContact) {
+                    <button class="icon-btn icon-btn--call" (click)="openCall(contact)" [title]="'Call ' + contact.firstName" [attr.aria-label]="'Call ' + contact.firstName"><i class="bi bi-telephone-outbound"></i></button>
+                  }
                   <button class="icon-btn" (click)="openEditContact(contact)" title="Edit"><i class="bi bi-pencil"></i></button>
                   <button class="icon-btn icon-btn--danger" (click)="deleteContact(contact)" title="Remove"><i class="bi bi-trash"></i></button>
                 </div>
@@ -142,6 +148,20 @@
                 <div class="timeline-content">
                   <span class="timeline-summary">{{ activity.summary }}</span>
                   <span class="timeline-time">{{ relativeTime(activity.createdAt) }}</span>
+                  @if (activity.type === 'CALL_COMPLETED') {
+                    @if (recordingUrl(activity); as recording) {
+                      <audio class="call-audio" controls preload="none" [src]="recording"></audio>
+                    }
+                    @if (activity.payload?.transcript) {
+                      <button type="button" class="transcript-toggle" (click)="toggleTranscript(activity.id)">
+                        <i class="bi" [class.bi-chevron-down]="!transcriptOpen(activity.id)" [class.bi-chevron-up]="transcriptOpen(activity.id)"></i>
+                        {{ transcriptOpen(activity.id) ? 'Hide transcript' : 'Show transcript' }}
+                      </button>
+                      @if (transcriptOpen(activity.id)) {
+                        <pre class="call-transcript">{{ activity.payload?.transcript }}</pre>
+                      }
+                    }
+                  }
                 </div>
               </li>
             }
@@ -238,3 +258,28 @@
     </app-button>
   </div>
 </app-dialog>
+
+@if (lead(); as l) {
+  <app-dialog
+    title="Place AI call"
+    [show]="showCallDialog()"
+    size="md"
+    (close)="showCallDialog.set(false)">
+    <div class="contact-form">
+      <p class="call-target"><i class="bi bi-telephone-outbound"></i> {{ callTarget(l) }}</p>
+      <p class="call-note">The assistant is given everything on this lead — company, contact, summary and recent history.</p>
+      <app-input
+        label="Goal for this call (optional)"
+        type="textarea"
+        [rows]="3"
+        placeholder="e.g. Follow up on last week's email and book a 15-minute demo"
+        [(ngModel)]="callObjective"
+        [ngModelOptions]="{ standalone: true }"></app-input>
+    </div>
+
+    <div dialog-footer>
+      <app-button variant="ghost" (clicked)="showCallDialog.set(false)">Cancel</app-button>
+      <app-button variant="primary" icon="bi-telephone-outbound" [loading]="placingCall()" (clicked)="placeCall()">Call now</app-button>
+    </div>
+  </app-dialog>
+}

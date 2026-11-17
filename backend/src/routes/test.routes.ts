@@ -11,7 +11,7 @@ import { apiKeyForDomain } from '../services/sender.service';
 import { setupDomainEvents, EventSetupCheck } from '../services/email-events-setup.service';
 import { checkInboundEmail } from '../services/inbound-health.service';
 import { suppressionReason } from '../services/suppression.service';
-import { buildCallSystemPrompt } from '../engine/prompts';
+import { buildCallSystemPrompt, buildCallVariables } from '../engine/prompts';
 import { runBrowserAgent } from '../engine/browser/browser-agent.service';
 import { loadStorageState, PlatformKey, saveStorageState } from '../services/social-account.service';
 
@@ -187,6 +187,11 @@ router.post(
         systemPrompt,
         firstMessage: `Hi! This is a test call from ${org?.name || 'your Neuralnetics workspace'}. I'm just confirming the voice setup works — do you have a quick second?`,
         voicemailMessage: `Hi, this is a test call from ${org?.name || 'your Neuralnetics workspace'} confirming the voice channel works. No action needed — have a great day!`,
+        variableValues: buildCallVariables({
+          organizationName: org?.name || 'our company',
+          objective,
+          lead: { companyName: 'Test Call', status: 'NEW', aiSummary: 'This is a self-test call initiated from the test bench.', recentTimeline: [] },
+        }),
         metadata: { organizationId: req.user!.organizationId, test: 'true' },
         ...(cfg.vapi.webhookSecret
           ? { server: { url: `${config.appPublicUrl}/api/webhooks/vapi`, secret: cfg.vapi.webhookSecret } }

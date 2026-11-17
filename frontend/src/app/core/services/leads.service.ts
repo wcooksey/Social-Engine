@@ -78,6 +78,15 @@ export class LeadsService {
     return this.api.delete<void>(`/api/contacts/${contactId}`);
   }
 
+  /**
+   * Place an AI phone call to a lead. With a contactId the call goes to that
+   * contact's number; without one, to the best contact with a phone or the
+   * company line.
+   */
+  callLead(leadId: string, input: { contactId?: string; objective?: string } = {}): Observable<{ placed: boolean; to: string; contactName: string | null }> {
+    return this.api.post<{ placed: boolean; to: string; contactName: string | null }>(`/api/leads/${leadId}/call`, input);
+  }
+
   importLeads(csv: string, groupName?: string): Observable<ImportResult> {
     return this.api.post<ImportResult>('/api/leads/import', { csv, groupName });
   }

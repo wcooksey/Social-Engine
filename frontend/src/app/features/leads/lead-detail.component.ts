@@ -6,6 +6,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LeadsService } from '../../core/services/leads.service';
 import {
+  Activity,
   Contact,
   ENRICHMENT_TIER_HINT,
   ENRICHMENT_TIER_LABEL,
@@ -75,6 +76,13 @@ export class LeadDetailComponent implements OnInit {
   editingContact: Contact | null = null;
   savingContact = signal(false);
   contactForm = { firstName: '', lastName: '', title: '', email: '', phone: '' };
+
+  // Click-to-call: who the pending call is for (null contact = the lead itself).
+  showCallDialog = signal(false);
+  callContact: Contact | null = null;
+  callObjective = '';
+  placingCall = signal(false);
+  private expandedTranscripts = signal<Set<string>>(new Set());
 
   conversations = signal<Conversation[]>([]);
   loadingConversations = signal(true);
@@ -304,8 +312,65 @@ export class LeadDetailComponent implements OnInit {
     return (lead.enrichmentAttempts ?? 0) > 0 && (lead.enrichmentTier === 'NONE' || lead.enrichmentTier === 'MINIMAL' || lead.enrichmentTier === 'PARTIAL');
   }
 
+  /** Whether the lead can be called at all — its own line or any contact's. */
+  canCallLead(lead: Lead): boolean {
+    return !lead.doNotContact && (!!lead.phone || (lead.contacts || []).some(c => !!c.phone && !c.optedOut));
+  }
+
+  openCall(contact: Contact | null): void {
+    this.callContact = contact;
+    this.callObjective = '';
+    this.showCallDialog.set(true);
+  }
+
+  /** The number the pending call will ring, for the confirmation dialog. */
+  callTarget(lead: Lead): string {
+    if (this.callContact) return `${this.callContact.firstName} ${this.callContact.lastName || ''}`.trim() + ` · ${this.callContact.phone}`;
+    const best = (lead.contacts || []).find(c => !!c.phone && !c.optedOut);
+    return best ? `${best.firstName} ${best.lastName || ''}`.trim() + ` · ${best.phone}` : `${lead.companyName} · ${lead.phone}`;
+  }
+
+  placeCall(): void {
+    const lead = this.lead();
+    if (!lead || this.placingCall()) return;
+    this.placingCall.set(true);
+    this.leadsService.callLead(lead.id, {
+      contactId: this.callContact?.id,
+      objective: this.callObjective.trim() || undefined
+    }).subscribe({
+      next: (result) => {
+        this.placingCall.set(false);
+        this.showCallDialog.set(false);
+        this.toast.success(`Calling ${result.contactName || lead.companyName} at ${result.to} — the recording and transcript will appear under Activity when the call ends`);
+        this.load(lead.id);
+      },
+      error: (err) => {
+        this.placingCall.set(false);
+        this.toast.error(err?.error?.error || err?.message || 'Call could not be placed');
+      }
+    });
+  }
+
+  transcriptOpen(activityId: string): boolean {
+    return this.expandedTranscripts().has(activityId);
+  }
+
+  toggleTranscript(activityId: string): void {
+    const next = new Set(this.expandedTranscripts());
+    if (next.has(activityId)) next.delete(activityId); else next.add(activityId);
+    this.expandedTranscripts.set(next);
+  }
+
+  /** Only https recordings are ever handed to the audio element. */
+  recordingUrl(activity: Activity): string | null {
+    const url = activity.payload?.recordingUrl;
+    return typeof url === 'string' && url.startsWith('https://') ? url : null;
+  }
+
   activityIcon(type: string): string {
     const map: Record<string, string> = {
+      CALL_PLACED: 'bi-telephone-outbound',
+      CALL_COMPLETED: 'bi-telephone',
       EMAIL_SENT: 'bi-envelope',
       SMS_SENT: 'bi-chat-dots',
       CALL_MADE: 'bi-telephone',

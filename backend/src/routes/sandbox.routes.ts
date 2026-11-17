@@ -5,7 +5,7 @@ import { config } from '../config/environment';
 import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { roleMiddleware } from '../middleware/auth.middleware';
 import { engineService } from '../engine/engine.service';
-import { buildCallSystemPrompt } from '../engine/prompts';
+import { buildCallSystemPrompt, buildCallVariables } from '../engine/prompts';
 import { getVoicePlaybookText } from '../services/playbook.service';
 import { getOrgConfig, type ResolvedOrgConfig } from '../services/settings.service';
 import * as channels from '../services/channels.service';
@@ -245,6 +245,7 @@ router.post(
           `Hi, this is ${org?.name || 'the team'} — do you have a quick minute?`,
         voicemailMessage: `Hi, this is ${org?.name || 'the team'} calling. I'll try again another time.`,
         // Marked as a rehearsal so webhook handling can tell it from real calls.
+        variableValues: buildCallVariables({ organizationName: org?.name || 'our company', objective, lead }),
         metadata: { organizationId: req.user!.organizationId, sandbox: 'true' },
         ...(callTools.length ? { tools: callTools } : {}),
         ...(cfg.vapi.webhookSecret

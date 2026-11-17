@@ -484,3 +484,54 @@
 .bubble-status {
   text-transform: capitalize;
 }
+
+// ---------- Calls ----------
+
+.icon-btn--call {
+  color: $primary-blue;
+}
+
+.timeline-content {
+  min-width: 0;
+  flex: 1;
+}
+
+.call-audio {
+  width: 100%;
+  max-width: 360px;
+  height: 36px;
+  margin-top: $spacing-xs;
+}
+
+.transcript-toggle {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  padding: 0;
+  margin-top: $spacing-xs;
+  color: $primary-blue;
+  font-size: $font-size-xs;
+  cursor: pointer;
+}
+
+.call-transcript {
+  margin: $spacing-xs 0 0;
+  padding: $spacing-sm;
+  max-height: 320px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: $font-size-xs;
+  background: var(--bg-tertiary);
+  border-radius: $border-radius-md;
+}
+
+.call-target {
+  font-weight: 600;
+}
+
+.call-note {
+  font-size: $font-size-sm;
+  color: var(--text-tertiary);
+}

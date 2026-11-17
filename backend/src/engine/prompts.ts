@@ -33,7 +33,7 @@ ${ctx.focusGroup ? `## Group workspace\nYou are working on group "${ctx.focusGro
 - The database is your source of truth, not this conversation. Use tools to read and write everything.
 - Before creating leads, ALWAYS check for existing ones with search_leads — never create duplicates. The upsert_lead tool also dedupes by domain, name+location, and phone, so prefer it over assuming.
 - When researching, use search_web and fetch_page to find businesses, decision makers, emails, phones, and social profiles. Record what you learn on the lead via aiSummary and add_note.
-- Enrichment is TRIAGED, not blanket. Every lead carries an enrichment tier (NONE → MINIMAL → PARTIAL → GOOD → RICH), a 0-100 score, email/phone counts, and the exact signals it is missing. Before any enrichment work: get_enrichment_stats to see how a list breaks down, then list_enrichment_targets to get the weakest leads that are actually still worth a pass — it already excludes leads that are well enriched, opted out, or exhausted by the current toolset. After working a lead, ALWAYS call record_enrichment_attempt (even when you found nothing) — that stamps it with the capability generation you used, so later runs skip it until the platform gains new abilities and then automatically retry it. Never spend a research pass on a GOOD/RICH lead, and never rebuild a work list by hand with search_leads.
+- Enrichment is TRIAGED, not blanket. Every lead carries an enrichment tier (NONE → MINIMAL → PARTIAL → GOOD → RICH), a 0-100 score, email/phone counts, and the exact signals it is missing. Before any enrichment work: get_enrichment_stats to see how a list breaks down, then list_enrichment_targets to get the weakest leads that are actually still worth a pass — it already excludes leads that are well enriched, opted out, or exhausted by the current toolset. Cooldown is per lead, never a throughput limit across different leads. For a user-requested enrichment target, continue through distinct eligible leads in the same run; if a run boundary requires continuation, schedule the next research-only batch immediately with remaining IDs rather than inventing hourly pauses. Stop on completion, exhausted candidates or a real blocking provider error. Provider-blocked leads are not exhausted; after the user restores provider access, a recovery pass may set cooldownHours=0 and includeAlreadyAttempted=true, avoiding duplicate IDs and preserving successful data. Honor research-only holds in every continuation. After working a lead, ALWAYS call record_enrichment_attempt (even when you found nothing) — completed passes stamp the capability generation so later runs skip exhausted leads; blocked attempts stay retryable after cooldown or an authorized recovery. Never spend a research pass on a GOOD/RICH lead, and never rebuild a work list by hand with search_leads.
 - No email anywhere? Their contact form IS their published channel. submit_contact_form fills the enquiry form on the lead's own site with our real reply address, so their answer comes back as inbound email and threads onto the lead automatically. Best for leads with a website but no usable email — check the enrichment gap 'email' first. It counts as one cold touch per lead and obeys the same guardrails as every other send, so don't also cold-email or DM a lead while a form enquiry is outstanding.
 - Building an outreach list? Filter for leads that are actually reachable (search_leads with minTier GOOD, or hasEmail true) rather than blasting the whole group — leads at NONE/MINIMAL need a Researcher first, not an SDR.
 - Research reads are DISTILLED, not dumped: fetch_page returns a short "found" list of emails, phones and named people alongside a bounded page excerpt. Read that list first — it is usually the whole answer. Do not re-fetch the same page hoping for more text; fetch a more specific page instead.
@@ -69,6 +69,65 @@ ${ctx.focusGroup ? `## Group workspace\nYou are working on group "${ctx.focusGro
 ## Style
 - Trigger for this run: ${ctx.trigger === 'USER_CHAT' ? `live chat with ${ctx.userName || 'a user'} — be conversational, confirm plans for big jobs before executing, and report results clearly` : 'a scheduled job — work autonomously, no one is watching; just do the work and summarize'}.
 - When you finish, give a concise summary of what you did: leads created/updated, messages sent or drafted, calls placed, follow-ups scheduled, and anything needing human attention.${rolePersona}${focus}${channelStatus}${ctx.playbooksText ?? ''}`;
+}
+
+/**
+ * Lead details handed to a SAVED Vapi assistant as template variables. The
+ * assistant's dashboard prompt references them as {{companyName}},
+ * {{contactFirstName}}, {{leadSummary}} and so on. Every key is always present
+ * (blank when unknown) so an unreferenced or missing fact never leaves a raw
+ * "{{...}}" for the assistant to read aloud.
+ */
+export function buildCallVariables(ctx: {
+  organizationName: string;
+  callerName?: string;
+  objective: string;
+  lead: {
+    companyName: string;
+    contactName?: string;
+    contactTitle?: string | null;
+    status: string;
+    aiSummary?: string | null;
+    recentTimeline: string[];
+    website?: string | null;
+    industry?: string | null;
+    city?: string | null;
+    state?: string | null;
+  };
+}): Record<string, string> {
+  const contactName = ctx.lead.contactName?.trim() || '';
+  const location = [ctx.lead.city, ctx.lead.state].filter(Boolean).join(', ');
+  const summary = (ctx.lead.aiSummary || '').slice(0, 1500);
+  const timeline = ctx.lead.recentTimeline.map((line) => `- ${line.slice(0, 240)}`).join('\n');
+  const facts = [
+    `Company: ${ctx.lead.companyName}`,
+    contactName ? `Contact: ${contactName}${ctx.lead.contactTitle ? ` (${ctx.lead.contactTitle})` : ''}` : '',
+    ctx.lead.industry ? `Industry: ${ctx.lead.industry}` : '',
+    location ? `Location: ${location}` : '',
+    ctx.lead.website ? `Website: ${ctx.lead.website}` : '',
+    `Pipeline status: ${ctx.lead.status}`,
+    summary ? `What we know: ${summary}` : '',
+    timeline ? `Recent history:\n${timeline}` : '',
+    `Goal of this call: ${ctx.objective}`,
+  ].filter(Boolean);
+  return {
+    organizationName: ctx.organizationName,
+    callerName: ctx.callerName || '',
+    objective: ctx.objective,
+    companyName: ctx.lead.companyName,
+    contactName,
+    contactFirstName: contactName.split(' ')[0] || '',
+    contactTitle: ctx.lead.contactTitle || '',
+    industry: ctx.lead.industry || '',
+    city: ctx.lead.city || '',
+    state: ctx.lead.state || '',
+    website: ctx.lead.website || '',
+    leadStatus: ctx.lead.status,
+    leadSummary: summary,
+    recentTimeline: timeline,
+    // Everything above in one block, for a prompt that just wants "the brief".
+    leadContext: facts.join('\n'),
+  };
 }
 
 /** System prompt for the AI voice assistant on an outbound call to a lead. */
